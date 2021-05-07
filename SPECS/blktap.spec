@@ -1,7 +1,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.30.0
-Release: 1.0%{?dist}
+Release: 1.0.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -11,6 +11,8 @@ Source0: https://code.citrite.net/rest/archive/latest/projects/XSU/repos/blktap/
 
 Provides: gitsha(https://code.citrite.net/rest/archive/latest/projects/XSU/repos/blktap/archive?at=v3.30.0&format=tar.gz&prefix=blktap-3.30.0#/blktap-3.30.0.tar.gz) = d35a406c48cece6c7e66c7fd9cb5c36eb8227c26
 
+# XCP-ng patches
+Patch1000: 0001-reset-TD_VBD_LOG_DROPPED-flag-when-VBD-watchdog-is-c.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap
@@ -131,6 +133,9 @@ fi
 %posttrans -p /sbin/ldconfig
 
 %changelog
+* Wed May 07 2021 Ronan Abhamon <ronan.abhamon@vates.fr> - 3.30.0-1.0.1
+- Add patch 0001-reset-TD_VBD_LOG_DROPPED-flag-when-VBD-watchdog-is-c.patch
+
 * Tue Oct 29 2019 Mark Syms <mark.syms@citrix.com> - 3.30.0-1
 - CA-327558: add user-space io_getevents() implementation
 - CA-327558: switch to user-space io_getevents
