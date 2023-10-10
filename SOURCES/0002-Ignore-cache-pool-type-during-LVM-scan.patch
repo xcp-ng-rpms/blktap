@@ -1,0 +1,25 @@
+From 2b920ebcbbc253c1524ed4564f1363603d9e9597 Mon Sep 17 00:00:00 2001
+From: Ronan Abhamon <ronan.abhamon@vates.tech>
+Date: Tue, 10 Oct 2023 11:20:10 +0200
+Subject: [PATCH 2/2] Ignore cache-pool type during LVM scan
+
+---
+ lvm/lvm-util.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/lvm/lvm-util.c b/lvm/lvm-util.c
+index ab22c38..9b670aa 100644
+--- a/lvm/lvm-util.c
++++ b/lvm/lvm-util.c
+@@ -275,6 +275,8 @@ lvm_scan_lvs(struct vg *vg)
+ 
+ 		if (!strcmp(type, "linear"))
+ 			seg.type = LVM_SEG_TYPE_LINEAR;
++		else if (!strcmp(type, "cache-pool"))
++			goto next;
+ 		else
+ 			seg.type = LVM_SEG_TYPE_UNKNOWN;
+ 
+-- 
+2.41.0
+
