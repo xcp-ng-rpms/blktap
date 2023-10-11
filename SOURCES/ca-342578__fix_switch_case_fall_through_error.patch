@@ -1,0 +1,18 @@
+CA-342578: fix switch case fall through error
+
+From: Mark Syms <mark.syms@citrix.com>
+
+Signed-off-by: Mark Syms <mark.syms@citrix.com>
+
+diff --git a/vhd/lib/vhd-util-snapshot.c b/vhd/lib/vhd-util-snapshot.c
+index 406dc16..dd3899d 100644
+--- a/vhd/lib/vhd-util-snapshot.c
++++ b/vhd/lib/vhd-util-snapshot.c
+@@ -150,6 +150,7 @@ vhd_util_snapshot(int argc, char **argv)
+ 			break;
+ 		case 'S':
+ 			msize = strtoull(optarg, NULL, 10);
++			break;
+ 		case 'l':
+ 			limit = strtol(optarg, NULL, 10);
+ 			break;

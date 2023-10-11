@@ -1,0 +1,50 @@
+CA-355145: guard vbd_stats
+
+From: Mark Syms <mark.syms@citrix.com>
+
+Signed-off-by: Mark Syms <mark.syms@citrix.com>
+
+diff --git a/drivers/tapdisk-server.c b/drivers/tapdisk-server.c
+index 49ecd8e..85211c4 100644
+--- a/drivers/tapdisk-server.c
++++ b/drivers/tapdisk-server.c
+@@ -513,7 +513,9 @@ static void lowmem_timeout(event_id_t id, char mode, void *data)
+ 
+ 	tapdisk_server_for_each_vbd(vbd, tmpv)
+ 		tapdisk_vbd_for_each_blkif(vbd, blkif, tmpb) {
++		if (likely(blkif->stats.xenvbd))
+ 			td_flag_clear(blkif->stats.xenvbd->flags, BT3_LOW_MEMORY_MODE);
++		if (likely(blkif->vbd_stats.stats))
+ 			td_flag_clear(blkif->vbd_stats.stats->flags, BT3_LOW_MEMORY_MODE);
+ 	}
+ 
+@@ -579,7 +581,9 @@ static void lowmem_event(event_id_t id, char mode, void *data)
+ 
+ 	tapdisk_server_for_each_vbd(vbd, tmpv)
+ 		tapdisk_vbd_for_each_blkif(vbd, blkif, tmpb) {
++		if (likely(blkif->stats.xenvbd))
+ 			td_flag_set(blkif->stats.xenvbd->flags, BT3_LOW_MEMORY_MODE);
++		if (likely(blkif->vbd_stats.stats))
+ 			td_flag_set(blkif->vbd_stats.stats->flags, BT3_LOW_MEMORY_MODE);
+ 	}
+ 
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index ed4481d..3f3dddc 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -702,11 +702,13 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
+         }
+ 		if (likely(blkif->stats.xenvbd))
+ 			blkif->stats.xenvbd->st_wr_sect += nr_sect;
+-        blkif->vbd_stats.stats->write_sectors += nr_sect;
++		if (likely(blkif->vbd_stats.stats))
++			blkif->vbd_stats.stats->write_sectors += nr_sect;
+     } else {
+ 		if (likely(blkif->stats.xenvbd))
+ 			blkif->stats.xenvbd->st_rd_sect += nr_sect;
+-        blkif->vbd_stats.stats->read_sectors += nr_sect;
++		if (likely(blkif->vbd_stats.stats))
++			blkif->vbd_stats.stats->read_sectors += nr_sect;
+     } 
+ 
+     /*

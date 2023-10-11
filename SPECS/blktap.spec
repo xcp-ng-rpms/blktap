@@ -1,16 +1,26 @@
+%global package_speccommit becc4c21435ea4168be4f5cab41876615dfe84eb
+%global usver 3.37.4
+%global xsver 2
+%global xsrel %{xsver}%{?xscount}%{?xshash}
+%global package_srccommit v3.37.0
+
+
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.37.4
-Release: 1.0
+Release: %{?xsrel}%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
-
-Source0: https://code.citrite.net/rest/archive/latest/projects/XS/repos/blktap/archive?at=v3.37.4&format=tar.gz&prefix=blktap-3.37.4#/blktap-3.37.4.tar.gz
-
-
-Provides: gitsha(https://code.citrite.net/rest/archive/latest/projects/XS/repos/blktap/archive?at=v3.37.4&format=tar.gz&prefix=blktap-3.37.4#/blktap-3.37.4.tar.gz) = dd4f7fe297d27cf2470efe0b8cb767ada5b3466c
-
+Source0: blktap-3.37.4.tar.gz
+Patch0: ca-340619_-_propagate_errors_from_snaphot_creation.patch
+Patch1: ca-340619_-_unit_tests_to_ensure_error_propagation_in_vhd-util-snapshot.patch
+Patch2: ca-342553__dont_try_to_read_encryption_key_from_raw_parent.patch
+Patch3: ca-342578__fix_switch_case_fall_through_error.patch
+Patch4: ca-355145__guard_vbd_stats.patch
+Patch5: ca-183182__dont_error_if_there_are_no_tapdisks_to_signal.patch
+Patch6: ca-350300__remove_duplicated_and_unchecked_call_to_canonpath.patch
+Patch7: ca-366614__clean_up_old_tapdisk_log_files.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap
@@ -39,7 +49,6 @@ destroy and manipulate devices ('tap-ctl'), the 'tapdisk' driver
 program to perform tap devices I/O, and a number of image drivers.
 
 %package devel
-Provides: gitsha(https://code.citrite.net/rest/archive/latest/projects/XS/repos/blktap/archive?at=v3.37.4&format=tar.gz&prefix=blktap-3.37.4#/blktap-3.37.4.tar.gz) = dd4f7fe297d27cf2470efe0b8cb767ada5b3466c
 Summary: BlkTap Development Headers and Libraries
 Requires: blktap = %{version}
 Group: Development/Libraries
@@ -95,6 +104,7 @@ cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-inc
 %{_sbindir}/vhdpartx
 %{_libexecdir}/tapdisk
 %{_sysconfdir}/logrotate.d/blktap
+%{_sysconfdir}/cron.daily/prune_tapdisk_logs
 %{_sysconfdir}/xensource/bugtool/tapdisk-logs.xml
 %{_sysconfdir}/xensource/bugtool/tapdisk-logs/description.xml
 %{_localstatedir}/log/blktap
@@ -137,6 +147,9 @@ fi
 %{?_cov_results_package}
 
 %changelog
+* Mon Jun 26 2023 Mark Syms <mark.syms@citrix.com> - 3.37.4-2
+- CA-366614: clean up old tapdisk log files
+
 * Fri Apr 29 2022 Mark Syms <mark.syms@citrix.com> - 3.37.4-1.0
 - CA-350300: remove duplicated and unchecked call to canonpath
 
@@ -338,7 +351,6 @@ fi
 
 
 %package testresults
-Provides: gitsha(https://code.citrite.net/rest/archive/latest/projects/XS/repos/blktap/archive?at=v3.37.4&format=tar.gz&prefix=blktap-3.37.4#/blktap-3.37.4.tar.gz) = dd4f7fe297d27cf2470efe0b8cb767ada5b3466c
 Group:    System/Hypervisor
 Summary:  test results for blktap package
 
@@ -349,7 +361,6 @@ The package contains the build time test results for the blktap package
 /testresults
 
 %package -n vhd-util-standalone
-Provides: gitsha(https://code.citrite.net/rest/archive/latest/projects/XS/repos/blktap/archive?at=v3.37.4&format=tar.gz&prefix=blktap-3.37.4#/blktap-3.37.4.tar.gz) = dd4f7fe297d27cf2470efe0b8cb767ada5b3466c
 Group:   System/Hypervisor
 Summary: Standalone vhd-util binary
 Conflicts: blktap

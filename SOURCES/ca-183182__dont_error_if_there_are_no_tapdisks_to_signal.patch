@@ -1,0 +1,26 @@
+CA-183182: Don't error if there are no tapdisks to signal
+
+From: Ross Lagerwall <ross.lagerwall@citrix.com>
+
+Commit c4a722c3da47 ("CA-153279: don't complain if there's no tapdisk to
+signal") made killall quiet if there are no tapdisks to signal during
+logrotation. However, it stills exits with non-zero in this case which
+makes logrotate complain to dead.letter:
+error: error running shared postrotate script for '/var/log/blktap/tapdisk.*.log '
+
+Instead, always return success.
+
+Signed-off-by: Ross Lagerwall <ross.lagerwall@citrix.com>
+
+diff --git a/drivers/blktap b/drivers/blktap
+index f8c523f..47b4444 100644
+--- a/drivers/blktap
++++ b/drivers/blktap
+@@ -5,6 +5,6 @@
+     nocreate
+     sharedscripts
+     postrotate
+-               /usr/bin/killall -q -HUP tapdisk
++               /usr/bin/killall -q -HUP tapdisk || true
+     endscript
+ }

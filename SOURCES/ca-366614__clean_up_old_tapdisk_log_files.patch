@@ -1,0 +1,48 @@
+CA-366614: clean up old tapdisk log files
+
+From: Mark Syms <mark.syms@citrix.com>
+
+Whilst tapdisk primarily logs via syslog and into daemon.log it also
+creates logs in /var/log/blktap, which are rotated imperfectly due to
+the filename having the process id in it. This can result in a build
+up of very old log files taking significant space in the log partition
+which will not be freed by the standard logrotate mechanism. Remove
+any files not modified in the last month.
+
+Signed-off-by: Mark Syms <mark.syms@citrix.com>
+
+diff --git a/drivers/Makefile.am b/drivers/Makefile.am
+index 576d23b..660074b 100644
+--- a/drivers/Makefile.am
++++ b/drivers/Makefile.am
+@@ -131,3 +131,6 @@ dist_bugtool_DATA = tapdisk-logs.xml
+ 
+ bugtooltddir = $(sysconfdir)/xensource/bugtool/tapdisk-logs
+ dist_bugtooltd_DATA = tapdisk-logs/description.xml
++
++crondailydir = $(sysconfdir)/cron.daily
++dist_crondaily_SCRIPTS = prune_tapdisk_logs
+diff --git a/drivers/prune_tapdisk_logs b/drivers/prune_tapdisk_logs
+new file mode 100755
+index 0000000..98eaccd
+--- /dev/null
++++ b/drivers/prune_tapdisk_logs
+@@ -0,0 +1,6 @@
++#!/bin/sh
++
++find /var/log/blktap/ -type f -mtime +30 -delete
++
++# Reopen the tlogs for any long running tapdisk processes
++/usr/bin/pkill -HUP '^tapdisk$' || true
+diff --git a/mk/blktap.spec.in b/mk/blktap.spec.in
+index 778a7c9..bd801e2 100644
+--- a/mk/blktap.spec.in
++++ b/mk/blktap.spec.in
+@@ -83,6 +83,7 @@ cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-inc
+ %{_sbindir}/vhdpartx
+ %{_libexecdir}/tapdisk
+ %{_sysconfdir}/logrotate.d/blktap
++%{_sysconfdir}/cron.daily/prune_tapdisk_logs
+ %{_sysconfdir}/xensource/bugtool/tapdisk-logs.xml
+ %{_sysconfdir}/xensource/bugtool/tapdisk-logs/description.xml
+ %{_localstatedir}/log/blktap
