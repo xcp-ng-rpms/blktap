@@ -1,0 +1,33 @@
+CA-340619 - Propagate errors from snaphot creation
+
+From: ben.sims@citrix.com <ben.sims@citrix.com>
+
+Signed-off-by: ben.sims@citrix.com <ben.sims@citrix.com>
+
+diff --git a/vhd/lib/vhd-util-snapshot.c b/vhd/lib/vhd-util-snapshot.c
+index 7d58b88..f673a35 100644
+--- a/vhd/lib/vhd-util-snapshot.c
++++ b/vhd/lib/vhd-util-snapshot.c
+@@ -223,14 +223,22 @@ vhd_util_snapshot(int argc, char **argv)
+ 	}
+ 
+ 	err = vhd_snapshot(name, size, backing, msize << 20, flags);
++	if(err)
++		goto out;
+ 
+ 	/* Set keyhash if it exists in parent */
+ 	struct vhd_keyhash vhdhash;
+ 	err = vhd_open(&vhd, backing, VHD_OPEN_RDONLY);
++	if(err)
++		goto out;
+ 	err = vhd_get_keyhash(&vhd, &vhdhash);
+ 	vhd_close(&vhd);
++	if(err)
++		goto out;
+ 	if (vhdhash.cookie == 1){
+ 		err = vhd_open(&vhd, name, VHD_OPEN_RDWR);
++		if(err)
++			goto out;
+ 		err = vhd_set_keyhash(&vhd, &vhdhash);
+ 		vhd_close(&vhd);
+ 	}
