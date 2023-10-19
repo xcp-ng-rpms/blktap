@@ -1,7 +1,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.37.4
-Release: 1.0.3%{?dist}
+Release: 1.0.2%{?dist}
 
 License: BSD
 Group: System/Hypervisor
@@ -23,6 +23,8 @@ Patch1002: 0001-Add-an-option-to-never-resolve-parent-path-when-vhd-.patch
 
 # Ignore cache-pool to scan correctly LVs.
 Patch1003: 0002-Ignore-cache-pool-type-during-LVM-scan.patch
+
+Patch1004: 0003-Dirty-patch-to-never-use-LVM-layer-below-DRBD.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap
@@ -149,7 +151,7 @@ fi
 %{?_cov_results_package}
 
 %changelog
-* Tue Oct 10 2023 Ronan Abhamon <ronan.abhamon@vates.fr> - 3.37.4-1.0.3
+* Tue Oct 10 2023 Ronan Abhamon <ronan.abhamon@vates.fr> - 3.37.4-1.0.2
 - Add 0002-Ignore-cache-pool-type-during-LVM-scan.patch
 
 * Mon Jul 17 2023 Ronan Abhamon <ronan.abhamon@vates.fr> - 3.37.4-1.0.2
