@@ -1,6 +1,6 @@
-%global package_speccommit becc4c21435ea4168be4f5cab41876615dfe84eb
+%global package_speccommit b8905e6cb579d95611ae469e1ba916110c2d7d46
 %global usver 3.37.4
-%global xsver 2
+%global xsver 3
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.37.0
 
@@ -21,6 +21,8 @@ Patch4: ca-355145__guard_vbd_stats.patch
 Patch5: ca-183182__dont_error_if_there_are_no_tapdisks_to_signal.patch
 Patch6: ca-350300__remove_duplicated_and_unchecked_call_to_canonpath.patch
 Patch7: ca-366614__clean_up_old_tapdisk_log_files.patch
+Patch8: ca-382087__only_write_the_bitmap_if_the_contents_have.patch
+Patch9: cp-45025__avoid_retries_except_in_a_few_specific_case.patch
 
 # XCP-ng patches
 
@@ -156,6 +158,13 @@ fi
 %{?_cov_results_package}
 
 %changelog
+* Fri Feb 02 2024 Gael Duperrey <gduperrey@vates.tech> - 3.37.4-3.1
+- Sync with hotfix XS82ECU1056
+- *** Upstream changelog ***
+- * Thu Sep 07 2023 Mark Syms <mark.syms@citrix.com> - 3.37.4-3
+- - CP-45025: Avoid retries except in a few specific cases
+- - CA-382087: Only write the bitmap if the contents have changed
+
 * Thu Oct 12 2023 Samuel Verschelde <stormi-xcp@ylix.fr> - 3.37.4-2.1
 - Sync with hotfix XS82ECU1051
 - *** Upstream changelog ***

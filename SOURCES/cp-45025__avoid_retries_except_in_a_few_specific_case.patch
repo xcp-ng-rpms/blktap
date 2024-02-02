@@ -1,0 +1,47 @@
+From 1179cd61b46f23aa8ceeafc44e55c21c4617a6ae Mon Sep 17 00:00:00 2001
+From: Ross Lagerwall <ross.lagerwall@citrix.com>
+Date: Tue, 22 Aug 2023 17:11:19 +0100
+Subject: [PATCH] CP-45025: Avoid retries except in a few specific cases
+
+Let the NFS layer control retries instead.
+
+Signed-off-by: Ross Lagerwall <ross.lagerwall@citrix.com>
+---
+ drivers/tapdisk-vbd.c | 18 ++++++++----------
+ 1 file changed, 8 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 8fb81d6..21fea47 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1168,19 +1168,17 @@ tapdisk_vbd_request_should_retry(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ 	    td_flag_test(vbd->state, TD_VBD_SHUTDOWN_REQUESTED))
+ 		return 0;
+ 
+-	switch (abs(vreq->error)) {
+-	case EPERM:
+-	case ENOSYS:
+-	case ESTALE:
+-	case ENOSPC:
+-	case EFAULT:
+-		return 0;
+-	}
+-
+ 	if (tapdisk_vbd_request_timeout(vreq))
+ 		return 0;
+ 
+-	return 1;
++	switch (abs(vreq->error)) {
++	case EAGAIN:
++	case EBUSY:
++	case EINTR:
++		return 1;
++	}
++
++	return 0;
+ }
+ 
+ static void
+-- 
+2.41.0
+
