@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.54.6
-Release: %{?xsrel}.1%{?dist}
+Release: %{?xsrel}.1.0.xen417.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -182,6 +182,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Feb 08 2024 Thierry Escande <thierry.escande@vates.tech> - 3.54.6-2.1.0.xen417.1
+- Rebuild for Xen 4.17 test build
+
 * Mon Jan 22 2024 Samuel Verschelde <stormi-xcp@ylix.fr> - 3.54.6-2.1
 - Update to 3.54.6-2
 - *** Upstream changelog ***
