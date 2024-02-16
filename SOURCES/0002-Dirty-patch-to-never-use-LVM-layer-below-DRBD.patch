@@ -1,0 +1,26 @@
+From 5f3297abfe4ffc5cbe27db37c235747f5b606cbf Mon Sep 17 00:00:00 2001
+From: Ronan Abhamon <ronan.abhamon@vates.tech>
+Date: Thu, 19 Oct 2023 17:35:56 +0200
+Subject: [PATCH 2/2] Dirty patch to never use LVM layer below DRBD
+
+Signed-off-by: Ronan Abhamon <ronan.abhamon@vates.tech>
+---
+ vhd/lib/libvhd.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index 98c490b..acd611d 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -2747,7 +2747,7 @@ vhd_open(vhd_context_t *ctx, const char *file, int flags)
+ 	ctx->oflags = flags;
+ 
+ 	char bypass_file[PATH_MAX] = "";
+-	if (flags & VHD_OPEN_RDONLY) {
++	if (0 && (flags & VHD_OPEN_RDONLY)) {
+ 		struct stat stats;
+ 		err = stat(file, &stats);
+ 		if (err == -1)
+-- 
+2.43.0
+

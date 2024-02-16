@@ -8,7 +8,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.37.4
-Release: %{?xsrel}.1%{?dist}
+Release: %{?xsrel}.1.0.linstor.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -32,6 +32,7 @@ Patch1001: blktap-3.30.0-allocate-sufficient-space-in-normalize_path.backport.pa
 
 # Required by XOSTOR
 Patch1002: 0001-Add-an-option-to-never-resolve-parent-path-when-vhd-.patch
+Patch1003: 0002-Dirty-patch-to-never-use-LVM-layer-below-DRBD.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap
@@ -158,6 +159,9 @@ fi
 %{?_cov_results_package}
 
 %changelog
+* Fri Feb 16 2024 Ronan Abhamon <ronan.abhamon@vates.fr> - 3.37.4-3.1.0.linstor.1
+- Add 0002-Dirty-patch-to-never-use-LVM-layer-below-DRBD.patch
+
 * Fri Feb 02 2024 Gael Duperrey <gduperrey@vates.tech> - 3.37.4-3.1
 - Sync with hotfix XS82ECU1056
 - *** Upstream changelog ***
