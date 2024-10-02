@@ -1,0 +1,164 @@
+CP-37221: Only read data where present in bitmap
+
+From: Mark Syms <mark.syms@citrix.com>
+
+Reading an entire 2MB allocation block from the node being coalesced
+when only a small portion of it is required incurs a significant
+performance overhead and makes it hard for the coalesce process to
+complete if there is any significant amount of IO occuring in the
+guest. Update vhd_util_coaleasce_block to read only those extents
+marked as present in the bitmap when the BATMAP is not stuffed.
+
+Signed-off-by: Mark Syms <mark.syms@citrix.com>
+
+diff --git a/include/libvhd.h b/include/libvhd.h
+index 0f3f378..7c1a7c6 100644
+--- a/include/libvhd.h
++++ b/include/libvhd.h
+@@ -350,6 +350,7 @@ int vhd_read_header_at(vhd_context_t *, vhd_header_t *, off64_t);
+ int vhd_read_bat(vhd_context_t *, vhd_bat_t *);
+ int vhd_read_batmap(vhd_context_t *, vhd_batmap_t *);
+ int vhd_read_bitmap(vhd_context_t *, uint32_t block, char **bufp);
++int vhd_read_at(vhd_context_t *ctx, uint64_t block, uint32_t from, size_t size, char *buf);
+ int vhd_read_block(vhd_context_t *, uint32_t block, char **bufp);
+ 
+ int vhd_write_footer(vhd_context_t *, vhd_footer_t *);
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index 0caef99..b284c18 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -1922,20 +1922,15 @@ fail:
+ }
+ 
+ int
+-vhd_read_block(vhd_context_t *ctx, uint32_t block, char **bufp)
++vhd_read_at(vhd_context_t *ctx, uint64_t block, uint32_t from, size_t size, char *buf)
+ {
++	/*
++	 * Sub call function, assumes that dynamic disk has been checked
++	 */
+ 	int err;
+-	void *buf;
+-	size_t size;
+ 	uint64_t blk;
+ 	off64_t end, off;
+ 
+-	buf   = NULL;
+-	*bufp = NULL;
+-
+-	if (!vhd_type_dynamic(ctx))
+-		return -EINVAL;
+-
+ 	err = vhd_get_bat(ctx);
+ 	if (err)
+ 		return err;
+@@ -1948,34 +1943,55 @@ vhd_read_block(vhd_context_t *ctx, uint32_t block, char **bufp)
+ 		return -EINVAL;
+ 
+ 	off  = vhd_sectors_to_bytes(blk + ctx->bm_secs);
+-	size = vhd_sectors_to_bytes(ctx->spb);
+ 
+ 	err  = vhd_footer_offset_at_eof(ctx, &end);
+ 	if (err)
+ 		return err;
+ 
+-	err  = posix_memalign(&buf, VHD_SECTOR_SIZE, size);
+-	if (err) {
+-		err = -err;
+-		goto fail;
+-	}
+-
+ 	if (end < off + ctx->header.block_size) {
+ 		size = end - off;
+ 		memset(buf + size, 0, ctx->header.block_size - size);
+ 	}
+ 
++	off = off + vhd_sectors_to_bytes(from);
++
+ 	err  = vhd_seek(ctx, off, SEEK_SET);
+ 	if (err)
+-		goto fail;
++		return err;
+ 
+ 	err  = vhd_read(ctx, buf, size);
++	if (err)
++		return err;
++
++	return 0;
++}
++
++int
++vhd_read_block(vhd_context_t *ctx, uint32_t block, char **bufp)
++{
++	int err;
++	void *buf;
++	size_t size;
++
++	buf   = NULL;
++	*bufp = NULL;
++
++	if (!vhd_type_dynamic(ctx))
++		return -EINVAL;
++
++	size = vhd_sectors_to_bytes(ctx->spb);
++	err  = posix_memalign(&buf, VHD_SECTOR_SIZE, size);
++	if (err) {
++		err = -err;
++		goto fail;
++	}
++
++	err = vhd_read_at(ctx, block, 0, size, buf);
+ 	if (err)
+ 		goto fail;
+ 
+ 	*bufp = buf;
+ 	return 0;
+-
+ fail:
+ 	free(buf);
+ 	return err;
+diff --git a/vhd/lib/vhd-util-coalesce.c b/vhd/lib/vhd-util-coalesce.c
+index 6e6e099..21869ea 100644
+--- a/vhd/lib/vhd-util-coalesce.c
++++ b/vhd/lib/vhd-util-coalesce.c
+@@ -84,11 +84,11 @@ vhd_util_coalesce_block(vhd_context_t *vhd, vhd_context_t *parent,
+ 	if (vhd->bat.bat[block] == DD_BLK_UNUSED)
+ 		return 0;
+ 
+-	err = vhd_read_block(vhd, block, &buf);
+-	if (err)
+-		goto done;
+-
+ 	if (vhd_has_batmap(vhd) && vhd_batmap_test(vhd, &vhd->batmap, block)) {
++		err = vhd_read_block(vhd, block, &buf);
++		if (err)
++			goto done;
++
+ 		if (parent->file)
+ 			err = vhd_io_write(parent, buf, sec, vhd->spb);
+ 		else
+@@ -100,6 +100,12 @@ vhd_util_coalesce_block(vhd_context_t *vhd, vhd_context_t *parent,
+ 	if (err)
+ 		goto done;
+ 
++	err = posix_memalign((void *)&buf, 4096, vhd->header.block_size);
++	if (err) {
++		err = -err;
++		goto done;
++	}
++
+ 	for (i = 0; i < vhd->spb; i++) {
+ 		if (!vhd_bitmap_test(vhd, map, i))
+ 			continue;
+@@ -108,6 +114,11 @@ vhd_util_coalesce_block(vhd_context_t *vhd, vhd_context_t *parent,
+ 			if (!vhd_bitmap_test(vhd, map, i + secs))
+ 				break;
+ 
++		err = vhd_read_at(vhd, block, i, vhd_sectors_to_bytes(secs),
++				  buf + vhd_sectors_to_bytes(i));
++		if (err)
++			goto done;
++
+ 		if (parent->file)
+ 			err = vhd_io_write(parent,
+ 					   buf + vhd_sectors_to_bytes(i),
