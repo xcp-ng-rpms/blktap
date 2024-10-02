@@ -1,6 +1,6 @@
-%global package_speccommit b8905e6cb579d95611ae469e1ba916110c2d7d46
+%global package_speccommit f100c715fd56ec4debec4c85faa94b8e8dccf236
 %global usver 3.37.4
-%global xsver 3
+%global xsver 4
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.37.0
 
@@ -23,6 +23,8 @@ Patch6: ca-350300__remove_duplicated_and_unchecked_call_to_canonpath.patch
 Patch7: ca-366614__clean_up_old_tapdisk_log_files.patch
 Patch8: ca-382087__only_write_the_bitmap_if_the_contents_have.patch
 Patch9: cp-45025__avoid_retries_except_in_a_few_specific_case.patch
+Patch10: use_vhd_read_block_for_coalesce.patch
+Patch11: cp-37221__only_read_data_where_present_in_bitmap.patch
 
 # XCP-ng patches
 
@@ -158,6 +160,12 @@ fi
 %{?_cov_results_package}
 
 %changelog
+* Wed Oct 02 2024 Gael Duperrey <gduperrey@vates.tech> - 3.37.4-4.1
+- Sync with hotfix XS82ECU1075
+- *** Upstream changelog ***
+- * Tue Aug 13 2024 Mark Syms <mark.syms@cloud.com> - 3.37.4-4
+- - CP-37221: backport coalesce performance improvements
+
 * Fri Feb 02 2024 Gael Duperrey <gduperrey@vates.tech> - 3.37.4-3.1
 - Sync with hotfix XS82ECU1056
 - *** Upstream changelog ***
