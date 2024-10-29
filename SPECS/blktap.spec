@@ -4,7 +4,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.54.9
-Release: 1%{?xsrel}.1%{?dist}
+Release: 1%{?xsrel}.2%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -12,7 +12,7 @@ Source0: blktap-3.54.9.tar.gz
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
-BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autogen, autoconf, automake, libtool, libuuid-devel
+BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autoconf, automake, libtool, libuuid-devel
 BuildRequires: xen-devel, kernel-headers, xen-dom0-libs-devel, zlib-devel, xen-libs-devel, libcmocka-devel, lcov, git
 BuildRequires: xs-openssl-devel >= 1.1.1
 BuildRequires: devtoolset-11-gcc
@@ -173,6 +173,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Tue Oct 29 2024 Yann Dirson <yann.dirson@vates.tech> - 3.54.9-1.2
+- drop useless autogen build-dep
+
 * Tue Jun 18 2024 Samuel Verschelde <stormi-xcp@ylix.fr> - 3.54.9-1.1
 - Sync with 3.54.9-1
 - *** Upstream changelog ***
