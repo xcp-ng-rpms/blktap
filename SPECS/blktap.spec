@@ -18,10 +18,7 @@ BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
 BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autoconf, automake, libtool, libuuid-devel
 BuildRequires: kernel-headers, xen-libs-devel, zlib-devel, libcmocka-devel, lcov, git
-BuildRequires: xs-openssl-devel >= 1.1.1
-BuildRequires: devtoolset-11-gcc
-BuildRequires: devtoolset-11-binutils
-BuildRequires: devtoolset-11-liblsan-devel
+BuildRequires: openssl-devel >= 1.1.1
 %{?_cov_buildrequires}
 Requires(post): systemd
 Requires(post): /sbin/ldconfig
@@ -64,7 +61,6 @@ Blktap and VHD development files.
 %{?_cov_prepare}
 
 %build
-source /opt/rh/devtoolset-11/enable
 
 %{?_cov_make_model:%{_cov_make_model misc/coverity/model.c}}
 echo -n %{version} > VERSION
@@ -178,6 +174,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Jul 10 2025 Yann Dirson <yann.dirson@vates.tech> - 3.55.5-2.2.0.ydi.1
+- use standard toolchain and openssl
+
 * Fri Jul  4 2025 Yann Dirson <yann.dirson@vates.tech> - 3.55.5-2.2
 - Drop useless autogen build-dep
 
