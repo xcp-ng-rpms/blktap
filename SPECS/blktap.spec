@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.1%{?dist}
+Release: %{?xsrel}.2%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -16,7 +16,7 @@ Patch0: ca-404370__enable_nbd_client_only_after_completing_handshake.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
-BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autogen, autoconf, automake, libtool, libuuid-devel
+BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autoconf, automake, libtool, libuuid-devel
 BuildRequires: kernel-headers, xen-libs-devel, zlib-devel, libcmocka-devel, lcov, git
 BuildRequires: xs-openssl-devel >= 1.1.1
 BuildRequires: devtoolset-11-gcc
@@ -178,6 +178,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Jul  4 2025 Yann Dirson <yann.dirson@vates.tech> - 3.55.5-2.2
+- Drop useless autogen build-dep
+
 * Fri Mar 28 2025 Samuel Verschelde <stormi-xcp@ylix.fr> - 3.55.5-2.1
 - Sync with 3.55.5-2
 - Drop patch "Add an option to never resolve parent path when vhd-util query is
