@@ -14,10 +14,6 @@ BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
 BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autoconf, automake, libtool, libuuid-devel
 BuildRequires: xen-devel, kernel-headers, xen-dom0-libs-devel, zlib-devel, xen-libs-devel, libcmocka-devel, lcov, git
-BuildRequires: xs-openssl-devel >= 1.1.1
-BuildRequires: devtoolset-11-gcc
-BuildRequires: devtoolset-11-binutils
-BuildRequires: devtoolset-11-liblsan-devel
 %{?_cov_buildrequires}
 Requires(post): systemd
 Requires(post): /sbin/ldconfig
@@ -60,7 +56,6 @@ Blktap and VHD development files.
 %{?_cov_prepare}
 
 %build
-source /opt/rh/devtoolset-11/enable
 
 %{?_cov_make_model:%{_cov_make_model misc/coverity/model.c}}
 echo -n %{version} > VERSION
@@ -174,6 +169,7 @@ without requiring other libraries
 
 %changelog
 * Tue Oct 29 2024 Yann Dirson <yann.dirson@vates.tech> - 3.54.9-1.2
+- use standard toolchain and openssl
 - drop useless autogen build-dep
 
 * Tue Jun 18 2024 Samuel Verschelde <stormi-xcp@ylix.fr> - 3.54.9-1.1
