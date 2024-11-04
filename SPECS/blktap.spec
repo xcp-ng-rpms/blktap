@@ -14,6 +14,7 @@ BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
 BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autoconf, automake, libtool, libuuid-devel
 BuildRequires: xen-devel, kernel-headers, xen-dom0-libs-devel, zlib-devel, xen-libs-devel, libcmocka-devel, lcov, git
+BuildRequires: openssl-devel >= 1.1.1
 %{?_cov_buildrequires}
 Requires(post): systemd
 Requires(post): /sbin/ldconfig
