@@ -115,7 +115,6 @@ cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-inc
 %doc
 %{_libdir}/*.so
 %{_libdir}/*.a
-%{_libdir}/*.la
 %{_includedir}/vhd/*
 %{_includedir}/blktap/*
 %if 0%{?coverage:1}
@@ -173,6 +172,7 @@ without requiring other libraries
 * Tue Oct 29 2024 Yann Dirson <yann.dirson@vates.tech> - 3.54.9-1.2
 - use standard toolchain and openssl
 - drop useless autogen build-dep
+- libtool .la files are not genererated any more with Alma 10
 - TEMP HACK do not run checks (driver test expectedly fails until we have
   a working kernel)
 
