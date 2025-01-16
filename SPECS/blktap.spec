@@ -4,7 +4,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.54.9
-Release: 1%{?xsrel}.2%{?dist}
+Release: 1%{?xsrel}.2.0.qcow2.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -14,6 +14,7 @@ BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
 BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autogen, autoconf, automake, libtool, libuuid-devel
 BuildRequires: xen-devel, kernel-headers, xen-dom0-libs-devel, zlib-devel, xen-libs-devel, libcmocka-devel, lcov, git
+BuildRequires: glib2, glib2-devel, gnutls, gnutls-devel, libzstd, libzstd-devel
 BuildRequires: xs-openssl-devel >= 1.1.1
 BuildRequires: devtoolset-11-gcc
 BuildRequires: devtoolset-11-binutils
@@ -30,10 +31,29 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
+# Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
+# git format-patch v3.54.9..v3.54.9-qcow2 --abbrev=8 --no-signature
+#
 # Required by XOSTOR. Upstream PR: https://github.com/xapi-project/blktap/pull/378
 Patch1001: 0001-Add-an-option-to-never-resolve-parent-path-when-vhd-.patch
-# Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1002: 0002-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+Patch1003: 0003-Fix-string-copy-errors-safe_strncpy.patch
+Patch1004: 0004-tapdisk-remove-useless-code.patch
+Patch1005: 0005-blktap-libaio-fix-a-typo.patch
+Patch1006: 0006-tapdisk-doc-final-param-in-__tapdisk_xenblkif_reques.patch
+Patch1007: 0007-tapdisk-use-defined-abstraction.patch
+Patch1008: 0008-blkif-Avoid-use-after-free-on-BLKIF_OP_WRITE_BARRIER.patch
+Patch1009: 0009-tapdisk-vbd-remove-double-assignment-of-error-variab.patch
+Patch1010: 0010-tapdisk-replace-flag-number-by-its-name.patch
+Patch1011: 0011-qcow2-manage-qcow2-sources.patch
+Patch1012: 0012-qcow2-import-vanilla-sources-from-qemu-9.1.1.patch
+Patch1013: 0013-qcow2-build-qcow2-support-in-tapdisk.patch
+Patch1014: 0014-qcow2-fix-support-for-old-components-gcc-glibc-glib-.patch
+Patch1015: 0015-tapdisk-protect-td_vbd_t-structure.patch
+Patch1016: 0016-tapdisk-protect-td_blktap_t-structure.patch
+Patch1017: 0017-tapdisk-protect-td_xenblkif-structure.patch
+Patch1018: 0018-qcow2-driver-support-qcow2-files-in-tapdisk.patch
+Patch1019: 0019-blktap.spec-add-qcow2-dependencies.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -74,9 +94,10 @@ sh autogen.sh
 %{?_cov_wrap} make %{?coverage:GCOV=true}
 
 %check
+source /opt/rh/devtoolset-11/enable
 make clean
 make check GCOV=true || (find mockatests -name \*.log -print -exec cat {} \; && false)
-./collect-test-results.sh %{buildroot}/testresults
+#./collect-test-results.sh %{buildroot}/testresults
 
 %install
 rm -rf %{buildroot}
@@ -101,6 +122,7 @@ cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-inc
 %{_bindir}/vhd-index
 %{_bindir}/tapback
 %{_bindir}/cpumond
+%{_bindir}/qemu-img
 %{_sbindir}/cbt-util
 %{_sbindir}/lvm-util
 %{_sbindir}/tap-ctl
@@ -146,19 +168,20 @@ fi
 
 # The posttrans invocation of ldconfig is needed because older
 # versions of blktap did not have ldconfig in their postun script.
-%posttrans -p /sbin/ldconfig
+%posttrans
+/sbin/ldconfig
 
-%{?_cov_results_package}
-
-%package testresults
-Group:    System/Hypervisor
-Summary:  test results for blktap package
-
-%description testresults
-The package contains the build time test results for the blktap package
-
-%files testresults
-/testresults
+#%{?_cov_results_package}
+#
+#%package testresults
+#Group:    System/Hypervisor
+#Summary:  test results for blktap package
+#
+#%description testresults
+#The package contains the build time test results for the blktap package
+#
+#%files testresults
+#/testresults
 
 %package -n vhd-util-standalone
 Group:   System/Hypervisor
@@ -175,6 +198,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Jan 24 2025 Damien Thenot <damien.thenot.vates.tech> - 3.54.9-1.2.0.qcow2.1
+- Add QCOW2 support
+
 * Wed Dec 18 2024 Ronan Abhamon <ronan.abhamon@vates.fr> - 3.54.9-1.2
 - Add 0002-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 
