@@ -1,0 +1,24 @@
+From 58eee8da77ed68e24f7190a711bea2e845ba63a3 Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@cloud.com>
+Date: Mon, 6 Jan 2025 14:09:27 +0000
+Subject: [PATCH 28/30] CP-35551: add conflicts against SM < 4.0.0 to spec
+ template
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ mk/blktap.spec.in | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/mk/blktap.spec.in b/mk/blktap.spec.in
+index 2da6fe2c..ad2a3c4c 100644
+--- a/mk/blktap.spec.in
++++ b/mk/blktap.spec.in
+@@ -16,6 +16,8 @@ Requires(post): systemd
+ Requires(preun): systemd
+ Requires(postun): systemd
+ 
++Conflicts: sm < 4.0.0
++
+ %description
+ Blktap creates kernel block devices which realize I/O requests to
+ processes implementing virtual hard disk images entirely in user

@@ -1,0 +1,41 @@
+From eabb59652df426c8b5436624bdcd51df410180ba Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@cloud.com>
+Date: Fri, 15 Nov 2024 09:05:28 +0000
+Subject: [PATCH 18/30] CP-52620: enable local caching after opening all other
+ images
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ drivers/tapdisk-vbd.c | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 8e82a3fc..76b26d2e 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -619,12 +619,6 @@ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_d
+ 			goto fail;
+ 	}
+ 
+-	if (td_flag_test(vbd->flags, TD_OPEN_LOCAL_CACHE)) {
+-		err = tapdisk_vbd_add_local_cache(vbd);
+-		if (err)
+-			goto fail;
+-	}
+-
+ 	err = tapdisk_vbd_validate_chain(vbd);
+ 	if (err)
+ 		goto fail;
+@@ -639,6 +633,12 @@ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_d
+ 		}
+ 	}
+ 
++	if (td_flag_test(vbd->flags, TD_OPEN_LOCAL_CACHE)) {
++		err = tapdisk_vbd_add_local_cache(vbd);
++		if (err)
++			goto fail;
++	}
++
+ 	err = vbd_stats_create(vbd);
+ 	if (err)
+ 		goto fail;

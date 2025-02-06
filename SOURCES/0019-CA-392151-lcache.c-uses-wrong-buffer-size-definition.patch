@@ -1,0 +1,186 @@
+From 7ad7266eceef9b885a684b6105f435cada450a61 Mon Sep 17 00:00:00 2001
+From: Tim Smith <tim.smith@cloud.com>
+Date: Tue, 1 Oct 2024 10:11:54 +0100
+Subject: [PATCH 19/30] CA-392151 lcache.c uses wrong buffer size definition
+
+To compute its buffer size, block-lcache.c was using
+MAX_SEGMENTS_PER_REQ, which has the same value as
+BLKIF_MAX_SEGMENTS_PER_REQ (11 at present).
+
+However, td-req.c used BLKIF_MMAX_SEGMENTS_PER_REQ (Note the additional
+"M") which has a different value (32). Thus it is possible for a td-req
+entity passed to the "tapdisk_lcache" driver to be bigger than the
+driver can handle. But the driver doesn't check this and assumes it has
+enough space for the memcpy(), resulting in... trouble.
+
+Correct the calculation in block-lcache.c to match the calculation in
+td-req.c by sharing a new TD_REQ_BUFFER_SIZE macro via td_req.h
+
+To help prevent further confusion, remove the local definition of
+MAX_SEGMENTS_PER_REQ and use BLKIF_MAX_SEGMENTS_PER_REQ in place of it,
+so that things which are supposed to be the same at least have the same
+name. Rename BLKIF_MMAX_SEGMENTS_PER_REQ to
+BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST to make it more clear that this is
+supposed to be different.
+
+Signed-off-by: Tim Smith <tim.smith@cloud.com>
+---
+ drivers/block-lcache.c | 8 ++++----
+ drivers/tapdisk.h      | 9 +++++++--
+ drivers/td-req.c       | 6 +++---
+ drivers/td-req.h       | 6 ++++--
+ include/blktaplib.h    | 6 +++---
+ include/xen_blkif.h    | 2 +-
+ 6 files changed, 22 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/block-lcache.c b/drivers/block-lcache.c
+index 4fb06ebd..6064af1f 100644
+--- a/drivers/block-lcache.c
++++ b/drivers/block-lcache.c
+@@ -42,6 +42,7 @@
+ #include <sys/vfs.h>
+ 
+ #include "vhd.h"
++#include "td-req.h"
+ #include "tapdisk.h"
+ #include "tapdisk-utils.h"
+ #include "tapdisk-driver.h"
+@@ -66,8 +67,7 @@
+ #define MIN(a, b)       ((a) < (b) ? (a) : (b))
+ 
+ #define TD_LCACHE_MAX_REQ               (MAX_REQUESTS*2)
+-#define TD_LCACHE_BUFSZ                 (MAX_SEGMENTS_PER_REQ * \
+-					 sysconf(_SC_PAGE_SIZE))
++#define TD_LCACHE_BUFSZ                 (BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST << PAGE_SHIFT)
+ 
+ 
+ typedef struct lcache                   td_lcache_t;
+@@ -126,7 +126,7 @@ lcache_destroy_buffers(td_lcache_t *cache)
+ 	do {
+ 		req = lcache_alloc_request(cache);
+ 		if (req)
+-			munmap(req->buf, TD_LCACHE_BUFSZ);
++			munmap(req->buf, (size_t)TD_REQ_BUFFER_SIZE);
+ 	} while (req);
+ }
+ 
+@@ -143,7 +143,7 @@ lcache_create_buffers(td_lcache_t *cache)
+ 	for (i = 0; i < TD_LCACHE_MAX_REQ; i++) {
+ 		td_lcache_req_t *req = &cache->reqv[i];
+ 
+-		req->buf = mmap(NULL, TD_LCACHE_BUFSZ, prot, flags, -1, 0);
++		req->buf = mmap(NULL, (size_t)TD_REQ_BUFFER_SIZE, prot, flags, -1, 0);
+ 		if (req->buf == MAP_FAILED) {
+ 			req->buf = NULL;
+ 			err = -errno;
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index 966f8a42..053e7ab7 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -73,12 +73,17 @@ extern unsigned int PAGE_SIZE;
+ extern unsigned int PAGE_MASK;
+ extern unsigned int PAGE_SHIFT;
+ 
+-#define MAX_SEGMENTS_PER_REQ         11
++// Removed definition of MAX_SEGMENTS_PER_REQ from here. Use BLKIF_MAX_SEGMENTS_PER_REQUEST
++// which must match the value in xen/io/blkif.h, trying to make it clear that these are
++// the same thing.
++#ifndef BLKIF_MAX_SEGMENTS_PER_REQUEST
++#define BLKIF_MAX_SEGMENTS_PER_REQUEST 11
++#endif
+ #define MAX_REQUESTS                 32U
+ #define SECTOR_SHIFT                 9
+ #define DEFAULT_SECTOR_SIZE          512
+ 
+-#define TAPDISK_DATA_REQUESTS       (MAX_REQUESTS * MAX_SEGMENTS_PER_REQ)
++#define TAPDISK_DATA_REQUESTS       (MAX_REQUESTS * BLKIF_MAX_SEGMENTS_PER_REQUEST)
+ 
+ //#define BLK_NOT_ALLOCATED            (-99)
+ #define TD_NO_PARENT                 1
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index ce176354..e1ce9fd7 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -121,7 +121,7 @@ td_xenblkif_bufcache_free(struct td_xenblkif * const blkif)
+ 
+     while (blkif->n_reqs_bufcache_free > TD_REQS_BUFCACHE_MIN){
+         munmap(blkif->reqs_bufcache[--blkif->n_reqs_bufcache_free],
+-               (size_t)BLKIF_MMAX_SEGMENTS_PER_REQUEST << PAGE_SHIFT);
++               (size_t)BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST << PAGE_SHIFT);
+     }
+ }
+ 
+@@ -138,7 +138,7 @@ td_xenblkif_bufcache_get(struct td_xenblkif * const blkif)
+     ASSERT(blkif);
+ 
+     if (!blkif->n_reqs_bufcache_free) {
+-	    buf = mmap(NULL, (size_t)BLKIF_MMAX_SEGMENTS_PER_REQUEST << PAGE_SHIFT,
++	    buf = mmap(NULL, (size_t)TD_REQ_BUFFER_SIZE,
+                    PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+         if (unlikely(buf == MAP_FAILED))
+             buf = NULL;
+@@ -784,7 +784,7 @@ tapdisk_xenblkif_make_vbd_request(struct td_xenblkif * const blkif,
+      */
+     if (unlikely((tapreq->msg.nr_segments == 0 &&
+                 tapreq->msg.operation != BLKIF_OP_WRITE_BARRIER) ||
+-            tapreq->msg.nr_segments > BLKIF_MMAX_SEGMENTS_PER_REQUEST)) {
++            tapreq->msg.nr_segments > BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST)) {
+         RING_ERR(blkif, "req %lu: bad number of segments in request (%d)\n",
+                 tapreq->msg.id, tapreq->msg.nr_segments);
+         err = EINVAL;
+diff --git a/drivers/td-req.h b/drivers/td-req.h
+index 07a949ea..dad40f29 100644
+--- a/drivers/td-req.h
++++ b/drivers/td-req.h
+@@ -38,6 +38,8 @@
+ #include <xen/gntdev.h>
+ #include "td-blkif.h"
+ 
++#define TD_REQ_BUFFER_SIZE (BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST << PAGE_SHIFT)
++
+ /**
+  * Representation of the intermediate request used to retrieve a request from
+  * the shared ring and handle it over to the main tapdisk request processing
+@@ -78,9 +80,9 @@ struct td_xenblkif_req {
+     /**
+      * The scatter/gather list td_vbd_request_t.iov points to.
+      */
+-    struct td_iovec iov[BLKIF_MMAX_SEGMENTS_PER_REQUEST];
++    struct td_iovec iov[BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST];
+ 
+-    grant_ref_t gref[BLKIF_MMAX_SEGMENTS_PER_REQUEST];
++    grant_ref_t gref[BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST];
+     int prot;
+ 
+ 	struct gntdev_grant_copy_segment
+diff --git a/include/blktaplib.h b/include/blktaplib.h
+index e68a13fb..ed500632 100644
+--- a/include/blktaplib.h
++++ b/include/blktaplib.h
+@@ -226,11 +226,11 @@ typedef struct msg_lock {
+ 
+ /* Accessing attached data page mappings */
+ #define MMAP_PAGES                                                    \
+-    (MAX_PENDING_REQS * BLKIF_MMAX_SEGMENTS_PER_REQUEST)
++    (MAX_PENDING_REQS * BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST)
+ #define MMAP_VADDR(_vstart,_req,_seg)                                 \
+     ((_vstart) +                                                      \
+-     ((_req) * BLKIF_MMAX_SEGMENTS_PER_REQUEST * getpagesize()) +      \
+-     ((_seg) * getpagesize()))
++     ((_req) * BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST * PAGE_SIZE) +      \
++     ((_seg) * PAGE_SIZE))
+ 
+ /* Defines that are only used by library clients */
+ 
+diff --git a/include/xen_blkif.h b/include/xen_blkif.h
+index 35a9749d..a884026b 100644
+--- a/include/xen_blkif.h
++++ b/include/xen_blkif.h
+@@ -133,6 +133,6 @@ static inline void blkif_get_x86_64_req(blkif_request_t *dst, blkif_x86_64_reque
+ #define MAX_RING_PAGE_ORDER 3
+ #define MAX_RING_PAGES (1 << MAX_RING_PAGE_ORDER)
+ 
+-#define BLKIF_MMAX_SEGMENTS_PER_REQUEST 32
++#define BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST 32
+ 
+ #endif /* __XEN_BLKIF_H__ */

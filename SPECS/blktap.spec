@@ -4,7 +4,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.54.9
-Release: 1%{?xsrel}.2%{?dist}
+Release: 1%{?xsrel}.2.0.noblktap.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -30,10 +30,37 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
+Patch1001: 0001-More-unit-tests-for-scheduler.-Use-eventfd-instead-o.patch
+Patch1002: 0002-Remove-no-longer-required-xen-API-overrides.patch
+Patch1003: 0003-CA-391882-fix-nbd-connection-fd-leak-bug.patch
+Patch1004: 0004-CP-46765-Fix-asan-issues-in-unit-tests.patch
+Patch1005: 0005-CA-396659-rationalise-bitops-and-fix-overflow-issues.patch
+Patch1006: 0006-CA-396659-delete-legacy-debt-utility-vhd-update.patch
+Patch1007: 0007-Handle-scheduler-uuid-overflow-explictly.patch
+Patch1008: 0008-CP-50952-Autodetect-NBD-server-protocol-version-on-c.patch
+Patch1009: 0009-Fix-use-of-incorrect-label-in-error-case.patch
+Patch1010: 0010-CA-397082-revert-9e7787c.patch
+Patch1011: 0011-CA-397082-Fix-FD-leak-in-NBD-server.patch
+Patch1012: 0012-CP-50955-Turn-fixed-export-name-into-a-define.patch
+Patch1013: 0013-CP-50955-Add-a-new-style-NBD-server-for-each-VDI.patch
+Patch1014: 0014-CP-50955-Clean-up-new-style-NBD-negotiation.patch
+Patch1015: 0015-Re-revert-9e7787c.patch
+Patch1016: 0016-Correct-name-of-exposed-NBD-server.patch
+Patch1017: 0017-CA-401174-Filedescriptor-leak-in-NBD-option-negotiat.patch
+Patch1018: 0018-CP-52620-enable-local-caching-after-opening-all-othe.patch
+Patch1019: 0019-CA-392151-lcache.c-uses-wrong-buffer-size-definition.patch
+Patch1020: 0020-Fix-CBT-mockatests.patch
+Patch1021: 0021-Use-stack-var-in-bitmap-test.patch
+Patch1022: 0022-CA-403297-when-storing-read-through-do-not-mirror.patch
 # Required by XOSTOR. Upstream PR: https://github.com/xapi-project/blktap/pull/378
-Patch1001: 0001-Add-an-option-to-never-resolve-parent-path-when-vhd-.patch
-# Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
-Patch1002: 0002-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+Patch1023: 0023-Add-an-option-to-never-resolve-parent-path-when-vhd-.patch
+Patch1024: 0024-CP-35551-stop-tapback-failing-to-start-without-blkta.patch
+Patch1025: 0025-CP-35551-stop-tap-ctl-list-looking-for-sysfs-minors.patch
+Patch1026: 0026-CP-35551-remove-blktap-device-handling.patch
+Patch1027: 0027-CP-35551-create-files-to-replace-block-device-minor-.patch
+Patch1028: 0028-CP-35551-add-conflicts-against-SM-4.0.0-to-spec-temp.patch
+Patch1029: 0029-CA-404370-enable-NBD-client-only-after-completing-ha.patch
+Patch1030: 0030-Disable-allocate-tests.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -97,7 +124,6 @@ cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-inc
 /usr/share/doc/%{name}
 %{_libdir}/*.so.*
 %{_bindir}/vhd-util
-%{_bindir}/vhd-update
 %{_bindir}/vhd-index
 %{_bindir}/tapback
 %{_bindir}/cpumond
@@ -175,6 +201,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Feb 06 2025 Damien Thenot <damien.thenot@vates.tech> - 3.54.9-1.2.0.noblktap.1
+- Add patches to delete blktap2
+
 * Wed Dec 18 2024 Ronan Abhamon <ronan.abhamon@vates.fr> - 3.54.9-1.2
 - Add 0002-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 

@@ -1,0 +1,25 @@
+From 1c226d50625aa8676723ad25c87c7dfe74f4f4db Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@cloud.com>
+Date: Tue, 21 May 2024 16:10:21 +0100
+Subject: [PATCH 02/30] Remove no longer required xen API overrides
+
+Blktap has been updated to only use the stable, modern APIs and so no
+longer needs to request compat APIs.
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ drivers/Makefile.am | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/Makefile.am b/drivers/Makefile.am
+index c8a00fd9..c03ef7ed 100644
+--- a/drivers/Makefile.am
++++ b/drivers/Makefile.am
+@@ -1,7 +1,6 @@
+ SUBDIRS = crypto
+ AM_CFLAGS  = -Wall
+ AM_CFLAGS += -Werror
+-AM_CFLAGS += -DXC_WANT_COMPAT_EVTCHN_API -DXC_WANT_COMPAT_GNTTAB_API
+ AM_CFLAGS += $(if $(GCOV),-fprofile-dir=/tmp/coverage/blktap/drivers -fprofile-arcs -ftest-coverage)
+ # TODO add -Wextra
+ 

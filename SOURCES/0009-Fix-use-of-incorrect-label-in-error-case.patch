@@ -1,0 +1,23 @@
+From 089b6a0ebd4b5da8f8e4b948a4a333564d4b8fa3 Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@cloud.com>
+Date: Wed, 28 Aug 2024 12:11:15 +0100
+Subject: [PATCH 09/30] Fix use of incorrect label in error case
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ vhd/lib/libvhd.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index dfed9296..73be3eec 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -2805,7 +2805,7 @@ vhd_open(vhd_context_t *ctx, const char *file, int flags)
+ 	    ctx->footer.crtr_ver == 0x00000001) {
+ 		VHDLOG("error unsupported version 0.1 VHD");
+ 		err = -EINVAL;
+-		goto out;
++		goto fail;
+ 	}
+ 
+ 	err = vhd_cache_load(ctx);

@@ -1,0 +1,45 @@
+From 071aff3e7ac22f57a38d33a213f3463f65558866 Mon Sep 17 00:00:00 2001
+From: Tim Smith <tim.smith@cloud.com>
+Date: Tue, 1 Oct 2024 17:07:04 +0100
+Subject: [PATCH 16/30] Correct name of exposed NBD server
+
+The directly-exposed NBD server was always new-style. It is the
+FD-passing socket which was not. Cycle the names forwards to match
+expectations.
+
+Signed-off-by: Tim Smith <tim.smith@cloud.com>
+---
+ drivers/tapdisk-metrics.h   | 4 ++--
+ drivers/tapdisk-nbdserver.h | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/tapdisk-metrics.h b/drivers/tapdisk-metrics.h
+index 81894b42..da28053c 100644
+--- a/drivers/tapdisk-metrics.h
++++ b/drivers/tapdisk-metrics.h
+@@ -35,8 +35,8 @@
+ #define TAPDISK_METRICS_VDI_PATHF    "%s/vdi-%hu"
+ #define TAPDISK_METRICS_VBD_PATHF    "%s/vbd-%d-%d"
+ #define TAPDISK_METRICS_BLKTAP_PATHF "%s/blktap-%d"
+-#define TAPDISK_METRICS_NBD_PATHF_OLD "%s/nbd-%d"
+-#define TAPDISK_METRICS_NBD_PATHF_NEW "%s/nbd-new-%d"
++#define TAPDISK_METRICS_NBD_PATHF_OLD "%s/nbd-old-%d"
++#define TAPDISK_METRICS_NBD_PATHF_NEW "%s/nbd-%d"
+ 
+ #include <libaio.h>
+ 
+diff --git a/drivers/tapdisk-nbdserver.h b/drivers/tapdisk-nbdserver.h
+index 24077503..098dcb32 100644
+--- a/drivers/tapdisk-nbdserver.h
++++ b/drivers/tapdisk-nbdserver.h
+@@ -80,8 +80,8 @@ struct nbd_reply {
+ #define TAPDISK_NBDCLIENT_LISTEN_SOCK_PATH BLKTAP2_CONTROL_DIR"/nbdclient"
+ #define TAPDISK_NBDSERVER_OLD_LISTEN_SOCK_PATH BLKTAP2_CONTROL_DIR"/nbdserver"
+ #define TAPDISK_NBDSERVER_NEW_LISTEN_SOCK_PATH BLKTAP2_CONTROL_DIR"/nbdserver-new"
+-#define TAPDISK_NBDSERVER_OLD_SOCK_PATH BLKTAP2_CONTROL_DIR"/nbd"
+-#define TAPDISK_NBDSERVER_NEW_SOCK_PATH BLKTAP2_CONTROL_DIR"/nbd-new"
++#define TAPDISK_NBDSERVER_OLD_SOCK_PATH BLKTAP2_CONTROL_DIR"/nbd-old"
++#define TAPDISK_NBDSERVER_NEW_SOCK_PATH BLKTAP2_CONTROL_DIR"/nbd"
+ 
+ struct td_nbdserver {
+ 	td_vbd_t               *vbd;

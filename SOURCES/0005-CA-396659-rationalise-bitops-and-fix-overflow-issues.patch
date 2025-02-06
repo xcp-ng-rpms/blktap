@@ -1,0 +1,279 @@
+From 2dbceba628996f7dcc32f1d162107002347d1eb2 Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@cloud.com>
+Date: Wed, 7 Aug 2024 16:10:21 +0100
+Subject: [PATCH 05/30] CA-396659: rationalise bitops and fix overflow issues
+
+test_bit has some undefined behaviour, it overflows a signed value by
+shifting, and it doesn't use -fwrapv:
+
+```
+../../include/libvhd.h:170:25: runtime error: left shift of negative value -1
+```
+
+from this function
+```
+test_bit (volatile char *addr, int nr)
+{
+        return ((addr[nr >> 3] << (nr & 7)) & BIT_MASK) != 0;
+}
+```
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ include/libvhd.h               | 20 ++++++---
+ mockatests/vhd/Makefile.am     |  2 +-
+ mockatests/vhd/test-bitops.c   | 82 ++++++++++++++++++++++++++++++++++
+ mockatests/vhd/test-suites.h   |  9 ++++
+ mockatests/vhd/test-vhd-util.c |  3 +-
+ vhd/lib/libvhd.c               | 38 ++++------------
+ 6 files changed, 115 insertions(+), 39 deletions(-)
+ create mode 100644 mockatests/vhd/test-bitops.c
+
+diff --git a/include/libvhd.h b/include/libvhd.h
+index 17c8eed5..73659183 100644
+--- a/include/libvhd.h
++++ b/include/libvhd.h
+@@ -164,22 +164,28 @@ struct vhd_context {
+ 	char                      *custom_parent;
+ };
+ 
+-static inline int
+-test_bit (volatile char *addr, int nr)
++/* Helpers for manipulating bitmaps *
++ *
++ * The bitmap is stored on a per-byte basis with the MSB representing
++ * the first bit in the bitmap.
++ */
++
++static inline bool
++test_bit (const void *addr, uint32_t nr)
+ {
+-	return ((addr[nr >> 3] << (nr & 7)) & BIT_MASK) != 0;
++	return (((const uint8_t *)addr)[nr >> 3] << (nr & 7)) & BIT_MASK;
+ }
+ 
+ static inline void
+-set_bit (volatile char *addr, int nr)
++set_bit (void *addr, uint32_t nr)
+ {
+-	addr[nr >> 3] |= (BIT_MASK >> (nr & 7));
++	((uint8_t *)addr)[nr >> 3] |= (BIT_MASK >> (nr & 7));
+ }
+ 
+ static inline void
+-clear_bit (volatile char *addr, int nr)
++clear_bit (void *addr, uint32_t nr)
+ {
+-	addr[nr >> 3] &= ~(BIT_MASK >> (nr & 7));
++	((uint8_t *)addr)[nr >> 3] &= ~(BIT_MASK >> (nr & 7));
+ }
+ 
+ static inline uint32_t
+diff --git a/mockatests/vhd/Makefile.am b/mockatests/vhd/Makefile.am
+index ed9e35eb..cfa1a392 100644
+--- a/mockatests/vhd/Makefile.am
++++ b/mockatests/vhd/Makefile.am
+@@ -11,7 +11,7 @@ TESTS = test-vhd-util
+ 
+ test_vhd_util_LDADD = $(top_srcdir)/vhd/lib/libvhd.la
+ 
+-test_vhd_util_SOURCES = test-vhd-util.c test-vhd-util-snapshot.c test-canonpath.c test-vhd-util-utilities.c vhd-wrappers.c
++test_vhd_util_SOURCES = test-vhd-util.c test-vhd-util-snapshot.c test-canonpath.c test-bitops.c test-vhd-util-utilities.c vhd-wrappers.c
+ test_vhd_util_LDFLAGS = -lcmocka
+ test_vhd_util_LDFLAGS += -static-libtool-libs
+ test_vhd_util_LDFLAGS += -Wl,--wrap=free,--wrap=malloc,--wrap=realloc
+diff --git a/mockatests/vhd/test-bitops.c b/mockatests/vhd/test-bitops.c
+new file mode 100644
+index 00000000..44a5e168
+--- /dev/null
++++ b/mockatests/vhd/test-bitops.c
+@@ -0,0 +1,82 @@
++/*
++ * Copyright (c) 2024, Cloud Software Group, Inc.
++ *
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *  3. Neither the name of the copyright holder nor the names of its
++ *     contributors may be used to endorse or promote products derived from
++ *     this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include <stddef.h>
++#include <stdlib.h>
++#include <stdarg.h>
++#include <setjmp.h>
++#include <cmocka.h>
++#include <errno.h>
++#include <wrappers.h>
++
++#include "test-suites.h"
++#include "libvhd.h"
++
++
++void test_set_clear_test_bit(void **state) {
++    /* Representative bitmap of 512 bytes */
++    uint32_t bit;
++    uint8_t *map = malloc(512);
++
++    /* Start zero'd */
++    bzero(map, 512);
++
++    for (bit = 0; bit < 4096; bit++) {
++        /* Start unset */
++        assert_false(test_bit(map, bit));
++
++        /* Set it and check */
++        set_bit(map, bit);
++        assert_true(test_bit(map, bit));
++
++        /* Clear it and check */
++        clear_bit(map, bit);
++        assert_false(test_bit(map, bit));
++    }
++
++    free(map);
++}
++
++void test_bitmaps(void **state) {
++	uint8_t map[2] = { 0x80, 0x01 };
++
++	assert_true(test_bit(map, 0));
++	assert_false(test_bit(map, 1));
++
++	assert_false(test_bit(map, 14));
++	assert_true(test_bit(map, 15));
++
++	set_bit(map, 3);
++	assert_true(map[0] == 0x90);
++
++	clear_bit(map, 0);
++	assert_true(map[0] == 0x10);
++}
++
+diff --git a/mockatests/vhd/test-suites.h b/mockatests/vhd/test-suites.h
+index 74e56b50..22e1f0d7 100644
+--- a/mockatests/vhd/test-suites.h
++++ b/mockatests/vhd/test-suites.h
+@@ -85,4 +85,13 @@ static const struct CMUnitTest utility_tests[] = {
+ 	cmocka_unit_test(test_vhd_validate_header_success)
+ };
+ 
++/* Bit ops tests */
++void test_set_clear_test_bit(void **state);
++void test_bitmaps(void **state);
++
++static const struct CMUnitTest bitops_tests[] = {
++	cmocka_unit_test(test_set_clear_test_bit),
++	cmocka_unit_test(test_bitmaps)
++};
++
+ #endif /* __TEST_SUITES_H__ */
+diff --git a/mockatests/vhd/test-vhd-util.c b/mockatests/vhd/test-vhd-util.c
+index 8bb37460..a20ec1d9 100644
+--- a/mockatests/vhd/test-vhd-util.c
++++ b/mockatests/vhd/test-vhd-util.c
+@@ -53,7 +53,8 @@ int main(void)
+ 	int result =
+ 		cmocka_run_group_tests_name("Snapshot tests", vhd_snapshot_tests, setupRealAllocator, teardownRealAllocator) +
+ 		cmocka_run_group_tests_name("Canonpath tests", canonpath_tests, NULL, NULL) +
+-		cmocka_run_group_tests_name("Utility tests", utility_tests, NULL, NULL);
++		cmocka_run_group_tests_name("Utility tests", utility_tests, NULL, NULL) +
++		cmocka_run_group_tests_name("Bit Ops tests", bitops_tests, NULL, NULL);
+ 
+ 	return result;
+ }
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index 9dd7cd78..dfed9296 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -104,24 +104,6 @@ static int vhd_cache_load(vhd_context_t *);
+ static int vhd_cache_unload(vhd_context_t *);
+ static vhd_context_t * vhd_cache_get_parent(vhd_context_t *);
+ 
+-static inline int
+-old_test_bit(volatile char *addr, int nr)
+-{
+-	return (((uint32_t *)addr)[nr >> 5] >> (nr & 31)) & 1;
+-}
+-
+-static inline void
+-old_set_bit(volatile char *addr, int nr)
+-{
+-	((uint32_t *)addr)[nr >> 5] |= (1 << (nr & 31));
+-}
+-
+-static inline void
+-old_clear_bit(volatile char *addr, int nr)
+-{
+-	((uint32_t *)addr)[nr >> 5] &= ~(1 << (nr & 31));
+-}
+-
+ static int
+ makedev_from_file(const char *file, dev_t *dev)
+ {
+@@ -742,30 +724,18 @@ vhd_batmap_clear(vhd_context_t *ctx, vhd_batmap_t *batmap, uint32_t block)
+ int
+ vhd_bitmap_test(vhd_context_t *ctx, char *map, uint32_t block)
+ {
+-	if (vhd_creator_tapdisk(ctx) &&
+-	    ctx->footer.crtr_ver == 0x00000001)
+-		return old_test_bit(map, block);
+-
+ 	return test_bit(map, block);
+ }
+ 
+ void
+ vhd_bitmap_set(vhd_context_t *ctx, char *map, uint32_t block)
+ {
+-	if (vhd_creator_tapdisk(ctx) &&
+-	    ctx->footer.crtr_ver == 0x00000001)
+-		return old_set_bit(map, block);
+-
+ 	return set_bit(map, block);
+ }
+ 
+ void
+ vhd_bitmap_clear(vhd_context_t *ctx, char *map, uint32_t block)
+ {
+-	if (vhd_creator_tapdisk(ctx) &&
+-	    ctx->footer.crtr_ver == 0x00000001)
+-		return old_clear_bit(map, block);
+-
+ 	return clear_bit(map, block);
+ }
+ 
+@@ -2830,6 +2800,14 @@ vhd_open(vhd_context_t *ctx, const char *file, int flags)
+ 		ctx->bm_secs = secs_round_up_no_zero(ctx->spb >> 3);
+ 	}
+ 
++	/* Check for obsolete, broken VHD version */
++	if (vhd_creator_tapdisk(ctx) &&
++	    ctx->footer.crtr_ver == 0x00000001) {
++		VHDLOG("error unsupported version 0.1 VHD");
++		err = -EINVAL;
++		goto out;
++	}
++
+ 	err = vhd_cache_load(ctx);
+ 	if (err) {
+ 		VHDLOG("failed to load cache: %d\n", err);

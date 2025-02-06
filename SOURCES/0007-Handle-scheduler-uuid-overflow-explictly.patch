@@ -1,0 +1,178 @@
+From 045bc500daa2da490183367d09c208d59321b731 Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@cloud.com>
+Date: Mon, 12 Aug 2024 13:51:17 +0100
+Subject: [PATCH 07/30] Handle scheduler uuid overflow explictly
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ drivers/scheduler.c                 | 57 ++++++++++++++++++-----------
+ drivers/scheduler.h                 |  7 ++--
+ mockatests/drivers/test-scheduler.c | 12 +++---
+ 3 files changed, 45 insertions(+), 31 deletions(-)
+
+diff --git a/drivers/scheduler.c b/drivers/scheduler.c
+index af4163db..c18980eb 100644
+--- a/drivers/scheduler.c
++++ b/drivers/scheduler.c
+@@ -37,6 +37,7 @@
+ #include <unistd.h>
+ #include <string.h>
+ #include <sys/time.h>
++#include <limits.h>
+ 
+ #include "debug.h"
+ #include "tapdisk.h"
+@@ -263,35 +264,47 @@ scheduler_run_events(scheduler_t *s)
+ 	return n_dispatched;
+ }
+ 
+-int
++event_id_t
+ scheduler_get_event_uuid(scheduler_t *s) {
+ 
+-	int uuid_found;
++	bool uuid_found = false;
++	event_id_t ret;
+ 	event_t *event;
+ 
+-        if(unlikely(s->uuid < 0)) {
+-		EPRINTF("scheduler uuid overflow detected");
+-                s->uuid = 1;
+-                s->uuid_overflow = 1;
+-        }
++	if (unlikely(s->uuid <= 0)) {
++		s->uuid = 1;
++		s->uuid_overflow = 1;
++	}
+ 
+-        if(unlikely(s->uuid_overflow == 1)) {
+-                do {
+-                        uuid_found = 1;
+-                        scheduler_for_each_event(s, event) {
+-                                if(event->id == s->uuid) {
+-                                        uuid_found = 0;
+-                                        s->uuid++;
+-					if(s->uuid < 0)
++	if(unlikely(s->uuid_overflow == 1)) {
++		do {
++			uuid_found = true;
++			scheduler_for_each_event(s, event) {
++				if(event->id == s->uuid) {
++					uuid_found = false;
++					if (unlikely(s->uuid == INT_MAX)) {
+ 						s->uuid = 1;
+-                                        break;
+-                                }
+-                        }
++					} else {
++						s->uuid++;
++					}
++					break;
++				}
++			}
+ 
+-                } while(!uuid_found);
+-        }
+-	
+-	return s->uuid++;
++		} while(!uuid_found);
++	}
++
++	ret = s->uuid;
++	if (unlikely(s->uuid == INT_MAX)) {
++		/* overflowing */
++		EPRINTF("scheduler uuid overflow detected");
++		s->uuid_overflow = 1;
++		s->uuid = 1;
++	} else {
++		s->uuid += 1;
++	}
++
++	return ret;
+ }
+ 
+ int
+diff --git a/drivers/scheduler.h b/drivers/scheduler.h
+index 1a9e0e42..e2cae934 100644
+--- a/drivers/scheduler.h
++++ b/drivers/scheduler.h
+@@ -32,6 +32,7 @@
+ #define _SCHEDULER_H_
+ 
+ #include <sys/select.h>
++#include <stdint.h>
+ 
+ #include "list.h"
+ 
+@@ -40,7 +41,7 @@
+ #define SCHEDULER_POLL_EXCEPT_FD     0x4
+ #define SCHEDULER_POLL_TIMEOUT       0x8
+ 
+-typedef int                          event_id_t;
++typedef int32_t                      event_id_t;
+ typedef void (*event_cb_t)          (event_id_t id, char mode, void *private);
+ 
+ typedef struct scheduler {
+@@ -50,7 +51,7 @@ typedef struct scheduler {
+ 
+ 	struct list_head             events;
+ 
+-	int                          uuid;
++	event_id_t                   uuid;
+ 	int                          uuid_overflow;
+ 	int                          max_fd;
+ 	struct timeval               timeout;
+@@ -70,7 +71,7 @@ event_id_t scheduler_register_event(scheduler_t *, char mode,
+ 				    int fd, struct timeval timeout,
+ 				    event_cb_t cb, void *private);
+ 
+-int scheduler_get_event_uuid(scheduler_t *);
++event_id_t scheduler_get_event_uuid(scheduler_t *);
+ void scheduler_unregister_event(scheduler_t *,  event_id_t);
+ void scheduler_mask_event(scheduler_t *, event_id_t, int masked);
+ void scheduler_set_max_timeout(scheduler_t *, struct timeval);
+diff --git a/mockatests/drivers/test-scheduler.c b/mockatests/drivers/test-scheduler.c
+index 113ffd8b..428dd732 100644
+--- a/mockatests/drivers/test-scheduler.c
++++ b/mockatests/drivers/test-scheduler.c
+@@ -548,7 +548,7 @@ test_scheduler_get_uuid(void **state)
+   scheduler_initialize(&s);
+ 
+   s.uuid = 1;
+-  const int new_uuid = scheduler_get_event_uuid(&s);
++  const event_id_t new_uuid = scheduler_get_event_uuid(&s);
+   assert_int_equal(new_uuid, 1);
+   assert_int_equal(s.uuid, 2);
+ }
+@@ -561,11 +561,11 @@ test_scheduler_get_uuid_overflow(void **state)
+   scheduler_initialize(&s);
+ 
+   s.uuid = INT_MAX;
+-  const int new_uuid = scheduler_get_event_uuid(&s);
++  const event_id_t new_uuid = scheduler_get_event_uuid(&s);
+   assert_int_equal(new_uuid, INT_MAX);
+-  assert_int_equal(s.uuid, INT_MIN);
++  assert_int_equal(s.uuid, 1);
+ 
+-  const int new_uuid2 = scheduler_get_event_uuid(&s);
++  const event_id_t new_uuid2 = scheduler_get_event_uuid(&s);
+   assert_int_equal(new_uuid2, 1);
+   assert_int_equal(s.uuid, 2);
+ }
+@@ -592,14 +592,14 @@ test_scheduler_get_uuid_overflow_fragmented(void **state)
+   // After an overflow the next UUID should be 2
+   // because that is the next free event id
+   s.uuid = INT_MIN;
+-  const int new_uuid1 = scheduler_get_event_uuid(&s);
++  const event_id_t new_uuid1 = scheduler_get_event_uuid(&s);
+   assert_int_equal(new_uuid1, 2);
+   // +---+---+---+---
+   // | 1 | 3 | 2 |...
+   // +---+---+---+---
+ 
+   // The next UUID after that will be 4 because 3 is already used.
+-  const int new_uuid2 = scheduler_get_event_uuid(&s);
++  const event_id_t new_uuid2 = scheduler_get_event_uuid(&s);
+   assert_int_equal(new_uuid2, 4);
+   // +---+---+---+---+---
+   // | 1 | 3 | 2 | 4 |...

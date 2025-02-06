@@ -1,0 +1,32 @@
+From 522971d7eae558f1c547f64349bc2f29941413d3 Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@cloud.com>
+Date: Tue, 26 Nov 2024 11:38:49 +0000
+Subject: [PATCH 21/30] Use stack var in bitmap test
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ mockatests/vhd/test-bitops.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/mockatests/vhd/test-bitops.c b/mockatests/vhd/test-bitops.c
+index 44a5e168..695f3737 100644
+--- a/mockatests/vhd/test-bitops.c
++++ b/mockatests/vhd/test-bitops.c
+@@ -43,7 +43,7 @@
+ void test_set_clear_test_bit(void **state) {
+     /* Representative bitmap of 512 bytes */
+     uint32_t bit;
+-    uint8_t *map = malloc(512);
++    uint8_t map[512];
+ 
+     /* Start zero'd */
+     bzero(map, 512);
+@@ -60,8 +60,6 @@ void test_set_clear_test_bit(void **state) {
+         clear_bit(map, bit);
+         assert_false(test_bit(map, bit));
+     }
+-
+-    free(map);
+ }
+ 
+ void test_bitmaps(void **state) {

@@ -1,0 +1,463 @@
+From 2a64ef39ab5ae91d23cac164956b50420d31cff8 Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@citrix.com>
+Date: Mon, 6 Jan 2025 10:10:51 +0000
+Subject: [PATCH 25/30] CP-35551: stop tap-ctl list looking for sysfs minors
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ control/Makefile.am                    |  2 -
+ control/tap-ctl-check.c                | 85 --------------------------
+ control/tap-ctl-list.c                 |  4 +-
+ control/tap-ctl-major.c                | 75 -----------------------
+ control/tap-ctl.c                      | 83 -------------------------
+ include/blktap.h                       |  2 +-
+ include/blktap2.h                      |  2 +-
+ include/tap-ctl.h                      |  1 -
+ mockatests/control/test-tap-ctl-list.c | 16 ++---
+ 9 files changed, 12 insertions(+), 258 deletions(-)
+ delete mode 100644 control/tap-ctl-check.c
+ delete mode 100644 control/tap-ctl-major.c
+
+diff --git a/control/Makefile.am b/control/Makefile.am
+index 6ca88ab7..95f5dc65 100644
+--- a/control/Makefile.am
++++ b/control/Makefile.am
+@@ -28,8 +28,6 @@ libblktapctl_la_SOURCES += tap-ctl-open.c
+ libblktapctl_la_SOURCES += tap-ctl-close.c
+ libblktapctl_la_SOURCES += tap-ctl-pause.c
+ libblktapctl_la_SOURCES += tap-ctl-unpause.c
+-libblktapctl_la_SOURCES += tap-ctl-major.c
+-libblktapctl_la_SOURCES += tap-ctl-check.c
+ libblktapctl_la_SOURCES += tap-ctl-stats.c
+ libblktapctl_la_SOURCES += tap-ctl-xen.c
+ libblktapctl_la_SOURCES += tap-ctl-info.c
+diff --git a/control/tap-ctl-check.c b/control/tap-ctl-check.c
+deleted file mode 100644
+index 28ab80cb..00000000
+--- a/control/tap-ctl-check.c
++++ /dev/null
+@@ -1,85 +0,0 @@
+-/*
+- * Copyright (c) 2016, Citrix Systems, Inc.
+- *
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions are met:
+- * 
+- *  1. Redistributions of source code must retain the above copyright
+- *     notice, this list of conditions and the following disclaimer.
+- *  2. Redistributions in binary form must reproduce the above copyright
+- *     notice, this list of conditions and the following disclaimer in the
+- *     documentation and/or other materials provided with the distribution.
+- *  3. Neither the name of the copyright holder nor the names of its 
+- *     contributors may be used to endorse or promote products derived from 
+- *     this software without specific prior written permission.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+- * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+- * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-#ifdef HAVE_CONFIG_H
+-#include "config.h"
+-#endif
+-
+-#include <stdio.h>
+-#include <errno.h>
+-#include <unistd.h>
+-#include <string.h>
+-
+-#include "tap-ctl.h"
+-#include "blktap2.h"
+-
+-int
+-tap_ctl_check_blktap(const char **msg)
+-{
+-	FILE *f;
+-	int err = 0, minor;
+-	char name[33];
+-
+-	memset(name, 0, sizeof(name));
+-
+-	f = fopen("/proc/misc", "r");
+-	if (!f) {
+-		*msg = "failed to open /proc/misc";
+-		return -errno;
+-	}
+-
+-	while (fscanf(f, "%d %32s", &minor, name) == 2) {
+-		if (!strcmp(name, BLKTAP2_CONTROL_NAME))
+-			goto out;
+-	}
+-
+-	err = -ENOSYS;
+-	*msg = "blktap kernel module not installed";
+-
+-out:
+-	fclose(f);
+-	return err;
+-}
+-
+-int
+-tap_ctl_check(const char **msg)
+-{
+-	int err;
+-
+-	err = tap_ctl_check_blktap(msg);
+-	if (err)
+-		goto out;
+-
+-	err  = 0;
+-	*msg = "ok";
+-
+-out:
+-	return err;
+-}
+diff --git a/control/tap-ctl-list.c b/control/tap-ctl-list.c
+index f246630e..5b2a2ee8 100644
+--- a/control/tap-ctl-list.c
++++ b/control/tap-ctl-list.c
+@@ -133,7 +133,7 @@ _tap_ctl_find_minors(struct list_head *list)
+ 
+ 	INIT_LIST_HEAD(list);
+ 
+-	pattern = BLKTAP2_SYSFS_DIR"/blktap*";
++	pattern = BLKTAP2_NP_RUN_DIR"/tapdisk*";
+ 
+ 	err = glob(pattern, 0, NULL, &glbuf);
+ 	switch (err) {
+@@ -156,7 +156,7 @@ _tap_ctl_find_minors(struct list_head *list)
+ 			goto fail;
+ 		}
+ 
+-		n = sscanf(glbuf.gl_pathv[i], BLKTAP2_SYSFS_DIR"/blktap!blktap%d", &tl->minor);
++		n = sscanf(glbuf.gl_pathv[i], BLKTAP2_NP_RUN_DIR"/tapdisk-%d", &tl->minor);
+ 		if (n != 1) {
+ 			_tap_list_free(tl);
+ 			continue;
+diff --git a/control/tap-ctl-major.c b/control/tap-ctl-major.c
+deleted file mode 100644
+index 6ad3046a..00000000
+--- a/control/tap-ctl-major.c
++++ /dev/null
+@@ -1,75 +0,0 @@
+-/*
+- * Copyright (c) 2016, Citrix Systems, Inc.
+- *
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions are met:
+- * 
+- *  1. Redistributions of source code must retain the above copyright
+- *     notice, this list of conditions and the following disclaimer.
+- *  2. Redistributions in binary form must reproduce the above copyright
+- *     notice, this list of conditions and the following disclaimer in the
+- *     documentation and/or other materials provided with the distribution.
+- *  3. Neither the name of the copyright holder nor the names of its 
+- *     contributors may be used to endorse or promote products derived from 
+- *     this software without specific prior written permission.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+- * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+- * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+- * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+- * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-#ifdef HAVE_CONFIG_H
+-#include "config.h"
+-#endif
+-
+-#include <stdio.h>
+-#include <errno.h>
+-
+-#include "tap-ctl.h"
+-
+-int
+-tap_ctl_blk_major(void)
+-{
+-	FILE *devices;
+-	int rv, major;
+-
+-	devices = fopen("/proc/devices", "r");
+-	if (!devices) {
+-		rv = -errno;
+-		goto out;
+-	}
+-
+-	do {
+-		char buf[32], *s;
+-		int n, offset;
+-
+-		s = fgets(buf, sizeof(buf), devices);
+-		if (!s)
+-			break;
+-
+-		major  = -ENODEV;
+-		offset = 0;
+-
+-		n = sscanf(buf, "%d tapdev%n", &major, &offset);
+-		if (n == 1 && offset)
+-			break;
+-	} while (1);
+-
+-	rv = major;
+-
+-out:
+-	if (devices)
+-		fclose(devices);
+-
+-	return rv;
+-}
+diff --git a/control/tap-ctl.c b/control/tap-ctl.c
+index 64d96d0d..954212a7 100644
+--- a/control/tap-ctl.c
++++ b/control/tap-ctl.c
+@@ -704,54 +704,6 @@ usage:
+ 	return EINVAL;
+ }
+ 
+-static void
+-tap_cli_major_usage(FILE *stream)
+-{
+-	fprintf(stream, "usage: major [-h]\n");
+-}
+-
+-static int
+-tap_cli_major(int argc, char **argv)
+-{
+-	int c, chr, major;
+-
+-	chr = 0;
+-
+-	while ((c = getopt(argc, argv, "bch")) != -1) {
+-		switch (c) {
+-		case 'b':
+-			chr = 0;
+-			break;
+-		case 'c':
+-			chr = 1;
+-			break;
+-		case '?':
+-			goto usage;
+-		case 'h':
+-			tap_cli_major_usage(stdout);
+-			return 0;
+-		default:
+-			goto usage;
+-		}
+-	}
+-
+-	if (chr)
+-		major = -EINVAL;
+-	else
+-		major = tap_ctl_blk_major();
+-
+-	if (major < 0)
+-		return -major;
+-
+-	printf("%d\n", major);
+-
+-	return 0;
+-
+-usage:
+-	tap_cli_major_usage(stderr);
+-	return EINVAL;
+-}
+-
+ static void
+ tap_cli_open_usage(FILE *stream)
+ {
+@@ -917,31 +869,6 @@ usage:
+ 	return EINVAL;
+ }
+ 
+-static void
+-tap_cli_check_usage(FILE *stream)
+-{
+-	fprintf(stream, "usage: check\n"
+-		"(checks whether environment is suitable for tapdisk2)\n");
+-}
+-
+-static int
+-tap_cli_check(int argc, char **argv)
+-{
+-	int err;
+-	const char *msg;
+-
+-	if (argc != 1)
+-		goto usage;
+-
+-	err = tap_ctl_check(&msg);
+-	printf("%s\n", msg);
+-
+-	return err;
+-
+-usage:
+-	tap_cli_check_usage(stderr);
+-	return EINVAL;
+-}
+ 
+ struct command commands[] = {
+ 	{ .name = "list",         .func = tap_cli_list          },
+@@ -957,8 +884,6 @@ struct command commands[] = {
+ 	{ .name = "pause",        .func = tap_cli_pause         },
+ 	{ .name = "unpause",      .func = tap_cli_unpause       },
+ 	{ .name = "stats",        .func = tap_cli_stats         },
+-	{ .name = "major",        .func = tap_cli_major         },
+-	{ .name = "check",        .func = tap_cli_check         },
+ };
+ 
+ #define print_commands()					\
+@@ -1001,7 +926,6 @@ int
+ main(int argc, char *argv[])
+ {
+ 	char **cargv;
+-	const char *msg;
+ 	struct command *cmd;
+ 	int cargc, i, cnt, ret;
+ 	char *path = NULL, *prgname = NULL;
+@@ -1036,13 +960,6 @@ main(int argc, char *argv[])
+ 		help();
+ 	}
+ 
+-	ret = tap_ctl_check(&msg);
+-	if (ret) {
+-		printf("%s\n", msg);
+-		free(path);
+-		return ret;
+-	}
+-
+ 	cargv = malloc(sizeof(char *) * cargc);
+ 	if (!cargv)
+ 		exit(ENOMEM);
+diff --git a/include/blktap.h b/include/blktap.h
+index 1532746f..d3ed27ac 100644
+--- a/include/blktap.h
++++ b/include/blktap.h
+@@ -31,7 +31,7 @@
+ #ifndef _TD_BLKTAP_H_
+ #define _TD_BLKTAP_H_
+ 
+-#define BLKTAP2_SYSFS_DIR              "/sys/class/blktap2"
++#define BLKTAP2_NP_RUN_DIR              "/run/nonpersistent/tapdisk"
+ #define BLKTAP2_CONTROL_NAME           "blktap/control"
+ #define BLKTAP2_CONTROL_DIR            "/var/run/blktap-control"
+ #define BLKTAP2_CONTROL_SOCKET         "ctl"
+diff --git a/include/blktap2.h b/include/blktap2.h
+index c30618ad..9cd44ede 100644
+--- a/include/blktap2.h
++++ b/include/blktap2.h
+@@ -49,7 +49,7 @@
+ #define BLKTAP2_IOCTL_RESUME           206
+ #define BLKTAP2_IOCTL_REMOVE_DEVICE    207
+ 
+-#define BLKTAP2_SYSFS_DIR              "/sys/class/blktap2"
++#define BLKTAP2_NP_RUN_DIR              "/run/nonpersistent/tapdisk"
+ #define BLKTAP2_CONTROL_NAME           "blktap/control"
+ #define BLKTAP2_CONTROL_DIR            "/var/run/blktap-control"
+ #define BLKTAP2_CONTROL_SOCKET         "ctl"
+diff --git a/include/tap-ctl.h b/include/tap-ctl.h
+index adf75695..b590b3f2 100644
+--- a/include/tap-ctl.h
++++ b/include/tap-ctl.h
+@@ -63,7 +63,6 @@ int tap_ctl_kernel_version(int *major, int *minor);
+ 
+ int tap_ctl_check_blktap(const char **message);
+ int tap_ctl_check_version(const char **message);
+-int tap_ctl_check(const char **message);
+ 
+ int tap_ctl_connect(const char *path, int *socket);
+ int tap_ctl_connect_id(int id, int *socket);
+diff --git a/mockatests/control/test-tap-ctl-list.c b/mockatests/control/test-tap-ctl-list.c
+index d2a96a80..fb1a6eee 100644
+--- a/mockatests/control/test-tap-ctl-list.c
++++ b/mockatests/control/test-tap-ctl-list.c
+@@ -51,7 +51,7 @@ void test_tap_ctl_list_success_no_results(void **state)
+ 	int err;
+ 	struct list_head list = LIST_HEAD_INIT(list);
+ 
+-	expect_string(__wrap_glob, pattern, "/sys/class/blktap2/blktap*");
++	expect_string(__wrap_glob, pattern, "/run/nonpersistent/tapdisk/tapdisk*");
+ 	will_return(__wrap_glob, GLOB_NOMATCH);
+ 	expect_string(__wrap_glob, pattern, "/var/run/blktap-control/ctl*");
+ 	will_return(__wrap_glob, GLOB_NOMATCH);
+@@ -69,7 +69,7 @@ void test_tap_ctl_list_success_one_minor_no_td(void **state)
+ 	tap_list_t *entry;
+ 	struct list_head list = LIST_HEAD_INIT(list);
+ 
+-	char *sys_glob_path = "/sys/class/blktap2/blktap!blktap0";
++	char *sys_glob_path = "/run/nonpersistent/tapdisk/tapdisk-0";
+ 	char *sys_glob_data;
+ 	char **sys_pathv = &sys_glob_data;
+ 
+@@ -77,7 +77,7 @@ void test_tap_ctl_list_success_one_minor_no_td(void **state)
+ 	memset(sys_glob_data, 0, strlen(sys_glob_path) + 2);
+ 	strcpy(sys_glob_data, sys_glob_path);
+ 
+-	expect_string(__wrap_glob, pattern, "/sys/class/blktap2/blktap*");
++	expect_string(__wrap_glob, pattern, "/run/nonpersistent/tapdisk/tapdisk*");
+ 	will_return(__wrap_glob, 0);
+ 	will_return(__wrap_glob, 1);
+ 	will_return(__wrap_glob, sys_pathv);
+@@ -117,7 +117,7 @@ void test_tap_ctl_list_success_one_td_no_minor_no_path(void **state)
+ 	memset(glob_data, 0, strlen(glob_path) + 2);
+ 	strcpy(glob_data, glob_path);
+ 
+-	expect_string(__wrap_glob, pattern, "/sys/class/blktap2/blktap*");
++	expect_string(__wrap_glob, pattern, "/run/nonpersistent/tapdisk/tapdisk*");
+ 	will_return(__wrap_glob, GLOB_NOMATCH);
+ 	expect_string(__wrap_glob, pattern, "/var/run/blktap-control/ctl*");
+ 	will_return(__wrap_glob, 0);
+@@ -192,7 +192,7 @@ void test_tap_ctl_list_success_one_td_one_minor_no_path(void **state)
+ 	tapdisk_message_t *read_message;
+ 	struct mock_ipc_params *pid_ipc_params;
+ 	struct mock_ipc_params *list_ipc_params;
+-	char *sys_glob_path = "/sys/class/blktap2/blktap!blktap0";
++	char *sys_glob_path = "/run/nonpersistent/tapdisk/tapdisk-0";
+ 	char *sys_glob_data;
+ 	char **sys_pathv = &sys_glob_data;
+ 	char *glob_path = "/var/run/blktap-control/ctl1236";
+@@ -207,7 +207,7 @@ void test_tap_ctl_list_success_one_td_one_minor_no_path(void **state)
+ 	memset(glob_data, 0, strlen(glob_path) + 2);
+ 	strcpy(glob_data, glob_path);
+ 
+-	expect_string(__wrap_glob, pattern, "/sys/class/blktap2/blktap*");
++	expect_string(__wrap_glob, pattern, "/run/nonpersistent/tapdisk/tapdisk*");
+ 	will_return(__wrap_glob, 0);
+ 	will_return(__wrap_glob, 1);
+ 	will_return(__wrap_glob, sys_pathv);
+@@ -284,7 +284,7 @@ void test_tap_ctl_list_success(void **state)
+ 	tapdisk_message_t *read_message;
+ 	struct mock_ipc_params *pid_ipc_params;
+ 	struct mock_ipc_params *list_ipc_params;
+-	char *sys_glob_path = "/sys/class/blktap2/blktap!blktap0";
++	char *sys_glob_path = "/run/nonpersistent/tapdisk/tapdisk-0";
+ 	char *sys_glob_data;
+ 	char **sys_pathv = &sys_glob_data;
+ 	char *glob_path = "/var/run/blktap-control/ctl1236";
+@@ -302,7 +302,7 @@ void test_tap_ctl_list_success(void **state)
+ 	memset(glob_data, 0, strlen(glob_path) + 2);
+ 	strcpy(glob_data, glob_path);
+ 
+-	expect_string(__wrap_glob, pattern, "/sys/class/blktap2/blktap*");
++	expect_string(__wrap_glob, pattern, "/run/nonpersistent/tapdisk/tapdisk*");
+ 	will_return(__wrap_glob, 0);
+ 	will_return(__wrap_glob, 1);
+ 	will_return(__wrap_glob, sys_pathv);

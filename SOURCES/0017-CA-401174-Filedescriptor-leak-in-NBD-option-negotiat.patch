@@ -1,0 +1,64 @@
+From 3ca86b2d1c643c7e46ddea2d68904a7e38b51f26 Mon Sep 17 00:00:00 2001
+From: Tim Smith <tim.smith@cloud.com>
+Date: Mon, 4 Nov 2024 11:17:32 +0000
+Subject: [PATCH 17/30] CA-401174 Filedescriptor leak in NBD option negotiation
+
+If the initial NBD server identification is sent, the NBD server
+registers a callback for events on the filedescriptor and awaits further
+activity. When this occurs after an NBD_CLOSE, as we allow a connection
+to be re-used for a new session, we must make sure to close the
+filedescriptor if the session is NOT re-used.
+
+A previous fix plugged an FD leak which occurred when the NBDMAGIC
+failed to be sent fully at session initialisation. However, there is
+another leak which can occur when the NBDMAGIC is send, but not read,
+and the client closes the connection during the callback-driven phase of
+option negotiation.
+
+Close that FD here whenever option negotiation fails.
+
+Also, when there is an error during client communication which results
+in a client shutdown, the FD needs to be closed there too.
+
+Signed-off-by: Tim Smith <tim.smith@cloud.com>
+---
+ drivers/tapdisk-nbdserver.c | 12 +++++++-----
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/tapdisk-nbdserver.c b/drivers/tapdisk-nbdserver.c
+index 34e9831b..ace24d95 100644
+--- a/drivers/tapdisk-nbdserver.c
++++ b/drivers/tapdisk-nbdserver.c
+@@ -351,7 +351,7 @@ tapdisk_nbdserver_reqs_free(td_nbdserver_client_t *client)
+ }
+ 
+ static int 
+-send_info_export (int new_fd, uint32_t option, uint32_t reply, uint16_t info, uint64_t exportsize,
++send_info_export(int new_fd, uint32_t option, uint32_t reply, uint16_t info, uint64_t exportsize,
+ 		  uint16_t flags)
+ {
+ 	struct nbd_fixed_new_option_reply fixed_new_option_reply;
+@@ -1042,9 +1042,11 @@ tapdisk_nbdserver_handshake_cb(event_id_t id, char mode, void *data)
+ 	cflags = be32toh (cflags);
+ 	bool no_zeroes = (NBD_FLAG_NO_ZEROES & cflags) != 0;
+ 
+-        /* Receive newstyle options. */
+-        if (receive_newstyle_options (client, server->handshake_fd, no_zeroes) == -1)
+-			INFO("Option negotiation terminated");
++	/* Receive newstyle options. */
++	if (receive_newstyle_options(client, server->handshake_fd, no_zeroes) == -1) {
++		INFO("Option negotiation terminated");
++		close(server->handshake_fd);
++	}
+ 
+ 	tapdisk_server_unregister_event(id);
+ }
+@@ -1331,7 +1333,7 @@ tapdisk_nbdserver_clientcb(event_id_t id, char mode, void *data)
+ fail:
+ 	if (vreq)
+ 		tapdisk_nbd_server_free_vreq(client, vreq, false);
+-
++	close(client->client_fd);
+ 	tapdisk_nbdserver_free_client(client);
+ 	return;
+ }

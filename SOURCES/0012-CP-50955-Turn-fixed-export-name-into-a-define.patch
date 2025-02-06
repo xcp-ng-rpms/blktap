@@ -1,0 +1,41 @@
+From bbda6e240497c90f9873ccf6a8f34e13f3a64e65 Mon Sep 17 00:00:00 2001
+From: Tim Smith <tim.smith@cloud.com>
+Date: Mon, 9 Sep 2024 10:39:17 +0100
+Subject: [PATCH 12/30] CP-50955 Turn fixed export name into a define
+
+We still have a separate NBD server instance for each VDI, which
+therefore doesn't really care much about the name, but since we have a
+fixed name we're using, move it to a macro to keep it consistent.
+
+Signed-off-by: Tim Smith <tim.smith@cloud.com>
+---
+ drivers/block-nbd.c            | 2 +-
+ drivers/tapdisk-protocol-new.h | 2 ++
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/block-nbd.c b/drivers/block-nbd.c
+index 96ae77b9..0441feb9 100644
+--- a/drivers/block-nbd.c
++++ b/drivers/block-nbd.c
+@@ -558,7 +558,7 @@ negotiate_client_newstyle_options(int sock, td_driver_t *driver)
+ {
+ 	int rc;
+ 	struct nbd_new_option new_option;
+-	char exportname[] = "tapdisk_client"; /* Hard code could make this unique */
++	char exportname[] = NBD_FIXED_SINGLE_EXPORT;
+ 	new_option.version = htobe64(NBD_OPT_MAGIC);
+ 	new_option.optlen = htobe32(sizeof(exportname));
+ 	new_option.option = htobe32( NBD_OPT_EXPORT_NAME);
+diff --git a/drivers/tapdisk-protocol-new.h b/drivers/tapdisk-protocol-new.h
+index 315d1ac0..456a6498 100644
+--- a/drivers/tapdisk-protocol-new.h
++++ b/drivers/tapdisk-protocol-new.h
+@@ -31,6 +31,8 @@
+ #ifndef _TAPDISK_PROTOCOL_NEW_H_
+ #define _TAPDISK_PROTOCOL_NEW_H_
+ 
++#define NBD_FIXED_SINGLE_EXPORT "tapdisk_client"
++
+ #define NBD_REP_ERR(val) (0x80000000 | (val))
+ #define NBD_MAGIC       UINT64_C(0x4e42444d41474943) /* ASCII "NBDMAGIC" aka INIT_PASSWD */
+ #define NBD_OLD_VERSION UINT64_C(0x0000420281861253) /* "cliserv_magic" - the NBD old-style magic number */

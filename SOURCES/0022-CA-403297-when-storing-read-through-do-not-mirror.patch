@@ -1,0 +1,93 @@
+From c6ef4d28cb9bf83f000c7cc09b182c165c8875ca Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@cloud.com>
+Date: Mon, 2 Dec 2024 10:11:53 +0000
+Subject: [PATCH 22/30] CA-403297: when storing read-through do not mirror
+
+When the lcache driver has read from the remote storage and returned
+the data to the caller it then stores the data into the local vhdcache
+by forwarding a write to the vhdcache file. As the vhdcache file is
+opened in TD_VBD_SECONDARY_MIRROR mode this also results in the data
+being unnecessarily written back to the remote where it has just been
+read from.
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ drivers/block-lcache.c |  1 +
+ drivers/tapdisk-vbd.c  | 29 ++++++++++++++++++-----------
+ drivers/tapdisk.h      |  2 ++
+ 3 files changed, 21 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/block-lcache.c b/drivers/block-lcache.c
+index 6064af1f..2035c986 100644
+--- a/drivers/block-lcache.c
++++ b/drivers/block-lcache.c
+@@ -284,6 +284,7 @@ lcache_store_read(td_lcache_t *cache, td_lcache_req_t *req)
+ 	vreq->iovcnt = 1;
+ 	vreq->cb     = __lcache_write_cb;
+ 	vreq->token  = cache;
++	vreq->skip_mirror = true;
+ 
+ 	vbd = req->treq.vreq->vbd;
+ 
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 76b26d2e..628df4c6 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1552,7 +1552,9 @@ tapdisk_vbd_issue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ 		vreq->secs_pending += iov->secs;
+ 		vbd->secs_pending  += iov->secs;
+ 		if (vbd->secondary_mode == TD_VBD_SECONDARY_MIRROR &&
+-		    vreq->op == TD_OP_WRITE) {
++		    vreq->op == TD_OP_WRITE &&
++			likely(vreq->skip_mirror == false))
++		{
+ 			vreq->secs_pending += iov->secs;
+ 			vbd->secs_pending  += iov->secs;
+ 		}
+@@ -1560,18 +1562,23 @@ tapdisk_vbd_issue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ 		switch (vreq->op) {
+ 		case TD_OP_WRITE:
+ 			treq.op = TD_OP_WRITE;
+-                        vbd->vdi_stats.stats->write_reqs_submitted++;
++			vbd->vdi_stats.stats->write_reqs_submitted++;
+ 			/*
+-			 * it's important to queue the mirror request before 
+-			 * queuing the main one. If the main image runs into 
+-			 * ENOSPC, the mirroring could be disabled before 
+-			 * td_queue_write returns, so if the mirror request was 
+-			 * queued after (which would then not happen), we'd 
+-			 * lose that write and cause the process to hang with 
+-			 * unacknowledged writes
++			 * it's important to queue the mirror request before
++			 * queuing the main one. If the main image runs into
++			 * ENOSPC, the mirroring could be disabled before
++			 * td_queue_write returns, so if the mirror request was
++			 * queued after (which would then not happen), we'd
++			 * lose that write and cause the process to hang with
++			 * unacknowledged writes.
++			 *
++			 * Skip when lcache is storing a read-through.
+ 			 */
+-			if (vbd->secondary_mode == TD_VBD_SECONDARY_MIRROR)
+-				queue_mirror_req(vbd, treq);
++			if (vbd->secondary_mode == TD_VBD_SECONDARY_MIRROR &&
++				likely(vreq->skip_mirror == false)) {
++					queue_mirror_req(vbd, treq);
++			}
++
+ 			td_queue_write(treq.image, treq);
+ 			break;
+ 
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index 053e7ab7..3163e190 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -177,6 +177,8 @@ struct td_vbd_request {
+ 	int                         num_retries;
+ 	struct timeval		    ts;
+ 	struct timeval              last_try;
++	/* When "reading-through" the local cache, don't write back to the source */
++	bool                        skip_mirror;
+ 
+ 	td_vbd_t                   *vbd;
+ 	struct list_head            next;
