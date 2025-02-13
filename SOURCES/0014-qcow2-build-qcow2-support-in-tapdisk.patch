@@ -1,7 +1,7 @@
-From c05579a0815e81f48241d2d3a650e30fe7e5e8e4 Mon Sep 17 00:00:00 2001
+From 3867d8f0e5391d0f9c7c5e8c2457262ecc856d22 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:28 +0100
-Subject: [PATCH 13/19] qcow2: build qcow2 support in tapdisk
+Subject: [PATCH 14/24] qcow2: build qcow2 support in tapdisk
 
 This commit modify sources from qemu to disable some features
 unneeded for tapdisk.
@@ -13,25 +13,25 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  configure.ac                                |   8 +
  include/block/aio.h                         |   9 +-
  include/block/block-common.h                |   4 +-
- include/block/block-global-state.h          |   4 +
+ include/block/block-global-state.h          |   2 +
  include/block/block_int-common.h            |   2 +-
  include/block/block_int-global-state.h      |  12 +
- include/block/blockjob.h                    |  10 +-
  include/compiler.h                          |   2 +
  include/crypto/hash.h                       |  20 +-
  include/hw/block/block.h                    |   2 +-
  include/list.h                              |   2 +
  include/qapi/qapi-commands-block-core.h     |   6 +-
- include/qapi/qapi-types-block-core.h        |  82 +-
- include/qapi/qapi-types-job.h               | 140 ++++
+ include/qapi/qapi-commands-block.h          |   2 +-
+ include/qapi/qapi-events-block-core.h       |   4 +-
+ include/qapi/qapi-types-block-core.h        |  76 ++-
  include/qapi/qapi-visit-block-core.h        |   6 +-
+ include/qapi/qmp/dispatch.h                 |   2 +-
  include/qcow2.h                             |  22 +-
  include/qemu/atomic.h                       |   2 +-
  include/qemu/bitops.h                       |   9 +-
- include/qemu/config-host.h                  | 495 +++++++++++
+ include/qemu/config-host.h                  | 495 ++++++++++++++++++++
  include/qemu/hbitmap.h                      |   4 +-
  include/qemu/host-utils.h                   |   6 +-
- include/qemu/job.h                          |   4 +-
  include/qemu/main-loop.h                    |  12 +-
  include/qemu/option_int.h                   |   2 +-
  include/qemu/osdep.h                        |   2 +-
@@ -41,42 +41,48 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  include/sysemu/block-backend-global-state.h |   4 +-
  include/sysemu/block-backend-io.h           |   4 +
  qcow2/Makefile.am                           |  21 +
- qcow2/lib/Makefile.am                       | 126 +++
- qcow2/lib/block.c                           |  32 +-
+ qcow2/lib/Makefile.am                       | 136 ++++++
+ qcow2/lib/block.c                           |  28 +-
  qcow2/lib/block/accounting.c                |   3 +-
- qcow2/lib/block/block-backend.c             | 122 ++-
+ qcow2/lib/block/block-backend.c             | 118 +++--
  qcow2/lib/block/block-gen.c                 |   4 +
+ qcow2/lib/block/commit.c                    |   6 +-
  qcow2/lib/block/dirty-bitmap.c              |   2 +-
  qcow2/lib/block/file-posix.c                |  46 +-
- qcow2/lib/block/io.c                        |  60 +-
- qcow2/lib/block/linux-aio.c                 | 507 +++++++++++
+ qcow2/lib/block/io.c                        |  60 ++-
+ qcow2/lib/block/mirror.c                    |  30 +-
  qcow2/lib/block/qapi.c                      |   6 +-
- qcow2/lib/block/raw-format.c                | 686 +++++++++++++++
- qcow2/lib/crypto/hash.c                     |  96 ++-
+ qcow2/lib/block/raw-format.c                |   4 +
+ qcow2/lib/blockdev.c                        |  26 +-
+ qcow2/lib/blockjob.c                        |   6 +-
+ qcow2/lib/crypto/hash.c                     |  96 +++-
  qcow2/lib/hw/block/block.c                  |   8 +-
  qcow2/lib/hw/block/hd-geometry.c            |   6 +-
- qcow2/lib/job.c                             |  24 +-
- qcow2/lib/qapi/qapi-events-job.c            |  10 +-
+ qcow2/lib/job-qmp.c                         |  14 +-
+ qcow2/lib/job.c                             |  14 +-
+ qcow2/lib/qapi/qapi-events-block-core.c     |  24 +-
+ qcow2/lib/qapi/qapi-events-job.c            |   6 +-
  qcow2/lib/qapi/qapi-types-block-core.c      |  38 +-
  qcow2/lib/qapi/qapi-types-common.c          |   4 +-
- qcow2/lib/qapi/qapi-visit-block-core.c      |  76 +-
+ qcow2/lib/qapi/qapi-types-job.c             |   4 +-
+ qcow2/lib/qapi/qapi-visit-block-core.c      |  80 +++-
  qcow2/lib/qapi/qapi-visit-common.c          |   2 +-
- qcow2/lib/qapi/qapi-visit-core.c            |  62 +-
- qcow2/lib/qapi/qobject-input-visitor.c      |  16 +-
+ qcow2/lib/qapi/qapi-visit-core.c            |  62 +--
+ qcow2/lib/qapi/qapi-visit-job.c             |   2 +-
+ qcow2/lib/qapi/qmp-dispatch.c               |   2 +
+ qcow2/lib/qapi/qobject-input-visitor.c      |   4 +-
  qcow2/lib/qcow2-cache.c                     |  26 +-
  qcow2/lib/qcow2-cluster.c                   |  34 +-
  qcow2/lib/qcow2-refcount.c                  |   7 +-
  qcow2/lib/qcow2-threads.c                   |   4 +-
- qcow2/lib/qcow2.c                           | 186 ++--
+ qcow2/lib/qcow2.c                           | 186 +++++---
  qcow2/lib/qobject/block-qdict.c             |   2 +
- qcow2/lib/system/cpus.c                     | 886 ++++++++++++++++++++
+ qcow2/lib/system/cpus.c                     |  44 +-
  qcow2/lib/util/aio-posix.c                  |  20 +-
  qcow2/lib/util/async.c                      |   8 +-
- qcow2/lib/util/bitops.c                     | 157 ++++
  qcow2/lib/util/bufferiszero.c               |   9 +-
  qcow2/lib/util/cutils.c                     |   6 +-
  qcow2/lib/util/error-report.c               |  12 +-
- qcow2/lib/util/fdmon-epoll.c                | 156 ++++
  qcow2/lib/util/hbitmap.c                    |  12 +-
  qcow2/lib/util/host-utils.c                 |   2 +
  qcow2/lib/util/iov.c                        |   6 +-
@@ -95,18 +101,11 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  qcow2/lib/util/qemu-timer.c                 |  25 +-
  qcow2/lib/util/qsp.c                        |  10 +-
  qcow2/lib/util/thread-pool.c                |  10 +-
- qcow2/qemu-img.c                            |  93 +-
- qemu-files.lst                              |   5 +
- 89 files changed, 4234 insertions(+), 460 deletions(-)
- create mode 100644 include/qapi/qapi-types-job.h
+ qcow2/qemu-img.c                            |  76 +--
+ 94 files changed, 1767 insertions(+), 501 deletions(-)
  create mode 100644 include/qemu/config-host.h
  create mode 100644 qcow2/Makefile.am
  create mode 100644 qcow2/lib/Makefile.am
- create mode 100644 qcow2/lib/block/linux-aio.c
- create mode 100644 qcow2/lib/block/raw-format.c
- create mode 100644 qcow2/lib/system/cpus.c
- create mode 100644 qcow2/lib/util/bitops.c
- create mode 100644 qcow2/lib/util/fdmon-epoll.c
 
 diff --git a/.gitignore b/.gitignore
 index eb160772..c673495b 100644
@@ -247,7 +246,7 @@ index 338fe5ff..b07b07e2 100644
  void bdrv_init_with_whitelist(void);
  bool bdrv_uses_whitelist(void);
 diff --git a/include/block/block-global-state.h b/include/block/block-global-state.h
-index bd7cecd1..055bbd8a 100644
+index bd7cecd1..2e54cf5e 100644
 --- a/include/block/block-global-state.h
 +++ b/include/block/block-global-state.h
 @@ -196,8 +196,10 @@ void bdrv_aio_cancel(BlockAIOCB *acb);
@@ -261,18 +260,6 @@ index bd7cecd1..055bbd8a 100644
  BlockDriverState *bdrv_lookup_bs(const char *device,
                                   const char *node_name,
                                   Error **errp);
-@@ -268,9 +270,11 @@ int bdrv_debug_remove_breakpoint(BlockDriverState *bs, const char *tag);
- int bdrv_debug_resume(BlockDriverState *bs, const char *tag);
- bool bdrv_debug_is_suspended(BlockDriverState *bs, const char *tag);
- 
-+#if 0
- bool bdrv_child_change_aio_context(BdrvChild *c, AioContext *ctx,
-                                    GHashTable *visited, Transaction *tran,
-                                    Error **errp);
-+#endif
- int bdrv_try_change_aio_context(BlockDriverState *bs, AioContext *ctx,
-                                 BdrvChild *ignore_child, Error **errp);
- 
 diff --git a/include/block/block_int-common.h b/include/block/block_int-common.h
 index ebb4e56a..c6d8b950 100644
 --- a/include/block/block_int-common.h
@@ -363,41 +350,6 @@ index eb2d92a2..2d91fb96 100644
  
  
  BlockDriverState * GRAPH_RDLOCK
-diff --git a/include/block/blockjob.h b/include/block/blockjob.h
-index 7061ab72..eb4a02b7 100644
---- a/include/block/blockjob.h
-+++ b/include/block/blockjob.h
-@@ -28,7 +28,7 @@
- 
- #include "qapi/qapi-types-block-core.h"
- #include "qemu/job.h"
--#include "qemu/ratelimit.h"
-+//#include "qemu/ratelimit.h"
- 
- #define BLOCK_JOB_SLICE_TIME 100000000ULL /* ns */
- 
-@@ -62,7 +62,7 @@ typedef struct BlockJob {
-      * Rate limiting data structure for implementing @speed.
-      * RateLimit API is thread-safe.
-      */
--    RateLimit limit;
-+    //RateLimit limit;
- 
-     /**
-      * Block other operations when block job is running.
-@@ -210,7 +210,11 @@ void block_job_iostatus_reset_locked(BlockJob *job);
-  *
-  * Returns aio context associated with a block job.
-  */
--AioContext *block_job_get_aio_context(BlockJob *job);
-+inline AioContext *block_job_get_aio_context(BlockJob *job)
-+{
-+    //GLOBAL_STATE_CODE();
-+    return job->job.aio_context;
-+}
- 
- 
- /*
 diff --git a/include/compiler.h b/include/compiler.h
 index 57ab2367..9ab73c76 100644
 --- a/include/compiler.h
@@ -495,19 +447,49 @@ index e698e23c..84c2dfa9 100644
  #include "qapi-types-block-core.h"
  
  BlockInfoList *qmp_query_block(Error **errp);
+diff --git a/include/qapi/qapi-commands-block.h b/include/qapi/qapi-commands-block.h
+index 2c1adc60..4f072d47 100644
+--- a/include/qapi/qapi-commands-block.h
++++ b/include/qapi/qapi-commands-block.h
+@@ -13,7 +13,7 @@
+ #ifndef QAPI_COMMANDS_BLOCK_H
+ #define QAPI_COMMANDS_BLOCK_H
+ 
+-#include "qapi-commands-block-core.h"
++#include "qapi/qapi-commands-block-core.h"
+ #include "qapi-types-block.h"
+ 
+ PRManagerInfoList *qmp_query_pr_managers(Error **errp);
+diff --git a/include/qapi/qapi-events-block-core.h b/include/qapi/qapi-events-block-core.h
+index 7f12beff..e9830b25 100644
+--- a/include/qapi/qapi-events-block-core.h
++++ b/include/qapi/qapi-events-block-core.h
+@@ -14,9 +14,9 @@
+ #define QAPI_EVENTS_BLOCK_CORE_H
+ 
+ #include "qapi-events-common.h"
+-#include "qapi-events-crypto.h"
++//#include "qapi-events-crypto.h"
+ #include "qapi-events-job.h"
+-#include "qapi-events-sockets.h"
++//#include "qapi-events-sockets.h"
+ #include "qapi/util.h"
+ #include "qapi-types-block-core.h"
+ 
 diff --git a/include/qapi/qapi-types-block-core.h b/include/qapi/qapi-types-block-core.h
-index 26585893..f1c341f3 100644
+index 26585893..a2c2f2e2 100644
 --- a/include/qapi/qapi-types-block-core.h
 +++ b/include/qapi/qapi-types-block-core.h
-@@ -15,9 +15,9 @@
+@@ -14,10 +14,10 @@
+ #define QAPI_TYPES_BLOCK_CORE_H
  
  #include "qapi/qapi-builtin-types.h"
- #include "qapi-types-common.h"
+-#include "qapi-types-common.h"
 -#include "qapi-types-crypto.h"
--#include "qapi-types-job.h"
--#include "qapi-types-sockets.h"
++#include "qapi/qapi-types-common.h"
 +//#include "qapi-types-crypto.h"
-+//#include "qapi-types-job.h"
+ #include "qapi-types-job.h"
+-#include "qapi-types-sockets.h"
 +//#include "qapi-types-sockets.h"
  
  typedef struct SnapshotInfo SnapshotInfo;
@@ -568,23 +550,7 @@ index 26585893..f1c341f3 100644
          ImageInfoSpecificFileWrapper file;
      } u;
  };
-@@ -1603,6 +1611,7 @@ struct BlockJobInfoMirror {
- void qapi_free_BlockJobInfoMirror(BlockJobInfoMirror *obj);
- G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockJobInfoMirror, qapi_free_BlockJobInfoMirror)
- 
-+#if 0
- struct q_obj_BlockJobInfo_base {
-     JobType type;
-     char *device;
-@@ -1648,6 +1657,7 @@ struct BlockJobInfoList {
- 
- void qapi_free_BlockJobInfoList(BlockJobInfoList *obj);
- G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockJobInfoList, qapi_free_BlockJobInfoList)
-+#endif
- 
- struct q_obj_block_resize_arg {
-     char *device;
-@@ -2186,6 +2196,7 @@ struct BlockJobChangeOptionsMirror {
+@@ -2186,6 +2194,7 @@ struct BlockJobChangeOptionsMirror {
  void qapi_free_BlockJobChangeOptionsMirror(BlockJobChangeOptionsMirror *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockJobChangeOptionsMirror, qapi_free_BlockJobChangeOptionsMirror)
  
@@ -592,7 +558,7 @@ index 26585893..f1c341f3 100644
  struct q_obj_BlockJobChangeOptions_base {
      char *id;
      JobType type;
-@@ -2201,6 +2212,7 @@ struct BlockJobChangeOptions {
+@@ -2201,6 +2210,7 @@ struct BlockJobChangeOptions {
  
  void qapi_free_BlockJobChangeOptions(BlockJobChangeOptions *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockJobChangeOptions, qapi_free_BlockJobChangeOptions)
@@ -600,7 +566,7 @@ index 26585893..f1c341f3 100644
  
  struct BlockdevCacheOptions {
      bool has_direct;
-@@ -2341,6 +2353,7 @@ struct Qcow2OverlapChecks {
+@@ -2341,6 +2351,7 @@ struct Qcow2OverlapChecks {
  void qapi_free_Qcow2OverlapChecks(Qcow2OverlapChecks *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(Qcow2OverlapChecks, qapi_free_Qcow2OverlapChecks)
  
@@ -608,7 +574,7 @@ index 26585893..f1c341f3 100644
  struct q_obj_BlockdevQcowEncryption_base {
      BlockdevQcowEncryptionFormat format;
  };
-@@ -2385,6 +2398,7 @@ struct BlockdevQcow2Encryption {
+@@ -2385,6 +2396,7 @@ struct BlockdevQcow2Encryption {
  
  void qapi_free_BlockdevQcow2Encryption(BlockdevQcow2Encryption *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevQcow2Encryption, qapi_free_BlockdevQcow2Encryption)
@@ -616,7 +582,7 @@ index 26585893..f1c341f3 100644
  
  struct BlockdevOptionsPreallocate {
      /* Members inherited from BlockdevOptionsGenericFormat: */
-@@ -2442,6 +2456,7 @@ static inline BlockdevOptionsGenericCOWFormat *qapi_BlockdevOptionsQcow2_base(co
+@@ -2442,6 +2454,7 @@ static inline BlockdevOptionsGenericCOWFormat *qapi_BlockdevOptionsQcow2_base(co
  void qapi_free_BlockdevOptionsQcow2(BlockdevOptionsQcow2 *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevOptionsQcow2, qapi_free_BlockdevOptionsQcow2)
  
@@ -624,7 +590,7 @@ index 26585893..f1c341f3 100644
  struct SshHostKeyHash {
      SshHostKeyCheckHashType type;
      char *hash;
-@@ -2575,6 +2590,7 @@ struct BlockdevOptionsBlkreplay {
+@@ -2575,6 +2588,7 @@ struct BlockdevOptionsBlkreplay {
  
  void qapi_free_BlockdevOptionsBlkreplay(BlockdevOptionsBlkreplay *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevOptionsBlkreplay, qapi_free_BlockdevOptionsBlkreplay)
@@ -632,7 +598,7 @@ index 26585893..f1c341f3 100644
  
  struct BlockdevRefList {
      BlockdevRefList *next;
-@@ -2598,6 +2614,7 @@ struct BlockdevOptionsQuorum {
+@@ -2598,6 +2612,7 @@ struct BlockdevOptionsQuorum {
  void qapi_free_BlockdevOptionsQuorum(BlockdevOptionsQuorum *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevOptionsQuorum, qapi_free_BlockdevOptionsQuorum)
  
@@ -640,7 +606,7 @@ index 26585893..f1c341f3 100644
  struct BlockdevOptionsGluster {
      char *volume;
      char *path;
-@@ -2609,6 +2626,7 @@ struct BlockdevOptionsGluster {
+@@ -2609,6 +2624,7 @@ struct BlockdevOptionsGluster {
  
  void qapi_free_BlockdevOptionsGluster(BlockdevOptionsGluster *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevOptionsGluster, qapi_free_BlockdevOptionsGluster)
@@ -648,7 +614,7 @@ index 26585893..f1c341f3 100644
  
  #if defined(CONFIG_BLKIO)
  struct BlockdevOptionsIoUring {
-@@ -2683,6 +2701,7 @@ struct BlockdevOptionsIscsi {
+@@ -2683,6 +2699,7 @@ struct BlockdevOptionsIscsi {
  void qapi_free_BlockdevOptionsIscsi(BlockdevOptionsIscsi *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevOptionsIscsi, qapi_free_BlockdevOptionsIscsi)
  
@@ -656,7 +622,7 @@ index 26585893..f1c341f3 100644
  struct RbdEncryptionOptionsLUKSBase {
      char *key_secret;
  };
-@@ -2848,6 +2867,7 @@ struct BlockdevOptionsReplication {
+@@ -2848,6 +2865,7 @@ struct BlockdevOptionsReplication {
      char *top_id;
  };
  #endif /* defined(CONFIG_REPLICATION) */
@@ -664,7 +630,7 @@ index 26585893..f1c341f3 100644
  
  #if defined(CONFIG_REPLICATION)
  static inline BlockdevOptionsGenericFormat *qapi_BlockdevOptionsReplication_base(const BlockdevOptionsReplication *obj)
-@@ -2998,6 +3018,7 @@ static inline BlockdevOptionsCurlBase *qapi_BlockdevOptionsCurlFtps_base(const B
+@@ -2998,6 +3016,7 @@ static inline BlockdevOptionsCurlBase *qapi_BlockdevOptionsCurlFtps_base(const B
  void qapi_free_BlockdevOptionsCurlFtps(BlockdevOptionsCurlFtps *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevOptionsCurlFtps, qapi_free_BlockdevOptionsCurlFtps)
  
@@ -672,7 +638,7 @@ index 26585893..f1c341f3 100644
  struct BlockdevOptionsNbd {
      SocketAddress *server;
      char *export;
-@@ -3012,6 +3033,7 @@ struct BlockdevOptionsNbd {
+@@ -3012,6 +3031,7 @@ struct BlockdevOptionsNbd {
  
  void qapi_free_BlockdevOptionsNbd(BlockdevOptionsNbd *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevOptionsNbd, qapi_free_BlockdevOptionsNbd)
@@ -680,7 +646,7 @@ index 26585893..f1c341f3 100644
  
  struct BlockdevOptionsRaw {
      /* Members inherited from BlockdevOptionsGenericFormat: */
-@@ -3105,26 +3127,31 @@ struct BlockdevOptions {
+@@ -3105,26 +3125,31 @@ struct BlockdevOptions {
      bool has_detect_zeroes;
      BlockdevDetectZeroesOptions detect_zeroes;
      union { /* union tag is @driver */
@@ -725,7 +691,7 @@ index 26585893..f1c341f3 100644
          BlockdevOptionsCurlHttp http;
          BlockdevOptionsCurlHttps https;
  #if defined(CONFIG_BLKIO)
-@@ -3141,8 +3168,10 @@ struct BlockdevOptions {
+@@ -3141,8 +3166,10 @@ struct BlockdevOptions {
          BlockdevOptionsNvmeIoUring nvme_io_uring;
  #endif /* defined(CONFIG_BLKIO) */
          BlockdevOptionsGenericFormat parallels;
@@ -736,7 +702,7 @@ index 26585893..f1c341f3 100644
          BlockdevOptionsQcow qcow;
          BlockdevOptionsGenericCOWFormat qed;
          BlockdevOptionsQuorum quorum;
-@@ -3168,6 +3197,7 @@ struct BlockdevOptions {
+@@ -3168,6 +3195,7 @@ struct BlockdevOptions {
          BlockdevOptionsGenericCOWFormat vmdk;
          BlockdevOptionsGenericFormat vpc;
          BlockdevOptionsVVFAT vvfat;
@@ -744,7 +710,7 @@ index 26585893..f1c341f3 100644
      } u;
  };
  
-@@ -3227,6 +3257,7 @@ struct BlockdevCreateOptionsFile {
+@@ -3227,6 +3255,7 @@ struct BlockdevCreateOptionsFile {
  void qapi_free_BlockdevCreateOptionsFile(BlockdevCreateOptionsFile *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevCreateOptionsFile, qapi_free_BlockdevCreateOptionsFile)
  
@@ -752,7 +718,7 @@ index 26585893..f1c341f3 100644
  struct BlockdevCreateOptionsGluster {
      BlockdevOptionsGluster *location;
      uint64_t size;
-@@ -3295,6 +3326,7 @@ struct BlockdevCreateOptionsQcow {
+@@ -3295,6 +3324,7 @@ struct BlockdevCreateOptionsQcow {
  
  void qapi_free_BlockdevCreateOptionsQcow(BlockdevCreateOptionsQcow *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevCreateOptionsQcow, qapi_free_BlockdevCreateOptionsQcow)
@@ -760,7 +726,7 @@ index 26585893..f1c341f3 100644
  
  struct BlockdevCreateOptionsQcow2 {
      BlockdevRef *file;
-@@ -3309,7 +3341,7 @@ struct BlockdevCreateOptionsQcow2 {
+@@ -3309,7 +3339,7 @@ struct BlockdevCreateOptionsQcow2 {
      char *backing_file;
      bool has_backing_fmt;
      BlockdevDriver backing_fmt;
@@ -769,7 +735,7 @@ index 26585893..f1c341f3 100644
      bool has_cluster_size;
      uint64_t cluster_size;
      bool has_preallocation;
-@@ -3424,12 +3456,15 @@ struct BlockdevCreateOptions {
+@@ -3424,12 +3454,15 @@ struct BlockdevCreateOptions {
      BlockdevDriver driver;
      union { /* union tag is @driver */
          BlockdevCreateOptionsFile file;
@@ -785,7 +751,7 @@ index 26585893..f1c341f3 100644
          BlockdevCreateOptionsQed qed;
          BlockdevCreateOptionsRbd rbd;
          BlockdevCreateOptionsSsh ssh;
-@@ -3437,6 +3472,7 @@ struct BlockdevCreateOptions {
+@@ -3437,6 +3470,7 @@ struct BlockdevCreateOptions {
          BlockdevCreateOptionsVhdx vhdx;
          BlockdevCreateOptionsVmdk vmdk;
          BlockdevCreateOptionsVpc vpc;
@@ -793,7 +759,7 @@ index 26585893..f1c341f3 100644
      } u;
  };
  
-@@ -3448,6 +3484,7 @@ struct q_obj_blockdev_create_arg {
+@@ -3448,6 +3482,7 @@ struct q_obj_blockdev_create_arg {
      BlockdevCreateOptions *options;
  };
  
@@ -801,7 +767,7 @@ index 26585893..f1c341f3 100644
  struct BlockdevAmendOptionsLUKS {
      /* Members inherited from QCryptoBlockAmendOptionsLUKS: */
      QCryptoBlockLUKSKeyslotState state;
-@@ -3468,9 +3505,10 @@ static inline QCryptoBlockAmendOptionsLUKS *qapi_BlockdevAmendOptionsLUKS_base(c
+@@ -3468,9 +3503,10 @@ static inline QCryptoBlockAmendOptionsLUKS *qapi_BlockdevAmendOptionsLUKS_base(c
  
  void qapi_free_BlockdevAmendOptionsLUKS(BlockdevAmendOptionsLUKS *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevAmendOptionsLUKS, qapi_free_BlockdevAmendOptionsLUKS)
@@ -813,7 +779,7 @@ index 26585893..f1c341f3 100644
  };
  
  void qapi_free_BlockdevAmendOptionsQcow2(BlockdevAmendOptionsQcow2 *obj);
-@@ -3483,7 +3521,7 @@ struct q_obj_BlockdevAmendOptions_base {
+@@ -3483,7 +3519,7 @@ struct q_obj_BlockdevAmendOptions_base {
  struct BlockdevAmendOptions {
      BlockdevDriver driver;
      union { /* union tag is @driver */
@@ -822,39 +788,7 @@ index 26585893..f1c341f3 100644
          BlockdevAmendOptionsQcow2 qcow2;
      } u;
  };
-@@ -3520,6 +3558,7 @@ struct q_obj_BLOCK_IO_ERROR_arg {
-     char *reason;
- };
- 
-+#if 0
- struct q_obj_BLOCK_JOB_COMPLETED_arg {
-     JobType type;
-     char *device;
-@@ -3536,6 +3575,7 @@ struct q_obj_BLOCK_JOB_CANCELLED_arg {
-     int64_t offset;
-     int64_t speed;
- };
-+#endif
- 
- struct q_obj_BLOCK_JOB_ERROR_arg {
-     char *device;
-@@ -3543,6 +3583,7 @@ struct q_obj_BLOCK_JOB_ERROR_arg {
-     BlockErrorAction action;
- };
- 
-+#if 0
- struct q_obj_BLOCK_JOB_READY_arg {
-     JobType type;
-     char *device;
-@@ -3555,6 +3596,7 @@ struct q_obj_BLOCK_JOB_PENDING_arg {
-     JobType type;
-     char *id;
- };
-+#endif
- 
- struct q_obj_BLOCK_WRITE_THRESHOLD_arg {
-     char *node_name;
-@@ -3573,12 +3615,14 @@ struct q_obj_x_blockdev_change_arg {
+@@ -3573,12 +3609,14 @@ struct q_obj_x_blockdev_change_arg {
      char *node;
  };
  
@@ -869,154 +803,8 @@ index 26585893..f1c341f3 100644
  
  struct q_obj_QUORUM_FAILURE_arg {
      char *reference;
-diff --git a/include/qapi/qapi-types-job.h b/include/qapi/qapi-types-job.h
-new file mode 100644
-index 00000000..7c3d08e4
---- /dev/null
-+++ b/include/qapi/qapi-types-job.h
-@@ -0,0 +1,140 @@
-+/* AUTOMATICALLY GENERATED by qapi-gen.py DO NOT MODIFY */
-+
-+/*
-+ * Schema-defined QAPI types
-+ *
-+ * Copyright IBM, Corp. 2011
-+ * Copyright (c) 2013-2018 Red Hat Inc.
-+ *
-+ * This work is licensed under the terms of the GNU LGPL, version 2.1 or later.
-+ * See the COPYING.LIB file in the top-level directory.
-+ */
-+
-+#ifndef QAPI_TYPES_JOB_H
-+#define QAPI_TYPES_JOB_H
-+
-+#include "qapi/qapi-builtin-types.h"
-+
-+typedef enum JobType {
-+    JOB_TYPE_COMMIT,
-+    JOB_TYPE_STREAM,
-+    JOB_TYPE_MIRROR,
-+    JOB_TYPE_BACKUP,
-+    JOB_TYPE_CREATE,
-+    JOB_TYPE_AMEND,
-+    JOB_TYPE_SNAPSHOT_LOAD,
-+    JOB_TYPE_SNAPSHOT_SAVE,
-+    JOB_TYPE_SNAPSHOT_DELETE,
-+    JOB_TYPE__MAX,
-+} JobType;
-+
-+#define JobType_str(val) \
-+    qapi_enum_lookup(&JobType_lookup, (val))
-+
-+extern const QEnumLookup JobType_lookup;
-+
-+typedef enum JobStatus {
-+    JOB_STATUS_UNDEFINED,
-+    JOB_STATUS_CREATED,
-+    JOB_STATUS_RUNNING,
-+    JOB_STATUS_PAUSED,
-+    JOB_STATUS_READY,
-+    JOB_STATUS_STANDBY,
-+    JOB_STATUS_WAITING,
-+    JOB_STATUS_PENDING,
-+    JOB_STATUS_ABORTING,
-+    JOB_STATUS_CONCLUDED,
-+    JOB_STATUS_NULL,
-+    JOB_STATUS__MAX,
-+} JobStatus;
-+
-+#define JobStatus_str(val) \
-+    qapi_enum_lookup(&JobStatus_lookup, (val))
-+
-+extern const QEnumLookup JobStatus_lookup;
-+
-+typedef enum JobVerb {
-+    JOB_VERB_CANCEL,
-+    JOB_VERB_PAUSE,
-+    JOB_VERB_RESUME,
-+    JOB_VERB_SET_SPEED,
-+    JOB_VERB_COMPLETE,
-+    JOB_VERB_DISMISS,
-+    JOB_VERB_FINALIZE,
-+    JOB_VERB_CHANGE,
-+    JOB_VERB__MAX,
-+} JobVerb;
-+
-+#define JobVerb_str(val) \
-+    qapi_enum_lookup(&JobVerb_lookup, (val))
-+
-+extern const QEnumLookup JobVerb_lookup;
-+
-+typedef struct q_obj_JOB_STATUS_CHANGE_arg q_obj_JOB_STATUS_CHANGE_arg;
-+
-+typedef struct q_obj_job_pause_arg q_obj_job_pause_arg;
-+
-+typedef struct q_obj_job_resume_arg q_obj_job_resume_arg;
-+
-+typedef struct q_obj_job_cancel_arg q_obj_job_cancel_arg;
-+
-+typedef struct q_obj_job_complete_arg q_obj_job_complete_arg;
-+
-+typedef struct q_obj_job_dismiss_arg q_obj_job_dismiss_arg;
-+
-+typedef struct q_obj_job_finalize_arg q_obj_job_finalize_arg;
-+
-+typedef struct JobInfo JobInfo;
-+
-+typedef struct JobInfoList JobInfoList;
-+
-+struct q_obj_JOB_STATUS_CHANGE_arg {
-+    char *id;
-+    JobStatus status;
-+};
-+
-+struct q_obj_job_pause_arg {
-+    char *id;
-+};
-+
-+struct q_obj_job_resume_arg {
-+    char *id;
-+};
-+
-+struct q_obj_job_cancel_arg {
-+    char *id;
-+};
-+
-+struct q_obj_job_complete_arg {
-+    char *id;
-+};
-+
-+struct q_obj_job_dismiss_arg {
-+    char *id;
-+};
-+
-+struct q_obj_job_finalize_arg {
-+    char *id;
-+};
-+
-+struct JobInfo {
-+    char *id;
-+    JobType type;
-+    JobStatus status;
-+    int64_t current_progress;
-+    int64_t total_progress;
-+    char *error;
-+};
-+
-+void qapi_free_JobInfo(JobInfo *obj);
-+G_DEFINE_AUTOPTR_CLEANUP_FUNC(JobInfo, qapi_free_JobInfo)
-+
-+struct JobInfoList {
-+    JobInfoList *next;
-+    JobInfo *value;
-+};
-+
-+void qapi_free_JobInfoList(JobInfoList *obj);
-+G_DEFINE_AUTOPTR_CLEANUP_FUNC(JobInfoList, qapi_free_JobInfoList)
-+
-+#endif /* QAPI_TYPES_JOB_H */
 diff --git a/include/qapi/qapi-visit-block-core.h b/include/qapi/qapi-visit-block-core.h
-index 9462b281..6dfac450 100644
+index 9462b281..e689a244 100644
 --- a/include/qapi/qapi-visit-block-core.h
 +++ b/include/qapi/qapi-visit-block-core.h
 @@ -17,9 +17,9 @@
@@ -1027,11 +815,24 @@ index 9462b281..6dfac450 100644
 -#include "qapi-visit-job.h"
 -#include "qapi-visit-sockets.h"
 +//#include "qapi-visit-crypto.h"
-+//#include "qapi-visit-job.h"
++#include "qapi/qapi-visit-job.h"
 +//#include "qapi-visit-sockets.h"
  
  bool visit_type_SnapshotInfo_members(Visitor *v, SnapshotInfo *obj, Error **errp);
  
+diff --git a/include/qapi/qmp/dispatch.h b/include/qapi/qmp/dispatch.h
+index f2e95681..0a0c8361 100644
+--- a/include/qapi/qmp/dispatch.h
++++ b/include/qapi/qmp/dispatch.h
+@@ -14,7 +14,7 @@
+ #ifndef QAPI_QMP_DISPATCH_H
+ #define QAPI_QMP_DISPATCH_H
+ 
+-#include "monitor/monitor.h"
++//#include "monitor/monitor.h"
+ #include "qemu/queue.h"
+ 
+ typedef void (QmpCommandFunc)(QDict *, QObject **, Error **);
 diff --git a/include/qcow2.h b/include/qcow2.h
 index a9e3481c..5d606fc9 100644
 --- a/include/qcow2.h
@@ -1714,28 +1515,6 @@ index ead97d35..12ae37af 100644
 +//Int128 divu256(Int128 *plow, Int128 *phigh, Int128 divisor);
 +//Int128 divs256(Int128 *plow, Int128 *phigh, Int128 divisor);
  #endif
-diff --git a/include/qemu/job.h b/include/qemu/job.h
-index 2b873f25..ff703fa0 100644
---- a/include/qemu/job.h
-+++ b/include/qemu/job.h
-@@ -28,7 +28,7 @@
- 
- #include "qapi/qapi-types-job.h"
- #include "qemu/queue.h"
--#include "qemu/progress_meter.h"
-+//#include "qemu/progress_meter.h"
- #include "qemu/coroutine.h"
- #include "block/aio.h"
- 
-@@ -74,7 +74,7 @@ typedef struct Job {
-     void *opaque;
- 
-     /* ProgressMeter API is thread-safe */
--    ProgressMeter progress;
-+    //ProgressMeter progress;
- 
-     /**
-      * AioContext to run the job coroutine in.
 diff --git a/include/qemu/main-loop.h b/include/qemu/main-loop.h
 index 5764db15..e0a0be44 100644
 --- a/include/qemu/main-loop.h
@@ -1977,10 +1756,10 @@ index 00000000..69460e08
 +	-rm -rf *.gc??
 diff --git a/qcow2/lib/Makefile.am b/qcow2/lib/Makefile.am
 new file mode 100644
-index 00000000..03fdf189
+index 00000000..764486e8
 --- /dev/null
 +++ b/qcow2/lib/Makefile.am
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,136 @@
 +AUTOMAKE_OPTIONS = subdir-objects
 +
 +SUBDIRS = .
@@ -2009,16 +1788,21 @@ index 00000000..03fdf189
 +libqcow2_la_SOURCES += qcow2-threads.c
 +libqcow2_la_SOURCES += qcow2-snapshot.c
 +libqcow2_la_SOURCES += block.c
++libqcow2_la_SOURCES += blockdev.c
++libqcow2_la_SOURCES += blockjob.c
 +libqcow2_la_SOURCES += block/accounting.c
 +libqcow2_la_SOURCES += block/aio_task.c
 +libqcow2_la_SOURCES += block/block-backend.c
 +libqcow2_la_SOURCES += block/block-gen.c
++libqcow2_la_SOURCES += block/commit.c
 +libqcow2_la_SOURCES += block/dirty-bitmap.c
 +libqcow2_la_SOURCES += block/file-posix.c
 +libqcow2_la_SOURCES += block/graph-lock.c
 +libqcow2_la_SOURCES += block/io.c
 +libqcow2_la_SOURCES += block/linux-aio.c
++libqcow2_la_SOURCES += block/mirror.c
 +libqcow2_la_SOURCES += block/monitor/bitmap-qmp-cmds.c
++libqcow2_la_SOURCES += block/progress_meter.c
 +libqcow2_la_SOURCES += block/qapi.c
 +libqcow2_la_SOURCES += block/raw-format.c
 +libqcow2_la_SOURCES += block/snapshot.c
@@ -2026,7 +1810,9 @@ index 00000000..03fdf189
 +libqcow2_la_SOURCES += hw/block/block.c
 +libqcow2_la_SOURCES += hw/block/hd-geometry.c
 +libqcow2_la_SOURCES += job.c
++libqcow2_la_SOURCES += job-qmp.c
 +libqcow2_la_SOURCES += qapi/qapi-dealloc-visitor.c
++libqcow2_la_SOURCES += qapi/qapi-events-block-core.c
 +libqcow2_la_SOURCES += qapi/qapi-events-job.c
 +libqcow2_la_SOURCES += qapi/qapi-types-block-core.c
 +libqcow2_la_SOURCES += qapi/qapi-types-common.c
@@ -2036,6 +1822,8 @@ index 00000000..03fdf189
 +libqcow2_la_SOURCES += qapi/qapi-visit-common.c
 +libqcow2_la_SOURCES += qapi/qapi-visit-core.c
 +libqcow2_la_SOURCES += qapi/qapi-visit-job.c
++libqcow2_la_SOURCES += qapi/qmp-dispatch.c
++libqcow2_la_SOURCES += qapi/qmp-event.c
 +libqcow2_la_SOURCES += qapi/qobject-input-visitor.c
 +libqcow2_la_SOURCES += qapi/qobject-output-visitor.c
 +libqcow2_la_SOURCES += qobject/block-qdict.c
@@ -2056,6 +1844,7 @@ index 00000000..03fdf189
 +libqcow2_la_SOURCES += util/aio-wait.c
 +libqcow2_la_SOURCES += util/aiocb.c
 +libqcow2_la_SOURCES += util/async.c
++libqcow2_la_SOURCES += util/bitmap.c
 +libqcow2_la_SOURCES += util/bitops.c
 +libqcow2_la_SOURCES += util/bufferiszero.c
 +libqcow2_la_SOURCES += util/compatfd.c
@@ -2108,7 +1897,7 @@ index 00000000..03fdf189
 +clean-local:
 +	-rm -rf *.gc??
 diff --git a/qcow2/lib/block.c b/qcow2/lib/block.c
-index c317de9e..f3c18668 100644
+index c317de9e..e823b462 100644
 --- a/qcow2/lib/block.c
 +++ b/qcow2/lib/block.c
 @@ -24,12 +24,12 @@
@@ -2162,14 +1951,14 @@ index c317de9e..f3c18668 100644
  
  static bool GRAPH_RDLOCK should_update_child(BdrvChild *c, BlockDriverState *to)
  {
-@@ -5347,6 +5348,7 @@ bdrv_replace_node_noperm(BlockDriverState *from,
-     return 0;
+@@ -5423,6 +5424,7 @@ int bdrv_replace_node(BlockDriverState *from, BlockDriverState *to,
+     return bdrv_replace_node_common(from, to, true, false, errp);
  }
  
 +#if 0
- /*
-  * Switch all parents of @from to point to @to instead. @from and @to must be in
-  * the same AioContext and both must be drained.
+ int bdrv_drop_filter(BlockDriverState *bs, Error **errp)
+ {
+     BlockDriverState *child_bs;
 @@ -5442,6 +5444,7 @@ int bdrv_drop_filter(BlockDriverState *bs, Error **errp)
  
      return ret;
@@ -2211,23 +2000,7 @@ index c317de9e..f3c18668 100644
  
  /*
   * Run consistency checks on an image
-@@ -5694,6 +5700,7 @@ bdrv_co_change_backing_file(BlockDriverState *bs, const char *backing_file,
-     return ret;
- }
- 
-+#if 0
- /*
-  * Finds the first non-filter node above bs in the chain between
-  * active and bs.  The returned node is either an immediate parent of
-@@ -5948,6 +5955,7 @@ exit:
-     bdrv_unref(top);
-     return ret;
- }
-+#endif
- 
- /**
-  * Implementation of BlockDriver.bdrv_co_get_allocated_file_size() that
-@@ -6113,6 +6121,7 @@ bool bdrv_is_sg(BlockDriverState *bs)
+@@ -6113,6 +6119,7 @@ bool bdrv_is_sg(BlockDriverState *bs)
      return bs->sg;
  }
  
@@ -2235,7 +2008,7 @@ index c317de9e..f3c18668 100644
  /**
   * Return whether the given node supports compressed writes.
   */
-@@ -6136,6 +6145,7 @@ bool bdrv_supports_compressed_writes(BlockDriverState *bs)
+@@ -6136,6 +6143,7 @@ bool bdrv_supports_compressed_writes(BlockDriverState *bs)
  
      return true;
  }
@@ -2243,7 +2016,7 @@ index c317de9e..f3c18668 100644
  
  const char *bdrv_get_format_name(BlockDriverState *bs)
  {
-@@ -6226,6 +6236,7 @@ BlockDriverState *bdrv_find_node(const char *node_name)
+@@ -6226,6 +6234,7 @@ BlockDriverState *bdrv_find_node(const char *node_name)
      return NULL;
  }
  
@@ -2251,7 +2024,7 @@ index c317de9e..f3c18668 100644
  /* Put this QMP function here so it can access the static graph_bdrv_states. */
  BlockDeviceInfoList *bdrv_named_nodes_list(bool flat,
                                             Error **errp)
-@@ -6382,6 +6393,7 @@ XDbgBlockGraph *bdrv_get_xdbg_block_graph(Error **errp)
+@@ -6382,6 +6391,7 @@ XDbgBlockGraph *bdrv_get_xdbg_block_graph(Error **errp)
  
      return xdbg_graph_finalize(gr);
  }
@@ -2259,23 +2032,7 @@ index c317de9e..f3c18668 100644
  
  BlockDriverState *bdrv_lookup_bs(const char *device,
                                   const char *node_name,
-@@ -6419,6 +6431,7 @@ BlockDriverState *bdrv_lookup_bs(const char *device,
-     return NULL;
- }
- 
-+#if 0
- /* If 'base' is in the same chain as 'top', return true. Otherwise,
-  * return false.  If either argument is NULL, return false. */
- bool bdrv_chain_contains(BlockDriverState *top, BlockDriverState *base)
-@@ -6432,6 +6445,7 @@ bool bdrv_chain_contains(BlockDriverState *top, BlockDriverState *base)
- 
-     return top != NULL;
- }
-+#endif
- 
- BlockDriverState *bdrv_next_node(BlockDriverState *bs)
- {
-@@ -7095,7 +7109,7 @@ void coroutine_fn bdrv_co_lock_medium(BlockDriverState *bs, bool locked)
+@@ -7095,7 +7105,7 @@ void coroutine_fn bdrv_co_lock_medium(BlockDriverState *bs, bool locked)
      BlockDriver *drv = bs->drv;
      IO_CODE();
      assert_bdrv_graph_readable();
@@ -2284,7 +2041,7 @@ index c317de9e..f3c18668 100644
  
      if (drv && drv->bdrv_co_lock_medium) {
          drv->bdrv_co_lock_medium(bs, locked);
-@@ -7425,6 +7439,7 @@ AioContext *bdrv_get_aio_context(BlockDriverState *bs)
+@@ -7425,6 +7435,7 @@ AioContext *bdrv_get_aio_context(BlockDriverState *bs)
      return bs ? bs->aio_context : qemu_get_aio_context();
  }
  
@@ -2292,7 +2049,7 @@ index c317de9e..f3c18668 100644
  AioContext *coroutine_fn bdrv_co_enter(BlockDriverState *bs)
  {
      Coroutine *self = qemu_coroutine_self();
-@@ -7449,6 +7464,7 @@ void coroutine_fn bdrv_co_leave(BlockDriverState *bs, AioContext *old_ctx)
+@@ -7449,6 +7460,7 @@ void coroutine_fn bdrv_co_leave(BlockDriverState *bs, AioContext *old_ctx)
      aio_co_reschedule_self(old_ctx);
      bdrv_dec_in_flight(bs);
  }
@@ -2315,7 +2072,7 @@ index 28297453..dea4f667 100644
  static QEMUClockType clock_type = QEMU_CLOCK_REALTIME;
  static const int qtest_latency_ns = NANOSECONDS_PER_SECOND / 1000;
 diff --git a/qcow2/lib/block/block-backend.c b/qcow2/lib/block/block-backend.c
-index db6f9b92..8523d08a 100644
+index db6f9b92..85135175 100644
 --- a/qcow2/lib/block/block-backend.c
 +++ b/qcow2/lib/block/block-backend.c
 @@ -15,18 +15,18 @@
@@ -2654,23 +2411,7 @@ index db6f9b92..8523d08a 100644
  
  void blk_set_allow_write_beyond_eof(BlockBackend *blk, bool allow)
  {
-@@ -1244,6 +1274,7 @@ void blk_set_allow_write_beyond_eof(BlockBackend *blk, bool allow)
-     blk->allow_write_beyond_eof = allow;
- }
- 
-+#if 0
- void blk_set_allow_aio_context_change(BlockBackend *blk, bool allow)
- {
-     IO_CODE();
-@@ -1255,6 +1286,7 @@ void blk_set_disable_request_queuing(BlockBackend *blk, bool disable)
-     IO_CODE();
-     qatomic_set(&blk->disable_request_queuing, disable);
- }
-+#endif
- 
- static int coroutine_fn GRAPH_RDLOCK
- blk_check_byte_request(BlockBackend *blk, int64_t offset, int64_t bytes)
-@@ -1287,12 +1319,14 @@ blk_check_byte_request(BlockBackend *blk, int64_t offset, int64_t bytes)
+@@ -1287,12 +1317,14 @@ blk_check_byte_request(BlockBackend *blk, int64_t offset, int64_t bytes)
      return 0;
  }
  
@@ -2685,7 +2426,7 @@ index db6f9b92..8523d08a 100644
  
  /* To be called between exactly one pair of blk_inc/dec_in_flight() */
  static void coroutine_fn blk_wait_while_drained(BlockBackend *blk)
-@@ -1329,7 +1363,7 @@ blk_co_do_preadv_part(BlockBackend *blk, int64_t offset, int64_t bytes,
+@@ -1329,7 +1361,7 @@ blk_co_do_preadv_part(BlockBackend *blk, int64_t offset, int64_t bytes,
  
      /* Call blk_bs() only after waiting, the graph may have changed */
      bs = blk_bs(blk);
@@ -2694,7 +2435,7 @@ index db6f9b92..8523d08a 100644
  
      ret = blk_check_byte_request(blk, offset, bytes);
      if (ret < 0) {
-@@ -1338,11 +1372,13 @@ blk_co_do_preadv_part(BlockBackend *blk, int64_t offset, int64_t bytes,
+@@ -1338,11 +1370,13 @@ blk_co_do_preadv_part(BlockBackend *blk, int64_t offset, int64_t bytes,
  
      bdrv_inc_in_flight(bs);
  
@@ -2708,7 +2449,7 @@ index db6f9b92..8523d08a 100644
  
      ret = bdrv_co_preadv_part(blk->root, offset, bytes, qiov, qiov_offset,
                                flags);
-@@ -1404,7 +1440,7 @@ blk_co_do_pwritev_part(BlockBackend *blk, int64_t offset, int64_t bytes,
+@@ -1404,7 +1438,7 @@ blk_co_do_pwritev_part(BlockBackend *blk, int64_t offset, int64_t bytes,
  
      /* Call blk_bs() only after waiting, the graph may have changed */
      bs = blk_bs(blk);
@@ -2717,7 +2458,7 @@ index db6f9b92..8523d08a 100644
  
      ret = blk_check_byte_request(blk, offset, bytes);
      if (ret < 0) {
-@@ -1412,11 +1448,13 @@ blk_co_do_pwritev_part(BlockBackend *blk, int64_t offset, int64_t bytes,
+@@ -1412,11 +1446,13 @@ blk_co_do_pwritev_part(BlockBackend *blk, int64_t offset, int64_t bytes,
      }
  
      bdrv_inc_in_flight(bs);
@@ -2731,23 +2472,7 @@ index db6f9b92..8523d08a 100644
  
      if (!blk->enable_write_cache) {
          flags |= BDRV_REQ_FUA;
-@@ -1474,6 +1512,7 @@ int coroutine_fn blk_co_block_status_above(BlockBackend *blk,
-                                       map, file);
- }
- 
-+#if 0
- int coroutine_fn blk_co_is_allocated_above(BlockBackend *blk,
-                                            BlockDriverState *base,
-                                            bool include_base, int64_t offset,
-@@ -1484,6 +1523,7 @@ int coroutine_fn blk_co_is_allocated_above(BlockBackend *blk,
-     return bdrv_co_is_allocated_above(blk_bs(blk), base, include_base, offset,
-                                       bytes, pnum);
- }
-+#endif
- 
- typedef struct BlkRwCo {
-     BlockBackend *blk;
-@@ -1512,6 +1552,7 @@ void blk_dec_in_flight(BlockBackend *blk)
+@@ -1512,6 +1548,7 @@ void blk_dec_in_flight(BlockBackend *blk)
      aio_wait_kick();
  }
  
@@ -2755,7 +2480,7 @@ index db6f9b92..8523d08a 100644
  static void error_callback_bh(void *opaque)
  {
      struct BlockBackendAIOCB *acb = opaque;
-@@ -1537,6 +1578,7 @@ BlockAIOCB *blk_abort_aio_request(BlockBackend *blk,
+@@ -1537,6 +1574,7 @@ BlockAIOCB *blk_abort_aio_request(BlockBackend *blk,
                                       error_callback_bh, acb);
      return &acb->common;
  }
@@ -2763,7 +2488,7 @@ index db6f9b92..8523d08a 100644
  
  typedef struct BlkAioEmAIOCB {
      BlockAIOCB common;
-@@ -1861,6 +1903,7 @@ int coroutine_fn blk_co_flush(BlockBackend *blk)
+@@ -1861,6 +1899,7 @@ int coroutine_fn blk_co_flush(BlockBackend *blk)
      return ret;
  }
  
@@ -2771,7 +2496,7 @@ index db6f9b92..8523d08a 100644
  static void coroutine_fn blk_aio_zone_report_entry(void *opaque)
  {
      BlkAioEmAIOCB *acb = opaque;
-@@ -2058,6 +2101,7 @@ int coroutine_fn blk_co_zone_append(BlockBackend *blk, int64_t *offset,
+@@ -2058,6 +2097,7 @@ int coroutine_fn blk_co_zone_append(BlockBackend *blk, int64_t *offset,
      blk_dec_in_flight(blk);
      return ret;
  }
@@ -2779,7 +2504,7 @@ index db6f9b92..8523d08a 100644
  
  void blk_drain(BlockBackend *blk)
  {
-@@ -2079,6 +2123,7 @@ void blk_drain(BlockBackend *blk)
+@@ -2079,6 +2119,7 @@ void blk_drain(BlockBackend *blk)
      }
  }
  
@@ -2787,7 +2512,7 @@ index db6f9b92..8523d08a 100644
  void blk_drain_all(void)
  {
      BlockBackend *blk = NULL;
-@@ -2094,6 +2139,7 @@ void blk_drain_all(void)
+@@ -2094,6 +2135,7 @@ void blk_drain_all(void)
  
      bdrv_drain_all_end();
  }
@@ -2795,7 +2520,7 @@ index db6f9b92..8523d08a 100644
  
  void blk_set_on_error(BlockBackend *blk, BlockdevOnError on_read_error,
                        BlockdevOnError on_write_error)
-@@ -2109,6 +2155,7 @@ BlockdevOnError blk_get_on_error(BlockBackend *blk, bool is_read)
+@@ -2109,6 +2151,7 @@ BlockdevOnError blk_get_on_error(BlockBackend *blk, bool is_read)
      return is_read ? blk->on_read_error : blk->on_write_error;
  }
  
@@ -2803,7 +2528,7 @@ index db6f9b92..8523d08a 100644
  BlockErrorAction blk_get_error_action(BlockBackend *blk, bool is_read,
                                        int error)
  {
-@@ -2203,6 +2250,7 @@ bool blk_is_writable(BlockBackend *blk)
+@@ -2203,6 +2246,7 @@ bool blk_is_writable(BlockBackend *blk)
      IO_CODE();
      return blk->perm & BLK_PERM_WRITE;
  }
@@ -2811,7 +2536,7 @@ index db6f9b92..8523d08a 100644
  
  bool blk_is_sg(BlockBackend *blk)
  {
-@@ -2228,6 +2276,7 @@ void blk_set_enable_write_cache(BlockBackend *blk, bool wce)
+@@ -2228,6 +2272,7 @@ void blk_set_enable_write_cache(BlockBackend *blk, bool wce)
      blk->enable_write_cache = wce;
  }
  
@@ -2819,7 +2544,7 @@ index db6f9b92..8523d08a 100644
  void blk_activate(BlockBackend *blk, Error **errp)
  {
      BlockDriverState *bs = blk_bs(blk);
-@@ -2249,6 +2298,7 @@ void blk_activate(BlockBackend *blk, Error **errp)
+@@ -2249,6 +2294,7 @@ void blk_activate(BlockBackend *blk, Error **errp)
          bdrv_activate(bs, errp);
      }
  }
@@ -2827,7 +2552,7 @@ index db6f9b92..8523d08a 100644
  
  bool coroutine_fn blk_co_is_inserted(BlockBackend *blk)
  {
-@@ -2279,7 +2329,7 @@ void coroutine_fn blk_co_lock_medium(BlockBackend *blk, bool locked)
+@@ -2279,7 +2325,7 @@ void coroutine_fn blk_co_lock_medium(BlockBackend *blk, bool locked)
  void coroutine_fn blk_co_eject(BlockBackend *blk, bool eject_flag)
  {
      BlockDriverState *bs = blk_bs(blk);
@@ -2836,7 +2561,7 @@ index db6f9b92..8523d08a 100644
      IO_CODE();
      GRAPH_RDLOCK_GUARD();
  
-@@ -2289,12 +2339,15 @@ void coroutine_fn blk_co_eject(BlockBackend *blk, bool eject_flag)
+@@ -2289,12 +2335,15 @@ void coroutine_fn blk_co_eject(BlockBackend *blk, bool eject_flag)
  
      /* Whether or not we ejected on the backend,
       * the frontend experienced a tray event. */
@@ -2852,15 +2577,15 @@ index db6f9b92..8523d08a 100644
  int blk_get_flags(BlockBackend *blk)
  {
      BlockDriverState *bs = blk_bs(blk);
-@@ -2360,6 +2413,7 @@ void *blk_try_blockalign(BlockBackend *blk, size_t size)
+@@ -2354,6 +2403,7 @@ int blk_get_max_iov(BlockBackend *blk)
      IO_CODE();
-     return qemu_try_blockalign(blk ? blk_bs(blk) : NULL, size);
+     return blk->root->bs->bl.max_iov;
  }
 +#endif
  
- void *blk_blockalign(BlockBackend *blk, size_t size)
+ void *blk_try_blockalign(BlockBackend *blk, size_t size)
  {
-@@ -2367,6 +2421,7 @@ void *blk_blockalign(BlockBackend *blk, size_t size)
+@@ -2367,6 +2417,7 @@ void *blk_blockalign(BlockBackend *blk, size_t size)
      return qemu_blockalign(blk ? blk_bs(blk) : NULL, size);
  }
  
@@ -2868,7 +2593,7 @@ index db6f9b92..8523d08a 100644
  bool blk_op_is_blocked(BlockBackend *blk, BlockOpType op, Error **errp)
  {
      BlockDriverState *bs = blk_bs(blk);
-@@ -2409,6 +2464,7 @@ void blk_op_unblock_all(BlockBackend *blk, Error *reason)
+@@ -2409,6 +2460,7 @@ void blk_op_unblock_all(BlockBackend *blk, Error *reason)
          bdrv_op_unblock_all(bs, reason);
      }
  }
@@ -2876,7 +2601,7 @@ index db6f9b92..8523d08a 100644
  
  /**
   * Return BB's current AioContext.  Note that this context may change
-@@ -2465,13 +2521,15 @@ static void blk_root_set_aio_ctx_commit(void *opaque)
+@@ -2465,13 +2517,15 @@ static void blk_root_set_aio_ctx_commit(void *opaque)
      BdrvStateBlkRootContext *s = opaque;
      BlockBackend *blk = s->blk;
      AioContext *new_context = s->new_ctx;
@@ -2893,7 +2618,7 @@ index db6f9b92..8523d08a 100644
  }
  
  static TransactionActionDrv set_blk_root_context = {
-@@ -2614,6 +2672,7 @@ int coroutine_fn blk_co_truncate(BlockBackend *blk, int64_t offset, bool exact,
+@@ -2614,6 +2668,7 @@ int coroutine_fn blk_co_truncate(BlockBackend *blk, int64_t offset, bool exact,
      return bdrv_co_truncate(blk->root, offset, exact, prealloc, flags, errp);
  }
  
@@ -2901,7 +2626,7 @@ index db6f9b92..8523d08a 100644
  int blk_save_vmstate(BlockBackend *blk, const uint8_t *buf,
                       int64_t pos, int size)
  {
-@@ -2645,6 +2704,7 @@ int blk_load_vmstate(BlockBackend *blk, uint8_t *buf, int64_t pos, int size)
+@@ -2645,6 +2700,7 @@ int blk_load_vmstate(BlockBackend *blk, uint8_t *buf, int64_t pos, int size)
  
      return bdrv_load_vmstate(blk_bs(blk), buf, pos, size);
  }
@@ -2909,7 +2634,7 @@ index db6f9b92..8523d08a 100644
  
  int blk_probe_blocksizes(BlockBackend *blk, BlockSizes *bsz)
  {
-@@ -2681,6 +2741,7 @@ void blk_update_root_state(BlockBackend *blk)
+@@ -2681,6 +2737,7 @@ void blk_update_root_state(BlockBackend *blk)
      blk->root_state.detect_zeroes = blk->root->bs->detect_zeroes;
  }
  
@@ -2917,7 +2642,7 @@ index db6f9b92..8523d08a 100644
  /*
   * Returns the detect-zeroes setting to be used for bdrv_open() of a
   * BlockDriverState which is supposed to inherit the root state.
-@@ -2780,11 +2841,12 @@ void blk_io_limits_update_group(BlockBackend *blk, const char *group)
+@@ -2780,11 +2837,12 @@ void blk_io_limits_update_group(BlockBackend *blk, const char *group)
      blk_io_limits_disable(blk);
      blk_io_limits_enable(blk, group);
  }
@@ -2931,7 +2656,7 @@ index db6f9b92..8523d08a 100644
  
      if (qatomic_fetch_inc(&blk->quiesce_counter) == 0) {
          if (blk->dev_ops && blk->dev_ops->drained_begin) {
-@@ -2795,9 +2857,11 @@ static void blk_root_drained_begin(BdrvChild *child)
+@@ -2795,9 +2853,11 @@ static void blk_root_drained_begin(BdrvChild *child)
      /* Note that blk->root may not be accessible here yet if we are just
       * attaching to a BlockDriverState that is drained. Use child instead. */
  
@@ -2943,7 +2668,7 @@ index db6f9b92..8523d08a 100644
  }
  
  static bool blk_root_drained_poll(BdrvChild *child)
-@@ -2817,8 +2881,8 @@ static void blk_root_drained_end(BdrvChild *child)
+@@ -2817,8 +2877,8 @@ static void blk_root_drained_end(BdrvChild *child)
      BlockBackend *blk = child->opaque;
      assert(qatomic_read(&blk->quiesce_counter));
  
@@ -2987,6 +2712,37 @@ index ff2832fa..a9d7a648 100644
      }
  }
 +#endif
+diff --git a/qcow2/lib/block/commit.c b/qcow2/lib/block/commit.c
+index 7c3fdcb0..6b96a4c6 100644
+--- a/qcow2/lib/block/commit.c
++++ b/qcow2/lib/block/commit.c
+@@ -14,7 +14,7 @@
+ 
+ #include "qemu/osdep.h"
+ #include "qemu/cutils.h"
+-#include "trace.h"
++//#include "trace.h"
+ #include "block/block_int.h"
+ #include "block/blockjob_int.h"
+ #include "qapi/error.h"
+@@ -170,7 +170,7 @@ static int coroutine_fn commit_run(Job *job, Error **errp)
+         ret = blk_co_is_allocated_above(s->top, s->base_overlay, true,
+                                         offset, COMMIT_BUFFER_SIZE, &n);
+         copy = (ret > 0);
+-        trace_commit_one_iteration(s, offset, n, ret);
++        //trace_commit_one_iteration(s, offset, n, ret);
+         if (copy) {
+             assert(n < SIZE_MAX);
+ 
+@@ -414,7 +414,7 @@ void commit_start(const char *job_id, BlockDriverState *bs,
+     s->backing_mask_protocol = backing_mask_protocol;
+     s->on_error = on_error;
+ 
+-    trace_commit_start(bs, base, top, s);
++    //trace_commit_start(bs, base, top, s);
+     job_start(&s->common.job);
+     return;
+ 
 diff --git a/qcow2/lib/block/dirty-bitmap.c b/qcow2/lib/block/dirty-bitmap.c
 index 13a19797..df6a3c30 100644
 --- a/qcow2/lib/block/dirty-bitmap.c
@@ -3440,519 +3196,178 @@ index 301514c8..ae2adc51 100644
      return ret;
  }
 +#endif
-diff --git a/qcow2/lib/block/linux-aio.c b/qcow2/lib/block/linux-aio.c
-new file mode 100644
-index 00000000..e3b5ec9a
---- /dev/null
-+++ b/qcow2/lib/block/linux-aio.c
-@@ -0,0 +1,507 @@
-+/*
-+ * Linux native AIO support.
-+ *
-+ * Copyright (C) 2009 IBM, Corp.
-+ * Copyright (C) 2009 Red Hat, Inc.
-+ *
-+ * This work is licensed under the terms of the GNU GPL, version 2 or later.
-+ * See the COPYING file in the top-level directory.
-+ */
-+#include "qemu/osdep.h"
-+#include "block/aio.h"
-+#include "qemu/queue.h"
-+#include "block/block.h"
-+#include "block/raw-aio.h"
-+#include "qemu/event_notifier.h"
-+#include "qemu/coroutine.h"
-+#include "qemu/defer-call.h"
-+#include "qapi/error.h"
-+#include "sysemu/block-backend.h"
-+
-+/* Only used for assertions.  */
-+#include "qemu/coroutine_int.h"
-+
-+#include <libaio.h>
-+
-+/*
-+ * Queue size (per-device).
-+ *
-+ * XXX: eventually we need to communicate this to the guest and/or make it
-+ *      tunable by the guest.  If we get more outstanding requests at a time
-+ *      than this we will get EAGAIN from io_submit which is communicated to
-+ *      the guest as an I/O error.
-+ */
-+#define MAX_EVENTS 1024
-+
-+/* Maximum number of requests in a batch. (default value) */
-+#define DEFAULT_MAX_BATCH 32
-+
-+struct qemu_laiocb {
-+    Coroutine *co;
-+    LinuxAioState *ctx;
-+    struct iocb iocb;
-+    ssize_t ret;
-+    size_t nbytes;
-+    QEMUIOVector *qiov;
-+    bool is_read;
-+    QSIMPLEQ_ENTRY(qemu_laiocb) next;
-+};
-+
-+typedef struct {
-+    unsigned int in_queue;
-+    unsigned int in_flight;
-+    bool blocked;
-+    QSIMPLEQ_HEAD(, qemu_laiocb) pending;
-+} LaioQueue;
-+
-+struct LinuxAioState {
-+    AioContext *aio_context;
-+
-+    io_context_t ctx;
-+    EventNotifier e;
-+
-+    /* No locking required, only accessed from AioContext home thread */
-+    LaioQueue io_q;
-+    QEMUBH *completion_bh;
-+    int event_idx;
-+    int event_max;
-+};
-+
-+static void ioq_submit(LinuxAioState *s);
-+
-+static inline ssize_t io_event_ret(struct io_event *ev)
-+{
-+    return (ssize_t)(((uint64_t)ev->res2 << 32) | ev->res);
-+}
-+
-+/*
-+ * Completes an AIO request.
-+ */
-+static void qemu_laio_process_completion(struct qemu_laiocb *laiocb)
-+{
-+    int ret;
-+
-+    ret = laiocb->ret;
-+    if (ret != -ECANCELED) {
-+        if (ret == laiocb->nbytes) {
-+            ret = 0;
-+        } else if (ret >= 0) {
-+            /* Short reads mean EOF, pad with zeros. */
-+            if (laiocb->is_read) {
-+                qemu_iovec_memset(laiocb->qiov, ret, 0,
-+                    laiocb->qiov->size - ret);
-+            } else {
-+                ret = -ENOSPC;
-+            }
-+        }
-+    }
-+
-+    laiocb->ret = ret;
-+
-+    /*
-+     * If the coroutine is already entered it must be in ioq_submit() and
-+     * will notice laio->ret has been filled in when it eventually runs
-+     * later.  Coroutines cannot be entered recursively so avoid doing
-+     * that!
-+     */
-+    assert(laiocb->co->ctx == laiocb->ctx->aio_context);
-+    if (!qemu_coroutine_entered(laiocb->co)) {
-+        aio_co_wake(laiocb->co);
-+    }
-+}
-+
-+/**
-+ * aio_ring buffer which is shared between userspace and kernel.
-+ *
-+ * This copied from linux/fs/aio.c, common header does not exist
-+ * but AIO exists for ages so we assume ABI is stable.
-+ */
-+struct aio_ring {
-+    unsigned    id;    /* kernel internal index number */
-+    unsigned    nr;    /* number of io_events */
-+    unsigned    head;  /* Written to by userland or by kernel. */
-+    unsigned    tail;
-+
-+    unsigned    magic;
-+    unsigned    compat_features;
-+    unsigned    incompat_features;
-+    unsigned    header_length;  /* size of aio_ring */
-+
-+    struct io_event io_events[];
-+};
-+
-+/**
-+ * io_getevents_peek:
-+ * @ctx: AIO context
-+ * @events: pointer on events array, output value
-+
-+ * Returns the number of completed events and sets a pointer
-+ * on events array.  This function does not update the internal
-+ * ring buffer, only reads head and tail.  When @events has been
-+ * processed io_getevents_commit() must be called.
-+ */
-+static inline unsigned int io_getevents_peek(io_context_t ctx,
-+                                             struct io_event **events)
-+{
-+    struct aio_ring *ring = (struct aio_ring *)ctx;
-+    unsigned int head = ring->head, tail = ring->tail;
-+    unsigned int nr;
-+
-+    nr = tail >= head ? tail - head : ring->nr - head;
-+    *events = ring->io_events + head;
-+    /* To avoid speculative loads of s->events[i] before observing tail.
-+       Paired with smp_wmb() inside linux/fs/aio.c: aio_complete(). */
-+    smp_rmb();
-+
-+    return nr;
-+}
-+
-+/**
-+ * io_getevents_commit:
-+ * @ctx: AIO context
-+ * @nr: the number of events on which head should be advanced
-+ *
-+ * Advances head of a ring buffer.
-+ */
-+static inline void io_getevents_commit(io_context_t ctx, unsigned int nr)
-+{
-+    struct aio_ring *ring = (struct aio_ring *)ctx;
-+
-+    if (nr) {
-+        ring->head = (ring->head + nr) % ring->nr;
-+    }
-+}
-+
-+/**
-+ * io_getevents_advance_and_peek:
-+ * @ctx: AIO context
-+ * @events: pointer on events array, output value
-+ * @nr: the number of events on which head should be advanced
-+ *
-+ * Advances head of a ring buffer and returns number of elements left.
-+ */
-+static inline unsigned int
-+io_getevents_advance_and_peek(io_context_t ctx,
-+                              struct io_event **events,
-+                              unsigned int nr)
-+{
-+    io_getevents_commit(ctx, nr);
-+    return io_getevents_peek(ctx, events);
-+}
-+
-+/**
-+ * qemu_laio_process_completions:
-+ * @s: AIO state
-+ *
-+ * Fetches completed I/O requests and invokes their callbacks.
-+ *
-+ * The function is somewhat tricky because it supports nested event loops, for
-+ * example when a request callback invokes aio_poll().  In order to do this,
-+ * indices are kept in LinuxAioState.  Function schedules BH completion so it
-+ * can be called again in a nested event loop.  When there are no events left
-+ * to complete the BH is being canceled.
-+ */
-+static void qemu_laio_process_completions(LinuxAioState *s)
-+{
-+    struct io_event *events;
-+
-+    defer_call_begin();
-+
-+    /* Reschedule so nested event loops see currently pending completions */
-+    qemu_bh_schedule(s->completion_bh);
-+
-+    while ((s->event_max = io_getevents_advance_and_peek(s->ctx, &events,
-+                                                         s->event_idx))) {
-+        for (s->event_idx = 0; s->event_idx < s->event_max; ) {
-+            struct iocb *iocb = events[s->event_idx].obj;
-+            struct qemu_laiocb *laiocb =
-+                container_of(iocb, struct qemu_laiocb, iocb);
-+
-+            laiocb->ret = io_event_ret(&events[s->event_idx]);
-+
-+            /* Change counters one-by-one because we can be nested. */
-+            s->io_q.in_flight--;
-+            s->event_idx++;
-+            qemu_laio_process_completion(laiocb);
-+        }
-+    }
-+
-+    qemu_bh_cancel(s->completion_bh);
-+
-+    /* If we are nested we have to notify the level above that we are done
-+     * by setting event_max to zero, upper level will then jump out of it's
-+     * own `for` loop.  If we are the last all counters dropped to zero. */
-+    s->event_max = 0;
-+    s->event_idx = 0;
-+
-+    defer_call_end();
-+}
-+
-+static void qemu_laio_process_completions_and_submit(LinuxAioState *s)
-+{
-+    qemu_laio_process_completions(s);
-+
-+    if (!QSIMPLEQ_EMPTY(&s->io_q.pending)) {
-+        ioq_submit(s);
-+    }
-+}
-+
-+static void qemu_laio_completion_bh(void *opaque)
-+{
-+    LinuxAioState *s = opaque;
-+
-+    qemu_laio_process_completions_and_submit(s);
-+}
-+
-+static void qemu_laio_completion_cb(EventNotifier *e)
-+{
-+    LinuxAioState *s = container_of(e, LinuxAioState, e);
-+
-+    if (event_notifier_test_and_clear(&s->e)) {
-+        qemu_laio_process_completions_and_submit(s);
-+    }
-+}
-+
-+static bool qemu_laio_poll_cb(void *opaque)
-+{
-+    EventNotifier *e = opaque;
-+    LinuxAioState *s = container_of(e, LinuxAioState, e);
-+    struct io_event *events;
-+
-+    return io_getevents_peek(s->ctx, &events);
-+}
-+
-+static void qemu_laio_poll_ready(EventNotifier *opaque)
-+{
-+    EventNotifier *e = opaque;
-+    LinuxAioState *s = container_of(e, LinuxAioState, e);
-+
-+    qemu_laio_process_completions_and_submit(s);
-+}
-+
-+static void ioq_init(LaioQueue *io_q)
-+{
-+    QSIMPLEQ_INIT(&io_q->pending);
-+    io_q->in_queue = 0;
-+    io_q->in_flight = 0;
-+    io_q->blocked = false;
-+}
-+
-+static void ioq_submit(LinuxAioState *s)
-+{
-+    int ret, len;
-+    struct qemu_laiocb *aiocb;
-+    struct iocb *iocbs[MAX_EVENTS];
-+    QSIMPLEQ_HEAD(, qemu_laiocb) completed;
-+
-+    do {
-+        if (s->io_q.in_flight >= MAX_EVENTS) {
-+            break;
-+        }
-+        len = 0;
-+        QSIMPLEQ_FOREACH(aiocb, &s->io_q.pending, next) {
-+            iocbs[len++] = &aiocb->iocb;
-+            if (s->io_q.in_flight + len >= MAX_EVENTS) {
-+                break;
-+            }
-+        }
-+
-+        ret = io_submit(s->ctx, len, iocbs);
-+        if (ret == -EAGAIN) {
-+            break;
-+        }
-+        if (ret < 0) {
-+            /* Fail the first request, retry the rest */
-+            aiocb = QSIMPLEQ_FIRST(&s->io_q.pending);
-+            QSIMPLEQ_REMOVE_HEAD(&s->io_q.pending, next);
-+            s->io_q.in_queue--;
-+            aiocb->ret = ret;
-+            qemu_laio_process_completion(aiocb);
-+            continue;
-+        }
-+
-+        s->io_q.in_flight += ret;
-+        s->io_q.in_queue  -= ret;
-+        aiocb = container_of(iocbs[ret - 1], struct qemu_laiocb, iocb);
-+        QSIMPLEQ_SPLIT_AFTER(&s->io_q.pending, aiocb, next, &completed);
-+    } while (ret == len && !QSIMPLEQ_EMPTY(&s->io_q.pending));
-+    s->io_q.blocked = (s->io_q.in_queue > 0);
-+
-+    if (s->io_q.in_flight) {
-+        /* We can try to complete something just right away if there are
-+         * still requests in-flight. */
-+        qemu_laio_process_completions(s);
-+        /*
-+         * Even we have completed everything (in_flight == 0), the queue can
-+         * have still pended requests (in_queue > 0).  We do not attempt to
-+         * repeat submission to avoid IO hang.  The reason is simple: s->e is
-+         * still set and completion callback will be called shortly and all
-+         * pended requests will be submitted from there.
-+         */
-+    }
-+}
-+
-+static uint64_t laio_max_batch(LinuxAioState *s, uint64_t dev_max_batch)
-+{
-+    uint64_t max_batch = s->aio_context->aio_max_batch ?: DEFAULT_MAX_BATCH;
-+
-+    /*
-+     * AIO context can be shared between multiple block devices, so
-+     * `dev_max_batch` allows reducing the batch size for latency-sensitive
-+     * devices.
-+     */
-+    max_batch = MIN_NON_ZERO(dev_max_batch, max_batch);
-+
-+    /* limit the batch with the number of available events */
-+    max_batch = MIN_NON_ZERO(MAX_EVENTS - s->io_q.in_flight, max_batch);
-+
-+    return max_batch;
-+}
-+
-+static void laio_deferred_fn(void *opaque)
-+{
-+    LinuxAioState *s = opaque;
-+
-+    if (!s->io_q.blocked && !QSIMPLEQ_EMPTY(&s->io_q.pending)) {
-+        ioq_submit(s);
-+    }
-+}
-+
-+static int laio_do_submit(int fd, struct qemu_laiocb *laiocb, off_t offset,
-+                          int type, uint64_t dev_max_batch)
-+{
-+    LinuxAioState *s = laiocb->ctx;
-+    struct iocb *iocbs = &laiocb->iocb;
-+    QEMUIOVector *qiov = laiocb->qiov;
-+
-+    switch (type) {
-+    case QEMU_AIO_WRITE:
-+        io_prep_pwritev(iocbs, fd, qiov->iov, qiov->niov, offset);
-+        break;
-+    case QEMU_AIO_ZONE_APPEND:
-+        io_prep_pwritev(iocbs, fd, qiov->iov, qiov->niov, offset);
-+        break;
-+    case QEMU_AIO_READ:
-+        io_prep_preadv(iocbs, fd, qiov->iov, qiov->niov, offset);
-+        break;
-+    case QEMU_AIO_FLUSH:
-+        io_prep_fdsync(iocbs, fd);
-+        break;
-+    /* Currently Linux kernel does not support other operations */
-+    default:
-+        fprintf(stderr, "%s: invalid AIO request type 0x%x.\n",
-+                        __func__, type);
-+        return -EIO;
-+    }
-+    io_set_eventfd(&laiocb->iocb, event_notifier_get_fd(&s->e));
-+
-+    QSIMPLEQ_INSERT_TAIL(&s->io_q.pending, laiocb, next);
-+    s->io_q.in_queue++;
-+    if (!s->io_q.blocked) {
-+        if (s->io_q.in_queue >= laio_max_batch(s, dev_max_batch)) {
-+            ioq_submit(s);
-+        } else {
-+            defer_call(laio_deferred_fn, s);
-+        }
-+    }
-+
-+    return 0;
-+}
-+
-+int coroutine_fn laio_co_submit(int fd, uint64_t offset, QEMUIOVector *qiov,
-+                                int type, uint64_t dev_max_batch)
-+{
-+    int ret;
-+    AioContext *ctx = qemu_get_current_aio_context();
-+    struct qemu_laiocb laiocb = {
-+        .co         = qemu_coroutine_self(),
-+        .nbytes     = qiov ? qiov->size : 0,
-+        .ctx        = aio_get_linux_aio(ctx),
-+        .ret        = -EINPROGRESS,
-+        .is_read    = (type == QEMU_AIO_READ),
-+        .qiov       = qiov,
-+    };
-+
-+    ret = laio_do_submit(fd, &laiocb, offset, type, dev_max_batch);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-+    if (laiocb.ret == -EINPROGRESS) {
-+        qemu_coroutine_yield();
-+    }
-+    return laiocb.ret;
-+}
-+
-+void laio_detach_aio_context(LinuxAioState *s, AioContext *old_context)
-+{
-+    aio_set_event_notifier(old_context, &s->e, NULL, NULL, NULL);
-+    qemu_bh_delete(s->completion_bh);
-+    s->aio_context = NULL;
-+}
-+
-+void laio_attach_aio_context(LinuxAioState *s, AioContext *new_context)
-+{
-+    s->aio_context = new_context;
-+    s->completion_bh = aio_bh_new(new_context, qemu_laio_completion_bh, s);
-+    aio_set_event_notifier(new_context, &s->e,
-+                           qemu_laio_completion_cb,
-+                           qemu_laio_poll_cb,
-+                           qemu_laio_poll_ready);
-+}
-+
-+LinuxAioState *laio_init(Error **errp)
-+{
-+    int rc;
-+    LinuxAioState *s;
-+
-+    s = g_malloc0(sizeof(*s));
-+    rc = event_notifier_init(&s->e, false);
-+    if (rc < 0) {
-+        error_setg_errno(errp, -rc, "failed to initialize event notifier");
-+        goto out_free_state;
-+    }
-+
-+    rc = io_setup(MAX_EVENTS, &s->ctx);
-+    if (rc < 0) {
-+        error_setg_errno(errp, -rc, "failed to create linux AIO context");
-+        goto out_close_efd;
-+    }
-+
-+    ioq_init(&s->io_q);
-+
-+    return s;
-+
-+out_close_efd:
-+    event_notifier_cleanup(&s->e);
-+out_free_state:
-+    g_free(s);
-+    return NULL;
-+}
-+
-+void laio_cleanup(LinuxAioState *s)
-+{
-+    event_notifier_cleanup(&s->e);
-+
-+    if (io_destroy(s->ctx) != 0) {
-+        fprintf(stderr, "%s: destroy AIO context %p failed\n",
-+                        __func__, &s->ctx);
-+    }
-+    g_free(s);
-+}
-+
-+bool laio_has_fdsync(int fd)
-+{
-+    struct iocb cb;
-+    struct iocb *cbs[] = {&cb, NULL};
-+
-+    io_context_t ctx = 0;
-+    io_setup(1, &ctx);
-+
-+    /* check if host kernel supports IO_CMD_FDSYNC */
-+    io_prep_fdsync(&cb, fd);
-+    int ret = io_submit(ctx, 1, cbs);
-+
-+    io_destroy(ctx);
-+    return (ret == -EINVAL) ? false : true;
-+}
+diff --git a/qcow2/lib/block/mirror.c b/qcow2/lib/block/mirror.c
+index 61f0a717..4b75f105 100644
+--- a/qcow2/lib/block/mirror.c
++++ b/qcow2/lib/block/mirror.c
+@@ -15,7 +15,7 @@
+ #include "qemu/cutils.h"
+ #include "qemu/coroutine.h"
+ #include "qemu/range.h"
+-#include "trace.h"
++//#include "trace.h"
+ #include "block/blockjob_int.h"
+ #include "block/block_int.h"
+ #include "block/dirty-bitmap.h"
+@@ -201,7 +201,9 @@ static void coroutine_fn mirror_iteration_done(MirrorOp *op, int ret)
+     int64_t chunk_num;
+     int i, nb_chunks;
+ 
++#if 0
+     trace_mirror_iteration_done(s, op->offset, op->bytes, ret);
++#endif
+ 
+     s->in_flight--;
+     s->bytes_in_flight -= op->bytes;
+@@ -375,7 +377,9 @@ static void coroutine_fn mirror_co_read(void *opaque)
+     nb_chunks = DIV_ROUND_UP(op->bytes, s->granularity);
+ 
+     while (s->buf_free_count < nb_chunks) {
++#if 0
+         trace_mirror_yield_in_flight(s, op->offset, s->in_flight);
++#endif
+         mirror_wait_for_free_in_flight_slot(s);
+     }
+ 
+@@ -396,7 +400,9 @@ static void coroutine_fn mirror_co_read(void *opaque)
+     s->in_flight++;
+     s->bytes_in_flight += op->bytes;
+     op->is_in_flight = true;
++#if 0
+     trace_mirror_one_iteration(s, op->offset, op->bytes);
++#endif
+ 
+     WITH_GRAPH_RDLOCK_GUARD() {
+         ret = bdrv_co_preadv(s->mirror_top_bs->backing, op->offset, op->bytes,
+@@ -499,7 +505,9 @@ static void coroutine_fn GRAPH_UNLOCKED mirror_iteration(MirrorBlockJob *s)
+     if (offset < 0) {
+         bdrv_set_dirty_iter(s->dbi, 0);
+         offset = bdrv_dirty_iter_next(s->dbi);
++#if 0
+         trace_mirror_restart_iter(s, bdrv_get_dirty_count(s->dirty_bitmap));
++#endif
+         assert(offset >= 0);
+     }
+     bdrv_dirty_bitmap_unlock(s->dirty_bitmap);
+@@ -601,7 +609,9 @@ static void coroutine_fn GRAPH_UNLOCKED mirror_iteration(MirrorBlockJob *s)
+         }
+ 
+         while (s->in_flight >= MAX_IN_FLIGHT) {
++#if 0
+             trace_mirror_yield_in_flight(s, offset, s->in_flight);
++#endif
+             mirror_wait_for_free_in_flight_slot(s);
+         }
+ 
+@@ -867,8 +877,10 @@ static int coroutine_fn GRAPH_UNLOCKED mirror_dirty_init(MirrorBlockJob *s)
+             }
+ 
+             if (s->in_flight >= MAX_IN_FLIGHT) {
++#if 0
+                 trace_mirror_yield(s, UINT64_MAX, s->buf_free_count,
+                                    s->in_flight);
++#endif
+                 mirror_wait_for_free_in_flight_slot(s);
+                 continue;
+             }
+@@ -1071,7 +1083,9 @@ static int coroutine_fn mirror_run(Job *job, Error **errp)
+             iostatus == BLOCK_DEVICE_IO_STATUS_OK) {
+             if (s->in_flight >= MAX_IN_FLIGHT || s->buf_free_count == 0 ||
+                 (cnt == 0 && s->in_flight > 0)) {
++#if 0
+                 trace_mirror_yield(s, cnt, s->buf_free_count, s->in_flight);
++#endif
+                 mirror_wait_for_free_in_flight_slot(s);
+                 continue;
+             } else if (cnt != 0) {
+@@ -1081,7 +1095,9 @@ static int coroutine_fn mirror_run(Job *job, Error **errp)
+ 
+         should_complete = false;
+         if (s->in_flight == 0 && cnt == 0) {
++#if 0
+             trace_mirror_before_flush(s);
++#endif
+             if (!job_is_ready(&s->common.job)) {
+                 if (mirror_flush(s) < 0) {
+                     /* Go check s->ret.  */
+@@ -1114,7 +1130,9 @@ static int coroutine_fn mirror_run(Job *job, Error **errp)
+              * whether to switch to target check one last time if I/O has
+              * come in the meanwhile, and if not flush the data to disk.
+              */
++#if 0
+             trace_mirror_before_drain(s, cnt);
++#endif
+ 
+             s->in_drain = true;
+             bdrv_drained_begin(bs);
+@@ -1139,8 +1157,10 @@ static int coroutine_fn mirror_run(Job *job, Error **errp)
+ 
+         if (job_is_ready(&s->common.job) && !should_complete) {
+             if (s->in_flight == 0 && cnt == 0) {
++#if 0
+                 trace_mirror_before_sleep(s, cnt, job_is_ready(&s->common.job),
+                                           BLOCK_JOB_SLICE_TIME);
++#endif
+                 job_sleep_ns(&s->common.job, BLOCK_JOB_SLICE_TIME);
+             }
+         } else {
+@@ -1235,6 +1255,7 @@ static bool mirror_drained_poll(BlockJob *job)
+     return !!s->in_flight;
+ }
+ 
++#if 0
+ static bool mirror_cancel(Job *job, bool force)
+ {
+     MirrorBlockJob *s = container_of(job, MirrorBlockJob, common.job);
+@@ -1251,6 +1272,7 @@ static bool mirror_cancel(Job *job, bool force)
+     }
+     return force;
+ }
++#endif
+ 
+ static bool commit_active_cancel(Job *job, bool force)
+ {
+@@ -1258,6 +1280,7 @@ static bool commit_active_cancel(Job *job, bool force)
+     return force || !job_is_ready(job);
+ }
+ 
++#if 0
+ static void mirror_change(BlockJob *job, BlockJobChangeOptions *opts,
+                           Error **errp)
+ {
+@@ -1317,6 +1340,7 @@ static const BlockJobDriver mirror_job_driver = {
+     .change                 = mirror_change,
+     .query                  = mirror_query,
+ };
++#endif
+ 
+ static const BlockJobDriver commit_active_job_driver = {
+     .job_driver = {
+@@ -1969,7 +1993,7 @@ static BlockJob *mirror_start_job(
+ 
+     QTAILQ_INIT(&s->ops_in_flight);
+ 
+-    trace_mirror_start(bs, s, opaque);
++    //trace_mirror_start(bs, s, opaque);
+     job_start(&s->common.job);
+ 
+     return &s->common;
+@@ -2004,6 +2028,7 @@ fail:
+     return NULL;
+ }
+ 
++#if 0
+ void mirror_start(const char *job_id, BlockDriverState *bs,
+                   BlockDriverState *target, const char *replaces,
+                   int creation_flags, int64_t speed,
+@@ -2038,6 +2063,7 @@ void mirror_start(const char *job_id, BlockDriverState *bs,
+                      &mirror_job_driver, is_none_mode, base, false,
+                      filter_node_name, true, copy_mode, false, errp);
+ }
++#endif
+ 
+ BlockJob *commit_active_start(const char *job_id, BlockDriverState *bs,
+                               BlockDriverState *base, int creation_flags,
 diff --git a/qcow2/lib/block/qapi.c b/qcow2/lib/block/qapi.c
 index 2b5793f1..82e12895 100644
 --- a/qcow2/lib/block/qapi.c
@@ -3985,697 +3400,182 @@ index 2b5793f1..82e12895 100644
      p_image_info = &info->image;
      info->backing_file_depth = 0;
 diff --git a/qcow2/lib/block/raw-format.c b/qcow2/lib/block/raw-format.c
-new file mode 100644
-index 00000000..f3343e98
---- /dev/null
+index ac7e8495..f3343e98 100644
+--- a/qcow2/lib/block/raw-format.c
 +++ b/qcow2/lib/block/raw-format.c
-@@ -0,0 +1,686 @@
-+/* BlockDriver implementation for "raw" format driver
-+ *
-+ * Copyright (C) 2010-2016 Red Hat, Inc.
-+ * Copyright (C) 2010, Blue Swirl <blauwirbel@gmail.com>
-+ * Copyright (C) 2009, Anthony Liguori <aliguori@us.ibm.com>
-+ *
-+ * Author:
-+ *   Laszlo Ersek <lersek@redhat.com>
-+ *
-+ * Permission is hereby granted, free of charge, to any person obtaining a copy
-+ * of this software and associated documentation files (the "Software"), to
-+ * deal in the Software without restriction, including without limitation the
-+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-+ * sell copies of the Software, and to permit persons to whom the Software is
-+ * furnished to do so, subject to the following conditions:
-+ *
-+ * The above copyright notice and this permission notice shall be included in
-+ * all copies or substantial portions of the Software.
-+ *
-+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-+ * IN THE SOFTWARE.
-+ */
-+
-+#include "qemu/osdep.h"
-+#include "block/block-io.h"
-+#include "block/block_int.h"
-+#include "qapi/error.h"
-+#include "qemu/module.h"
-+#include "qemu/option.h"
-+#include "qemu/memalign.h"
-+
-+typedef struct BDRVRawState {
-+    uint64_t offset;
-+    uint64_t size;
-+    bool has_size;
-+} BDRVRawState;
-+
-+static const char *const mutable_opts[] = { "offset", "size", NULL };
-+
-+static QemuOptsList raw_runtime_opts = {
-+    .name = "raw",
-+    .head = QTAILQ_HEAD_INITIALIZER(raw_runtime_opts.head),
-+    .desc = {
-+        {
-+            .name = "offset",
-+            .type = QEMU_OPT_SIZE,
-+            .help = "offset in the disk where the image starts",
-+        },
-+        {
-+            .name = "size",
-+            .type = QEMU_OPT_SIZE,
-+            .help = "virtual disk size",
-+        },
-+        { /* end of list */ }
-+    },
-+};
-+
-+static QemuOptsList raw_create_opts = {
-+    .name = "raw-create-opts",
-+    .head = QTAILQ_HEAD_INITIALIZER(raw_create_opts.head),
-+    .desc = {
-+        {
-+            .name = BLOCK_OPT_SIZE,
-+            .type = QEMU_OPT_SIZE,
-+            .help = "Virtual disk size"
-+        },
-+        { /* end of list */ }
-+    }
-+};
-+
-+static int raw_read_options(QDict *options, uint64_t *offset, bool *has_size,
-+                            uint64_t *size, Error **errp)
-+{
-+    QemuOpts *opts = NULL;
-+    int ret;
-+
-+    opts = qemu_opts_create(&raw_runtime_opts, NULL, 0, &error_abort);
-+    if (!qemu_opts_absorb_qdict(opts, options, errp)) {
-+        ret = -EINVAL;
-+        goto end;
-+    }
-+
-+    *offset = qemu_opt_get_size(opts, "offset", 0);
-+    *has_size = qemu_opt_find(opts, "size");
-+    *size = qemu_opt_get_size(opts, "size", 0);
-+
-+    ret = 0;
-+end:
-+    qemu_opts_del(opts);
-+    return ret;
-+}
-+
-+static int GRAPH_RDLOCK
-+raw_apply_options(BlockDriverState *bs, BDRVRawState *s, uint64_t offset,
-+                  bool has_size, uint64_t size, Error **errp)
-+{
-+    int64_t real_size = 0;
-+
-+    real_size = bdrv_getlength(bs->file->bs);
-+    if (real_size < 0) {
-+        error_setg_errno(errp, -real_size, "Could not get image size");
-+        return real_size;
-+    }
-+
-+    /* Check size and offset */
-+    if (offset > real_size) {
-+        error_setg(errp, "Offset (%" PRIu64 ") cannot be greater than "
-+                   "size of the containing file (%" PRId64 ")",
-+                   s->offset, real_size);
-+        return -EINVAL;
-+    }
-+
-+    if (has_size && (real_size - offset) < size) {
-+        error_setg(errp, "The sum of offset (%" PRIu64 ") and size "
-+                   "(%" PRIu64 ") has to be smaller or equal to the "
-+                   " actual size of the containing file (%" PRId64 ")",
-+                   s->offset, s->size, real_size);
-+        return -EINVAL;
-+    }
-+
-+    /* Make sure size is multiple of BDRV_SECTOR_SIZE to prevent rounding
-+     * up and leaking out of the specified area. */
-+    if (has_size && !QEMU_IS_ALIGNED(size, BDRV_SECTOR_SIZE)) {
-+        error_setg(errp, "Specified size is not multiple of %llu",
-+                   BDRV_SECTOR_SIZE);
-+        return -EINVAL;
-+    }
-+
-+    s->offset = offset;
-+    s->has_size = has_size;
-+    s->size = has_size ? size : real_size - offset;
-+
-+    return 0;
-+}
-+
-+static int raw_reopen_prepare(BDRVReopenState *reopen_state,
-+                              BlockReopenQueue *queue, Error **errp)
-+{
-+    bool has_size;
-+    uint64_t offset, size;
-+    int ret;
-+
-+    GLOBAL_STATE_CODE();
-+    GRAPH_RDLOCK_GUARD_MAINLOOP();
-+
-+    assert(reopen_state != NULL);
-+    assert(reopen_state->bs != NULL);
-+
-+    reopen_state->opaque = g_new0(BDRVRawState, 1);
-+
-+    ret = raw_read_options(reopen_state->options, &offset, &has_size, &size,
-+                           errp);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-+    ret = raw_apply_options(reopen_state->bs, reopen_state->opaque,
-+                            offset, has_size, size, errp);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-+    return 0;
-+}
-+
-+static void raw_reopen_commit(BDRVReopenState *state)
-+{
-+    BDRVRawState *new_s = state->opaque;
-+    BDRVRawState *s = state->bs->opaque;
-+
-+    memcpy(s, new_s, sizeof(BDRVRawState));
-+
-+    g_free(state->opaque);
-+    state->opaque = NULL;
-+}
-+
-+static void raw_reopen_abort(BDRVReopenState *state)
-+{
-+    g_free(state->opaque);
-+    state->opaque = NULL;
-+}
-+
-+/* Check and adjust the offset, against 'offset' and 'size' options. */
-+static inline int raw_adjust_offset(BlockDriverState *bs, int64_t *offset,
-+                                    int64_t bytes, bool is_write)
-+{
-+    BDRVRawState *s = bs->opaque;
-+
-+    if (s->has_size && (*offset > s->size || bytes > (s->size - *offset))) {
-+        /* There's not enough space for the write, or the read request is
-+         * out-of-range. Don't read/write anything to prevent leaking out of
-+         * the size specified in options. */
-+        return is_write ? -ENOSPC : -EINVAL;
-+    }
-+
-+    if (*offset > INT64_MAX - s->offset) {
-+        return -EINVAL;
-+    }
-+    *offset += s->offset;
-+
-+    return 0;
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_preadv(BlockDriverState *bs, int64_t offset, int64_t bytes,
-+              QEMUIOVector *qiov, BdrvRequestFlags flags)
-+{
-+    int ret;
-+
-+    ret = raw_adjust_offset(bs, &offset, bytes, false);
-+    if (ret) {
-+        return ret;
-+    }
-+
-+    BLKDBG_CO_EVENT(bs->file, BLKDBG_READ_AIO);
-+    return bdrv_co_preadv(bs->file, offset, bytes, qiov, flags);
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_pwritev(BlockDriverState *bs, int64_t offset, int64_t bytes,
-+               QEMUIOVector *qiov, BdrvRequestFlags flags)
-+{
-+    void *buf = NULL;
-+    BlockDriver *drv;
-+    QEMUIOVector local_qiov;
-+    int ret;
-+
-+    if (bs->probed && offset < BLOCK_PROBE_BUF_SIZE && bytes) {
-+        /* Handling partial writes would be a pain - so we just
-+         * require that guests have 512-byte request alignment if
-+         * probing occurred */
-+        QEMU_BUILD_BUG_ON(BLOCK_PROBE_BUF_SIZE != 512);
-+        QEMU_BUILD_BUG_ON(BDRV_SECTOR_SIZE != 512);
-+        assert(offset == 0 && bytes >= BLOCK_PROBE_BUF_SIZE);
-+
-+        buf = qemu_try_blockalign(bs->file->bs, 512);
-+        if (!buf) {
-+            ret = -ENOMEM;
-+            goto fail;
-+        }
-+
-+        ret = qemu_iovec_to_buf(qiov, 0, buf, 512);
-+        if (ret != 512) {
-+            ret = -EINVAL;
-+            goto fail;
-+        }
-+
-+        drv = bdrv_probe_all(buf, 512, NULL);
-+        if (drv != bs->drv) {
-+            ret = -EPERM;
-+            goto fail;
-+        }
-+
-+        /* Use the checked buffer, a malicious guest might be overwriting its
-+         * original buffer in the background. */
-+        qemu_iovec_init(&local_qiov, qiov->niov + 1);
-+        qemu_iovec_add(&local_qiov, buf, 512);
-+        qemu_iovec_concat(&local_qiov, qiov, 512, qiov->size - 512);
-+        qiov = &local_qiov;
-+
-+        flags &= ~BDRV_REQ_REGISTERED_BUF;
-+    }
-+
-+    ret = raw_adjust_offset(bs, &offset, bytes, true);
-+    if (ret) {
-+        goto fail;
-+    }
-+
-+    BLKDBG_CO_EVENT(bs->file, BLKDBG_WRITE_AIO);
-+    ret = bdrv_co_pwritev(bs->file, offset, bytes, qiov, flags);
-+
-+fail:
-+    if (qiov == &local_qiov) {
-+        qemu_iovec_destroy(&local_qiov);
-+    }
-+    qemu_vfree(buf);
-+    return ret;
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_block_status(BlockDriverState *bs, bool want_zero, int64_t offset,
-+                    int64_t bytes, int64_t *pnum, int64_t *map,
-+                    BlockDriverState **file)
-+{
-+    BDRVRawState *s = bs->opaque;
-+    *pnum = bytes;
-+    *file = bs->file->bs;
-+    *map = offset + s->offset;
-+    return BDRV_BLOCK_RAW | BDRV_BLOCK_OFFSET_VALID;
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_pwrite_zeroes(BlockDriverState *bs, int64_t offset, int64_t bytes,
-+                     BdrvRequestFlags flags)
-+{
-+    int ret;
-+
-+    ret = raw_adjust_offset(bs, &offset, bytes, true);
-+    if (ret) {
-+        return ret;
-+    }
-+    return bdrv_co_pwrite_zeroes(bs->file, offset, bytes, flags);
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_pdiscard(BlockDriverState *bs, int64_t offset, int64_t bytes)
-+{
-+    int ret;
-+
-+    ret = raw_adjust_offset(bs, &offset, bytes, true);
-+    if (ret) {
-+        return ret;
-+    }
-+    return bdrv_co_pdiscard(bs->file, offset, bytes);
-+}
-+
+@@ -319,6 +319,7 @@ raw_co_pdiscard(BlockDriverState *bs, int64_t offset, int64_t bytes)
+     return bdrv_co_pdiscard(bs->file, offset, bytes);
+ }
+ 
 +#if 0
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_zone_report(BlockDriverState *bs, int64_t offset,
-+                   unsigned int *nr_zones,
-+                   BlockZoneDescriptor *zones)
-+{
-+    return bdrv_co_zone_report(bs->file->bs, offset, nr_zones, zones);
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_zone_mgmt(BlockDriverState *bs, BlockZoneOp op,
-+                 int64_t offset, int64_t len)
-+{
-+    return bdrv_co_zone_mgmt(bs->file->bs, op, offset, len);
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_zone_append(BlockDriverState *bs,int64_t *offset, QEMUIOVector *qiov,
-+                   BdrvRequestFlags flags)
-+{
-+    return bdrv_co_zone_append(bs->file->bs, offset, qiov, flags);
-+}
+ static int coroutine_fn GRAPH_RDLOCK
+ raw_co_zone_report(BlockDriverState *bs, int64_t offset,
+                    unsigned int *nr_zones,
+@@ -340,6 +341,7 @@ raw_co_zone_append(BlockDriverState *bs,int64_t *offset, QEMUIOVector *qiov,
+ {
+     return bdrv_co_zone_append(bs->file->bs, offset, qiov, flags);
+ }
 +#endif
-+
-+static int64_t coroutine_fn GRAPH_RDLOCK
-+raw_co_getlength(BlockDriverState *bs)
-+{
-+    int64_t len;
-+    BDRVRawState *s = bs->opaque;
-+
-+    /* Update size. It should not change unless the file was externally
-+     * modified. */
-+    len = bdrv_co_getlength(bs->file->bs);
-+    if (len < 0) {
-+        return len;
-+    }
-+
-+    if (len < s->offset) {
-+        s->size = 0;
-+    } else {
-+        if (s->has_size) {
-+            /* Try to honour the size */
-+            s->size = MIN(s->size, len - s->offset);
-+        } else {
-+            s->size = len - s->offset;
-+        }
-+    }
-+
-+    return s->size;
-+}
-+
-+static BlockMeasureInfo *raw_measure(QemuOpts *opts, BlockDriverState *in_bs,
-+                                     Error **errp)
-+{
-+    BlockMeasureInfo *info;
-+    int64_t required;
-+
-+    if (in_bs) {
-+        required = bdrv_getlength(in_bs);
-+        if (required < 0) {
-+            error_setg_errno(errp, -required, "Unable to get image size");
-+            return NULL;
-+        }
-+    } else {
-+        required = ROUND_UP(qemu_opt_get_size_del(opts, BLOCK_OPT_SIZE, 0),
-+                            BDRV_SECTOR_SIZE);
-+    }
-+
-+    info = g_new0(BlockMeasureInfo, 1);
-+    info->required = required;
-+
-+    /* Unallocated sectors count towards the file size in raw images */
-+    info->fully_allocated = info->required;
-+    return info;
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_get_info(BlockDriverState *bs, BlockDriverInfo *bdi)
-+{
-+    return bdrv_co_get_info(bs->file->bs, bdi);
-+}
-+
-+static void GRAPH_RDLOCK raw_refresh_limits(BlockDriverState *bs, Error **errp)
-+{
-+    bs->bl.has_variable_length = bs->file->bs->bl.has_variable_length;
-+
-+    if (bs->probed) {
-+        /* To make it easier to protect the first sector, any probed
-+         * image is restricted to read-modify-write on sub-sector
-+         * operations. */
-+        bs->bl.request_alignment = BDRV_SECTOR_SIZE;
-+    }
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_truncate(BlockDriverState *bs, int64_t offset, bool exact,
-+                PreallocMode prealloc, BdrvRequestFlags flags, Error **errp)
-+{
-+    BDRVRawState *s = bs->opaque;
-+
-+    if (s->has_size) {
-+        error_setg(errp, "Cannot resize fixed-size raw disks");
-+        return -ENOTSUP;
-+    }
-+
-+    if (INT64_MAX - offset < s->offset) {
-+        error_setg(errp, "Disk size too large for the chosen offset");
-+        return -EINVAL;
-+    }
-+
-+    s->size = offset;
-+    offset += s->offset;
-+    return bdrv_co_truncate(bs->file, offset, exact, prealloc, flags, errp);
-+}
-+
-+static void coroutine_fn GRAPH_RDLOCK
-+raw_co_eject(BlockDriverState *bs, bool eject_flag)
-+{
-+    bdrv_co_eject(bs->file->bs, eject_flag);
-+}
-+
-+static void coroutine_fn GRAPH_RDLOCK
-+raw_co_lock_medium(BlockDriverState *bs, bool locked)
-+{
-+    bdrv_co_lock_medium(bs->file->bs, locked);
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_ioctl(BlockDriverState *bs, unsigned long int req, void *buf)
-+{
-+    BDRVRawState *s = bs->opaque;
-+    if (s->offset || s->has_size) {
-+        return -ENOTSUP;
-+    }
-+    return bdrv_co_ioctl(bs->file->bs, req, buf);
-+}
-+
-+static int GRAPH_RDLOCK raw_has_zero_init(BlockDriverState *bs)
-+{
-+    return bdrv_has_zero_init(bs->file->bs);
-+}
-+
-+static int coroutine_fn GRAPH_UNLOCKED
-+raw_co_create_opts(BlockDriver *drv, const char *filename,
-+                   QemuOpts *opts, Error **errp)
-+{
-+    return bdrv_co_create_file(filename, opts, errp);
-+}
-+
-+static int raw_open(BlockDriverState *bs, QDict *options, int flags,
-+                    Error **errp)
-+{
-+    BDRVRawState *s = bs->opaque;
-+    bool has_size;
-+    uint64_t offset, size;
-+    BdrvChildRole file_role;
-+    int ret;
-+
-+    GLOBAL_STATE_CODE();
-+
-+    ret = raw_read_options(options, &offset, &has_size, &size, errp);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-+    /*
-+     * Without offset and a size limit, this driver behaves very much
-+     * like a filter.  With any such limit, it does not.
-+     */
-+    if (offset || has_size) {
-+        file_role = BDRV_CHILD_DATA | BDRV_CHILD_PRIMARY;
-+    } else {
-+        file_role = BDRV_CHILD_FILTERED | BDRV_CHILD_PRIMARY;
-+    }
-+
-+    bdrv_open_child(NULL, options, "file", bs, &child_of_bds,
-+                    file_role, false, errp);
-+
-+    GRAPH_RDLOCK_GUARD_MAINLOOP();
-+    if (!bs->file) {
-+        return -EINVAL;
-+    }
-+
-+    bs->sg = bdrv_is_sg(bs->file->bs);
-+    bs->supported_write_flags = BDRV_REQ_WRITE_UNCHANGED |
-+        (BDRV_REQ_FUA & bs->file->bs->supported_write_flags);
-+    bs->supported_zero_flags = BDRV_REQ_WRITE_UNCHANGED |
-+        ((BDRV_REQ_FUA | BDRV_REQ_MAY_UNMAP | BDRV_REQ_NO_FALLBACK) &
-+            bs->file->bs->supported_zero_flags);
-+    bs->supported_truncate_flags = bs->file->bs->supported_truncate_flags &
-+                                   BDRV_REQ_ZERO_WRITE;
-+
-+    if (bs->probed && !bdrv_is_read_only(bs)) {
-+        bdrv_refresh_filename(bs->file->bs);
-+        fprintf(stderr,
-+                "WARNING: Image format was not specified for '%s' and probing "
-+                "guessed raw.\n"
-+                "         Automatically detecting the format is dangerous for "
-+                "raw images, write operations on block 0 will be restricted.\n"
-+                "         Specify the 'raw' format explicitly to remove the "
-+                "restrictions.\n",
-+                bs->file->bs->filename);
-+    }
-+
-+    ret = raw_apply_options(bs, s, offset, has_size, size, errp);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-+    if (bdrv_is_sg(bs) && (s->offset || s->has_size)) {
-+        error_setg(errp, "Cannot use offset/size with SCSI generic devices");
-+        return -EINVAL;
-+    }
-+
-+    return 0;
-+}
-+
-+static int raw_probe(const uint8_t *buf, int buf_size, const char *filename)
-+{
-+    /* smallest possible positive score so that raw is used if and only if no
-+     * other block driver works
-+     */
-+    return 1;
-+}
-+
-+static int GRAPH_RDLOCK
-+raw_probe_blocksizes(BlockDriverState *bs, BlockSizes *bsz)
-+{
-+    BDRVRawState *s = bs->opaque;
-+    int ret;
-+
-+    ret = bdrv_probe_blocksizes(bs->file->bs, bsz);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-+    if (!QEMU_IS_ALIGNED(s->offset, MAX(bsz->log, bsz->phys))) {
-+        return -ENOTSUP;
-+    }
-+
-+    return 0;
-+}
-+
-+static int GRAPH_RDLOCK
-+raw_probe_geometry(BlockDriverState *bs, HDGeometry *geo)
-+{
-+    BDRVRawState *s = bs->opaque;
-+    if (s->offset || s->has_size) {
-+        return -ENOTSUP;
-+    }
-+    return bdrv_probe_geometry(bs->file->bs, geo);
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_copy_range_from(BlockDriverState *bs,
-+                       BdrvChild *src, int64_t src_offset,
-+                       BdrvChild *dst, int64_t dst_offset,
-+                       int64_t bytes, BdrvRequestFlags read_flags,
-+                       BdrvRequestFlags write_flags)
-+{
-+    int ret;
-+
-+    ret = raw_adjust_offset(bs, &src_offset, bytes, false);
-+    if (ret) {
-+        return ret;
-+    }
-+    return bdrv_co_copy_range_from(bs->file, src_offset, dst, dst_offset,
-+                                   bytes, read_flags, write_flags);
-+}
-+
-+static int coroutine_fn GRAPH_RDLOCK
-+raw_co_copy_range_to(BlockDriverState *bs,
-+                     BdrvChild *src, int64_t src_offset,
-+                     BdrvChild *dst, int64_t dst_offset,
-+                     int64_t bytes, BdrvRequestFlags read_flags,
-+                     BdrvRequestFlags write_flags)
-+{
-+    int ret;
-+
-+    ret = raw_adjust_offset(bs, &dst_offset, bytes, true);
-+    if (ret) {
-+        return ret;
-+    }
-+    return bdrv_co_copy_range_to(src, src_offset, bs->file, dst_offset, bytes,
-+                                 read_flags, write_flags);
-+}
-+
-+static const char *const raw_strong_runtime_opts[] = {
-+    "offset",
-+    "size",
-+
-+    NULL
-+};
-+
-+static void GRAPH_RDLOCK raw_cancel_in_flight(BlockDriverState *bs)
-+{
-+    bdrv_cancel_in_flight(bs->file->bs);
-+}
-+
-+static void raw_child_perm(BlockDriverState *bs, BdrvChild *c,
-+                           BdrvChildRole role,
-+                           BlockReopenQueue *reopen_queue,
-+                           uint64_t parent_perm, uint64_t parent_shared,
-+                           uint64_t *nperm, uint64_t *nshared)
-+{
-+    bdrv_default_perms(bs, c, role, reopen_queue, parent_perm,
-+                       parent_shared, nperm, nshared);
-+
-+    /*
-+     * bdrv_default_perms() may add WRITE and/or RESIZE (see comment in
-+     * bdrv_default_perms_for_storage() for an explanation) but we only need
-+     * them if they are in parent_perm. Drop WRITE and RESIZE whenever possible
-+     * to avoid permission conflicts.
-+     */
-+    *nperm &= ~(BLK_PERM_WRITE | BLK_PERM_RESIZE);
-+    *nperm |= parent_perm & (BLK_PERM_WRITE | BLK_PERM_RESIZE);
-+}
-+
-+BlockDriver bdrv_raw = {
-+    .format_name          = "raw",
-+    .instance_size        = sizeof(BDRVRawState),
-+    .supports_zoned_children = true,
-+    .bdrv_probe           = &raw_probe,
-+    .bdrv_reopen_prepare  = &raw_reopen_prepare,
-+    .bdrv_reopen_commit   = &raw_reopen_commit,
-+    .bdrv_reopen_abort    = &raw_reopen_abort,
-+    .bdrv_open            = &raw_open,
-+    .bdrv_child_perm      = raw_child_perm,
-+    .bdrv_co_create_opts  = &raw_co_create_opts,
-+    .bdrv_co_preadv       = &raw_co_preadv,
-+    .bdrv_co_pwritev      = &raw_co_pwritev,
-+    .bdrv_co_pwrite_zeroes = &raw_co_pwrite_zeroes,
-+    .bdrv_co_pdiscard     = &raw_co_pdiscard,
+ 
+ static int64_t coroutine_fn GRAPH_RDLOCK
+ raw_co_getlength(BlockDriverState *bs)
+@@ -650,9 +652,11 @@ BlockDriver bdrv_raw = {
+     .bdrv_co_pwritev      = &raw_co_pwritev,
+     .bdrv_co_pwrite_zeroes = &raw_co_pwrite_zeroes,
+     .bdrv_co_pdiscard     = &raw_co_pdiscard,
 +#if 0
-+    .bdrv_co_zone_report  = &raw_co_zone_report,
-+    .bdrv_co_zone_mgmt  = &raw_co_zone_mgmt,
-+    .bdrv_co_zone_append = &raw_co_zone_append,
+     .bdrv_co_zone_report  = &raw_co_zone_report,
+     .bdrv_co_zone_mgmt  = &raw_co_zone_mgmt,
+     .bdrv_co_zone_append = &raw_co_zone_append,
 +#endif
-+    .bdrv_co_block_status = &raw_co_block_status,
-+    .bdrv_co_copy_range_from = &raw_co_copy_range_from,
-+    .bdrv_co_copy_range_to  = &raw_co_copy_range_to,
-+    .bdrv_co_truncate     = &raw_co_truncate,
-+    .bdrv_co_getlength    = &raw_co_getlength,
-+    .is_format            = true,
-+    .bdrv_measure         = &raw_measure,
-+    .bdrv_co_get_info     = &raw_co_get_info,
-+    .bdrv_refresh_limits  = &raw_refresh_limits,
-+    .bdrv_probe_blocksizes = &raw_probe_blocksizes,
-+    .bdrv_probe_geometry  = &raw_probe_geometry,
-+    .bdrv_co_eject        = &raw_co_eject,
-+    .bdrv_co_lock_medium  = &raw_co_lock_medium,
-+    .bdrv_co_ioctl        = &raw_co_ioctl,
-+    .create_opts          = &raw_create_opts,
-+    .bdrv_has_zero_init   = &raw_has_zero_init,
-+    .strong_runtime_opts  = raw_strong_runtime_opts,
-+    .mutable_opts         = mutable_opts,
-+    .bdrv_cancel_in_flight = raw_cancel_in_flight,
-+};
-+
-+static void bdrv_raw_init(void)
-+{
-+    bdrv_register(&bdrv_raw);
-+}
-+
-+block_init(bdrv_raw_init);
+     .bdrv_co_block_status = &raw_co_block_status,
+     .bdrv_co_copy_range_from = &raw_co_copy_range_from,
+     .bdrv_co_copy_range_to  = &raw_co_copy_range_to,
+diff --git a/qcow2/lib/blockdev.c b/qcow2/lib/blockdev.c
+index 835064ed..53279249 100644
+--- a/qcow2/lib/blockdev.c
++++ b/qcow2/lib/blockdev.c
+@@ -37,14 +37,14 @@
+ #include "block/blockjob.h"
+ #include "block/dirty-bitmap.h"
+ #include "block/qdict.h"
+-#include "block/throttle-groups.h"
+-#include "monitor/monitor.h"
++//#include "block/throttle-groups.h"
++//#include "monitor/monitor.h"
+ #include "qemu/error-report.h"
+ #include "qemu/option.h"
+ #include "qemu/qemu-print.h"
+ #include "qemu/config-file.h"
+ #include "qapi/qapi-commands-block.h"
+-#include "qapi/qapi-commands-transaction.h"
++//#include "qapi/qapi-commands-transaction.h"
+ #include "qapi/qapi-visit-block-core.h"
+ #include "qapi/qmp/qdict.h"
+ #include "qapi/qmp/qnum.h"
+@@ -53,17 +53,18 @@
+ #include "qapi/qmp/qerror.h"
+ #include "qapi/qmp/qlist.h"
+ #include "qapi/qobject-output-visitor.h"
+-#include "sysemu/sysemu.h"
+-#include "sysemu/iothread.h"
++//#include "sysemu/sysemu.h"
++//#include "sysemu/iothread.h"
+ #include "block/block_int.h"
+-#include "block/trace.h"
+-#include "sysemu/runstate.h"
+-#include "sysemu/replay.h"
++//#include "block/trace.h"
++//#include "sysemu/runstate.h"
++//#include "sysemu/replay.h"
+ #include "qemu/cutils.h"
+ #include "qemu/help_option.h"
+ #include "qemu/main-loop.h"
+-#include "qemu/throttle-options.h"
++//#include "qemu/throttle-options.h"
+ 
++#if 0
+ /* Protected by BQL */
+ QTAILQ_HEAD(, BlockDriverState) monitor_bdrv_states =
+     QTAILQ_HEAD_INITIALIZER(monitor_bdrv_states);
+@@ -1035,6 +1036,7 @@ fail:
+     qobject_unref(bs_opts);
+     return dinfo;
+ }
++#endif
+ 
+ static BlockDriverState *qmp_get_root_bs(const char *name, Error **errp)
+ {
+@@ -1060,6 +1062,7 @@ static BlockDriverState *qmp_get_root_bs(const char *name, Error **errp)
+     return bs;
+ }
+ 
++#if 0
+ static void blockdev_do_action(TransactionAction *action, Error **errp)
+ {
+     TransactionActionList list;
+@@ -2422,6 +2425,7 @@ void qmp_block_stream(const char *job_id, const char *device,
+ out_rdlock:
+     bdrv_graph_rdunlock_main_loop();
+ }
++#endif
+ 
+ void qmp_block_commit(const char *job_id, const char *device,
+                       const char *base_node,
+@@ -2614,6 +2618,7 @@ void qmp_block_commit(const char *job_id, const char *device,
+     }
+ }
+ 
++#if 0
+ /* Common QMP interface for drive-backup and blockdev-backup */
+ static BlockJob *do_backup_common(BackupCommon *backup,
+                                   BlockDriverState *bs,
+@@ -3510,6 +3515,7 @@ void qmp_x_blockdev_change(const char *parent, const char *child,
+ out:
+     bdrv_graph_wrunlock();
+ }
++#endif
+ 
+ BlockJobInfoList *qmp_query_block_jobs(Error **errp)
+ {
+@@ -3536,6 +3542,7 @@ BlockJobInfoList *qmp_query_block_jobs(Error **errp)
+     return head;
+ }
+ 
++#if 0
+ void qmp_x_blockdev_set_iothread(const char *node_name, StrOrNull *iothread,
+                                  bool has_force, bool force, Error **errp)
+ {
+@@ -3647,3 +3654,4 @@ QemuOptsList qemu_drive_opts = {
+         { /* end of list */ }
+     },
+ };
++#endif
+diff --git a/qcow2/lib/blockjob.c b/qcow2/lib/blockjob.c
+index d5f29e14..b739a1ca 100644
+--- a/qcow2/lib/blockjob.c
++++ b/qcow2/lib/blockjob.c
+@@ -28,7 +28,7 @@
+ #include "block/block.h"
+ #include "block/blockjob_int.h"
+ #include "block/block_int.h"
+-#include "block/trace.h"
++//#include "block/trace.h"
+ #include "sysemu/block-backend.h"
+ #include "qapi/error.h"
+ #include "qapi/qapi-events-block-core.h"
+@@ -213,6 +213,7 @@ void block_job_remove_all_bdrv(BlockJob *job)
+     bdrv_graph_wrunlock();
+ }
+ 
++#if 0
+ bool block_job_has_bdrv(BlockJob *job, BlockDriverState *bs)
+ {
+     GSList *el;
+@@ -227,6 +228,7 @@ bool block_job_has_bdrv(BlockJob *job, BlockDriverState *bs)
+ 
+     return false;
+ }
++#endif
+ 
+ int block_job_add_bdrv(BlockJob *job, const char *name, BlockDriverState *bs,
+                        uint64_t perm, uint64_t shared_perm, Error **errp)
+@@ -312,6 +314,7 @@ static bool block_job_set_speed(BlockJob *job, int64_t speed, Error **errp)
+     return block_job_set_speed_locked(job, speed, errp);
+ }
+ 
++#if 0
+ void block_job_change_locked(BlockJob *job, BlockJobChangeOptions *opts,
+                              Error **errp)
+ {
+@@ -331,6 +334,7 @@ void block_job_change_locked(BlockJob *job, BlockJobChangeOptions *opts,
+         error_setg(errp, "Job type does not support change");
+     }
+ }
++#endif
+ 
+ void block_job_ratelimit_processed_bytes(BlockJob *job, uint64_t n)
+ {
 diff --git a/qcow2/lib/crypto/hash.c b/qcow2/lib/crypto/hash.c
 index b0f8228b..a282cf74 100644
 --- a/qcow2/lib/crypto/hash.c
@@ -4876,8 +3776,75 @@ index 2b0af443..498f7a81 100644
  }
  
  int hd_bios_chs_auto_trans(uint32_t cyls, uint32_t heads, uint32_t secs)
+diff --git a/qcow2/lib/job-qmp.c b/qcow2/lib/job-qmp.c
+index 9e26fa89..3b9cb0aa 100644
+--- a/qcow2/lib/job-qmp.c
++++ b/qcow2/lib/job-qmp.c
+@@ -27,7 +27,7 @@
+ #include "qemu/job.h"
+ #include "qapi/qapi-commands-job.h"
+ #include "qapi/error.h"
+-#include "trace/trace-root.h"
++//#include "trace/trace-root.h"
+ 
+ /*
+  * Get a job using its ID. Called with job_mutex held.
+@@ -56,7 +56,7 @@ void qmp_job_cancel(const char *id, Error **errp)
+         return;
+     }
+ 
+-    trace_qmp_job_cancel(job);
++    //trace_qmp_job_cancel(job);
+     job_user_cancel_locked(job, true, errp);
+ }
+ 
+@@ -71,7 +71,7 @@ void qmp_job_pause(const char *id, Error **errp)
+         return;
+     }
+ 
+-    trace_qmp_job_pause(job);
++    //trace_qmp_job_pause(job);
+     job_user_pause_locked(job, errp);
+ }
+ 
+@@ -86,7 +86,7 @@ void qmp_job_resume(const char *id, Error **errp)
+         return;
+     }
+ 
+-    trace_qmp_job_resume(job);
++    //trace_qmp_job_resume(job);
+     job_user_resume_locked(job, errp);
+ }
+ 
+@@ -101,7 +101,7 @@ void qmp_job_complete(const char *id, Error **errp)
+         return;
+     }
+ 
+-    trace_qmp_job_complete(job);
++    //trace_qmp_job_complete(job);
+     job_complete_locked(job, errp);
+ }
+ 
+@@ -116,7 +116,7 @@ void qmp_job_finalize(const char *id, Error **errp)
+         return;
+     }
+ 
+-    trace_qmp_job_finalize(job);
++    //trace_qmp_job_finalize(job);
+     job_ref_locked(job);
+     job_finalize_locked(job, errp);
+ 
+@@ -134,7 +134,7 @@ void qmp_job_dismiss(const char *id, Error **errp)
+         return;
+     }
+ 
+-    trace_qmp_job_dismiss(job);
++    //trace_qmp_job_dismiss(job);
+     job_dismiss_locked(&job, errp);
+ }
+ 
 diff --git a/qcow2/lib/job.c b/qcow2/lib/job.c
-index 660ce22c..0feede92 100644
+index 660ce22c..63223a10 100644
 --- a/qcow2/lib/job.c
 +++ b/qcow2/lib/job.c
 @@ -29,7 +29,7 @@
@@ -4913,45 +3880,6 @@ index 660ce22c..0feede92 100644
      if (JobVerbTable[verb][s0]) {
          return 0;
      }
-@@ -421,7 +421,7 @@ void *job_create(const char *job_id, const JobDriver *driver, JobTxn *txn,
-     job->cb            = cb;
-     job->opaque        = opaque;
- 
--    progress_init(&job->progress);
-+    //progress_init(&job->progress);
- 
-     notifier_list_init(&job->on_finalize_cancelled);
-     notifier_list_init(&job->on_finalize_completed);
-@@ -471,7 +471,7 @@ void job_unref_locked(Job *job)
- 
-         QLIST_REMOVE(job, job_list);
- 
--        progress_destroy(&job->progress);
-+        //progress_destroy(&job->progress);
-         error_free(job->err);
-         g_free(job->id);
-         g_free(job);
-@@ -480,17 +480,17 @@ void job_unref_locked(Job *job)
- 
- void job_progress_update(Job *job, uint64_t done)
- {
--    progress_work_done(&job->progress, done);
-+    //progress_work_done(&job->progress, done);
- }
- 
- void job_progress_set_remaining(Job *job, uint64_t remaining)
- {
--    progress_set_remaining(&job->progress, remaining);
-+    //progress_set_remaining(&job->progress, remaining);
- }
- 
- void job_progress_increase_remaining(Job *job, uint64_t delta)
- {
--    progress_increase_remaining(&job->progress, delta);
-+    //progress_increase_remaining(&job->progress, delta);
- }
- 
- /**
 @@ -1060,7 +1060,7 @@ static void job_completed_locked(Job *job)
      assert(job && job->txn && !job_is_completed_locked(job));
  
@@ -4961,40 +3889,127 @@ index 660ce22c..0feede92 100644
      if (job->ret) {
          job_completed_txn_abort_locked(job);
      } else {
-diff --git a/qcow2/lib/qapi/qapi-events-job.c b/qcow2/lib/qapi/qapi-events-job.c
-index cb5c3b45..2dff8a53 100644
---- a/qcow2/lib/qapi/qapi-events-job.c
-+++ b/qcow2/lib/qapi/qapi-events-job.c
-@@ -11,16 +11,17 @@
-  */
+diff --git a/qcow2/lib/qapi/qapi-events-block-core.c b/qcow2/lib/qapi/qapi-events-block-core.c
+index a08a710c..2c8a538c 100644
+--- a/qcow2/lib/qapi/qapi-events-block-core.c
++++ b/qcow2/lib/qapi/qapi-events-block-core.c
+@@ -12,8 +12,8 @@
  
  #include "qemu/osdep.h"
--#include "qapi-emit-events.h"
-+//#include "qapi-emit-events.h"
- #include "qapi-events-job.h"
- #include "qapi-visit-job.h"
+ #include "qapi-emit-events.h"
+-#include "qapi-events-block-core.h"
+-#include "qapi-visit-block-core.h"
++#include "qapi/qapi-events-block-core.h"
++#include "qapi/qapi-visit-block-core.h"
  #include "qapi/compat-policy.h"
  #include "qapi/error.h"
  #include "qapi/qmp/qdict.h"
--#include "qapi/qmp-event.h"
-+//#include "qapi/qmp-event.h"
+@@ -43,7 +43,7 @@ void qapi_event_send_block_image_corrupted(const char *device, const char *node_
+     } else {
+         qobject_unref(obj);
+     }
+-    qapi_event_emit(QAPI_EVENT_BLOCK_IMAGE_CORRUPTED, qmp);
++    //qapi_event_emit(QAPI_EVENT_BLOCK_IMAGE_CORRUPTED, qmp);
  
- void qapi_event_send_job_status_change(const char *id, JobStatus status)
- {
-+#if 0
-     QDict *qmp;
-     QObject *obj;
-     Visitor *v;
-@@ -28,7 +29,7 @@ void qapi_event_send_job_status_change(const char *id, JobStatus status)
-         (char *)id, status
-     };
+     visit_free(v);
+     qobject_unref(qmp);
+@@ -73,7 +73,7 @@ void qapi_event_send_block_io_error(const char *device, const char *node_name, I
+     } else {
+         qobject_unref(obj);
+     }
+-    qapi_event_emit(QAPI_EVENT_BLOCK_IO_ERROR, qmp);
++    //qapi_event_emit(QAPI_EVENT_BLOCK_IO_ERROR, qmp);
  
--    qmp = qmp_event_build_dict("JOB_STATUS_CHANGE");
-+    //qmp = qmp_event_build_dict("JOB_STATUS_CHANGE");
+     visit_free(v);
+     qobject_unref(qmp);
+@@ -103,7 +103,7 @@ void qapi_event_send_block_job_completed(JobType type, const char *device, int64
+     } else {
+         qobject_unref(obj);
+     }
+-    qapi_event_emit(QAPI_EVENT_BLOCK_JOB_COMPLETED, qmp);
++    //qapi_event_emit(QAPI_EVENT_BLOCK_JOB_COMPLETED, qmp);
  
-     v = qobject_output_visitor_new_qmp(&obj);
+     visit_free(v);
+     qobject_unref(qmp);
+@@ -133,7 +133,7 @@ void qapi_event_send_block_job_cancelled(JobType type, const char *device, int64
+     } else {
+         qobject_unref(obj);
+     }
+-    qapi_event_emit(QAPI_EVENT_BLOCK_JOB_CANCELLED, qmp);
++    //qapi_event_emit(QAPI_EVENT_BLOCK_JOB_CANCELLED, qmp);
  
-@@ -43,10 +44,11 @@ void qapi_event_send_job_status_change(const char *id, JobStatus status)
+     visit_free(v);
+     qobject_unref(qmp);
+@@ -163,7 +163,7 @@ void qapi_event_send_block_job_error(const char *device, IoOperationType operati
+     } else {
+         qobject_unref(obj);
+     }
+-    qapi_event_emit(QAPI_EVENT_BLOCK_JOB_ERROR, qmp);
++    //qapi_event_emit(QAPI_EVENT_BLOCK_JOB_ERROR, qmp);
+ 
+     visit_free(v);
+     qobject_unref(qmp);
+@@ -193,7 +193,7 @@ void qapi_event_send_block_job_ready(JobType type, const char *device, int64_t l
+     } else {
+         qobject_unref(obj);
+     }
+-    qapi_event_emit(QAPI_EVENT_BLOCK_JOB_READY, qmp);
++    //qapi_event_emit(QAPI_EVENT_BLOCK_JOB_READY, qmp);
+ 
+     visit_free(v);
+     qobject_unref(qmp);
+@@ -223,7 +223,7 @@ void qapi_event_send_block_job_pending(JobType type, const char *id)
+     } else {
+         qobject_unref(obj);
+     }
+-    qapi_event_emit(QAPI_EVENT_BLOCK_JOB_PENDING, qmp);
++    //qapi_event_emit(QAPI_EVENT_BLOCK_JOB_PENDING, qmp);
+ 
+     visit_free(v);
+     qobject_unref(qmp);
+@@ -253,7 +253,7 @@ void qapi_event_send_block_write_threshold(const char *node_name, uint64_t amoun
+     } else {
+         qobject_unref(obj);
+     }
+-    qapi_event_emit(QAPI_EVENT_BLOCK_WRITE_THRESHOLD, qmp);
++    //qapi_event_emit(QAPI_EVENT_BLOCK_WRITE_THRESHOLD, qmp);
+ 
+     visit_free(v);
+     qobject_unref(qmp);
+@@ -283,7 +283,7 @@ void qapi_event_send_quorum_failure(const char *reference, int64_t sector_num, i
+     } else {
+         qobject_unref(obj);
+     }
+-    qapi_event_emit(QAPI_EVENT_QUORUM_FAILURE, qmp);
++    //qapi_event_emit(QAPI_EVENT_QUORUM_FAILURE, qmp);
+ 
+     visit_free(v);
+     qobject_unref(qmp);
+@@ -313,7 +313,7 @@ void qapi_event_send_quorum_report_bad(QuorumOpType type, const char *error, con
+     } else {
+         qobject_unref(obj);
+     }
+-    qapi_event_emit(QAPI_EVENT_QUORUM_REPORT_BAD, qmp);
++    //qapi_event_emit(QAPI_EVENT_QUORUM_REPORT_BAD, qmp);
+ 
+     visit_free(v);
+     qobject_unref(qmp);
+diff --git a/qcow2/lib/qapi/qapi-events-job.c b/qcow2/lib/qapi/qapi-events-job.c
+index cb5c3b45..f96b8a30 100644
+--- a/qcow2/lib/qapi/qapi-events-job.c
++++ b/qcow2/lib/qapi/qapi-events-job.c
+@@ -12,8 +12,8 @@
+ 
+ #include "qemu/osdep.h"
+ #include "qapi-emit-events.h"
+-#include "qapi-events-job.h"
+-#include "qapi-visit-job.h"
++#include "qapi/qapi-events-job.h"
++#include "qapi/qapi-visit-job.h"
+ #include "qapi/compat-policy.h"
+ #include "qapi/error.h"
+ #include "qapi/qmp/qdict.h"
+@@ -43,7 +43,7 @@ void qapi_event_send_job_status_change(const char *id, JobStatus status)
      } else {
          qobject_unref(obj);
      }
@@ -5003,12 +4018,8 @@ index cb5c3b45..2dff8a53 100644
  
      visit_free(v);
      qobject_unref(qmp);
-+#endif
- }
- 
- /* Dummy declaration to prevent empty .o file */
 diff --git a/qcow2/lib/qapi/qapi-types-block-core.c b/qcow2/lib/qapi/qapi-types-block-core.c
-index f4ee0d21..5f5e0c02 100644
+index f4ee0d21..7e9cf7c7 100644
 --- a/qcow2/lib/qapi/qapi-types-block-core.c
 +++ b/qcow2/lib/qapi/qapi-types-block-core.c
 @@ -12,8 +12,8 @@
@@ -5104,7 +4115,23 @@ index f4ee0d21..5f5e0c02 100644
  void qapi_free_BlockDeviceTimedStats(BlockDeviceTimedStats *obj)
  {
      Visitor *v;
-@@ -752,6 +763,7 @@ void qapi_free_BlockdevBackup(BlockdevBackup *obj)
+@@ -640,6 +651,7 @@ void qapi_free_BlockJobInfoMirror(BlockJobInfoMirror *obj)
+     visit_type_BlockJobInfoMirror(v, NULL, &obj, NULL);
+     visit_free(v);
+ }
++#endif
+ 
+ void qapi_free_BlockJobInfo(BlockJobInfo *obj)
+ {
+@@ -667,6 +679,7 @@ void qapi_free_BlockJobInfoList(BlockJobInfoList *obj)
+     visit_free(v);
+ }
+ 
++#if 0
+ const QEnumLookup NewImageMode_lookup = {
+     .array = (const char *const[]) {
+         [NEW_IMAGE_MODE_EXISTING] = "existing",
+@@ -752,6 +765,7 @@ void qapi_free_BlockdevBackup(BlockdevBackup *obj)
      visit_type_BlockdevBackup(v, NULL, &obj, NULL);
      visit_free(v);
  }
@@ -5112,7 +4139,7 @@ index f4ee0d21..5f5e0c02 100644
  
  void qapi_free_BlockDeviceInfoList(BlockDeviceInfoList *obj)
  {
-@@ -766,6 +778,7 @@ void qapi_free_BlockDeviceInfoList(BlockDeviceInfoList *obj)
+@@ -766,6 +780,7 @@ void qapi_free_BlockDeviceInfoList(BlockDeviceInfoList *obj)
      visit_free(v);
  }
  
@@ -5120,7 +4147,7 @@ index f4ee0d21..5f5e0c02 100644
  const QEnumLookup XDbgBlockGraphNodeType_lookup = {
      .array = (const char *const[]) {
          [X_DBG_BLOCK_GRAPH_NODE_TYPE_BLOCK_BACKEND] = "block-backend",
-@@ -875,6 +888,7 @@ void qapi_free_DriveMirror(DriveMirror *obj)
+@@ -875,6 +890,7 @@ void qapi_free_DriveMirror(DriveMirror *obj)
      visit_type_DriveMirror(v, NULL, &obj, NULL);
      visit_free(v);
  }
@@ -5128,7 +4155,7 @@ index f4ee0d21..5f5e0c02 100644
  
  void qapi_free_BlockDirtyBitmap(BlockDirtyBitmap *obj)
  {
-@@ -928,6 +942,7 @@ void qapi_free_BlockDirtyBitmapOrStrList(BlockDirtyBitmapOrStrList *obj)
+@@ -928,6 +944,7 @@ void qapi_free_BlockDirtyBitmapOrStrList(BlockDirtyBitmapOrStrList *obj)
      visit_free(v);
  }
  
@@ -5136,7 +4163,7 @@ index f4ee0d21..5f5e0c02 100644
  void qapi_free_BlockDirtyBitmapMerge(BlockDirtyBitmapMerge *obj)
  {
      Visitor *v;
-@@ -1018,6 +1033,7 @@ void qapi_free_BlockJobChangeOptions(BlockJobChangeOptions *obj)
+@@ -1018,6 +1035,7 @@ void qapi_free_BlockJobChangeOptions(BlockJobChangeOptions *obj)
      visit_type_BlockJobChangeOptions(v, NULL, &obj, NULL);
      visit_free(v);
  }
@@ -5144,7 +4171,7 @@ index f4ee0d21..5f5e0c02 100644
  
  const QEnumLookup BlockdevDiscardOptions_lookup = {
      .array = (const char *const[]) {
-@@ -1142,6 +1158,7 @@ void qapi_free_BlockdevOptionsFile(BlockdevOptionsFile *obj)
+@@ -1142,6 +1160,7 @@ void qapi_free_BlockdevOptionsFile(BlockdevOptionsFile *obj)
      visit_free(v);
  }
  
@@ -5152,7 +4179,7 @@ index f4ee0d21..5f5e0c02 100644
  void qapi_free_BlockdevOptionsNull(BlockdevOptionsNull *obj)
  {
      Visitor *v;
-@@ -1206,6 +1223,7 @@ void qapi_free_BlockdevOptionsLUKS(BlockdevOptionsLUKS *obj)
+@@ -1206,6 +1225,7 @@ void qapi_free_BlockdevOptionsLUKS(BlockdevOptionsLUKS *obj)
      visit_type_BlockdevOptionsLUKS(v, NULL, &obj, NULL);
      visit_free(v);
  }
@@ -5160,7 +4187,7 @@ index f4ee0d21..5f5e0c02 100644
  
  void qapi_free_BlockdevOptionsGenericCOWFormat(BlockdevOptionsGenericCOWFormat *obj)
  {
-@@ -1256,6 +1274,7 @@ void qapi_free_Qcow2OverlapChecks(Qcow2OverlapChecks *obj)
+@@ -1256,6 +1276,7 @@ void qapi_free_Qcow2OverlapChecks(Qcow2OverlapChecks *obj)
      visit_free(v);
  }
  
@@ -5168,7 +4195,7 @@ index f4ee0d21..5f5e0c02 100644
  const QEnumLookup BlockdevQcowEncryptionFormat_lookup = {
      .array = (const char *const[]) {
          [BLOCKDEV_QCOW_ENCRYPTION_FORMAT_AES] = "aes",
-@@ -1322,6 +1341,7 @@ void qapi_free_BlockdevOptionsPreallocate(BlockdevOptionsPreallocate *obj)
+@@ -1322,6 +1343,7 @@ void qapi_free_BlockdevOptionsPreallocate(BlockdevOptionsPreallocate *obj)
      visit_type_BlockdevOptionsPreallocate(v, NULL, &obj, NULL);
      visit_free(v);
  }
@@ -5176,7 +4203,7 @@ index f4ee0d21..5f5e0c02 100644
  
  void qapi_free_BlockdevOptionsQcow2(BlockdevOptionsQcow2 *obj)
  {
-@@ -1336,6 +1356,7 @@ void qapi_free_BlockdevOptionsQcow2(BlockdevOptionsQcow2 *obj)
+@@ -1336,6 +1358,7 @@ void qapi_free_BlockdevOptionsQcow2(BlockdevOptionsQcow2 *obj)
      visit_free(v);
  }
  
@@ -5184,7 +4211,7 @@ index f4ee0d21..5f5e0c02 100644
  const QEnumLookup SshHostKeyCheckMode_lookup = {
      .array = (const char *const[]) {
          [SSH_HOST_KEY_CHECK_MODE_NONE] = "none",
-@@ -2071,6 +2092,7 @@ void qapi_free_BlockdevOptionsCbw(BlockdevOptionsCbw *obj)
+@@ -2071,6 +2094,7 @@ void qapi_free_BlockdevOptionsCbw(BlockdevOptionsCbw *obj)
      visit_type_BlockdevOptionsCbw(v, NULL, &obj, NULL);
      visit_free(v);
  }
@@ -5192,7 +4219,7 @@ index f4ee0d21..5f5e0c02 100644
  
  void qapi_free_BlockdevOptions(BlockdevOptions *obj)
  {
-@@ -2111,6 +2133,7 @@ void qapi_free_BlockdevRefOrNull(BlockdevRefOrNull *obj)
+@@ -2111,6 +2135,7 @@ void qapi_free_BlockdevRefOrNull(BlockdevRefOrNull *obj)
      visit_free(v);
  }
  
@@ -5200,7 +4227,7 @@ index f4ee0d21..5f5e0c02 100644
  void qapi_free_BlockdevOptionsList(BlockdevOptionsList *obj)
  {
      Visitor *v;
-@@ -2123,6 +2146,7 @@ void qapi_free_BlockdevOptionsList(BlockdevOptionsList *obj)
+@@ -2123,6 +2148,7 @@ void qapi_free_BlockdevOptionsList(BlockdevOptionsList *obj)
      visit_type_BlockdevOptionsList(v, NULL, &obj, NULL);
      visit_free(v);
  }
@@ -5208,7 +4235,7 @@ index f4ee0d21..5f5e0c02 100644
  
  void qapi_free_BlockdevCreateOptionsFile(BlockdevCreateOptionsFile *obj)
  {
-@@ -2137,6 +2161,7 @@ void qapi_free_BlockdevCreateOptionsFile(BlockdevCreateOptionsFile *obj)
+@@ -2137,6 +2163,7 @@ void qapi_free_BlockdevCreateOptionsFile(BlockdevCreateOptionsFile *obj)
      visit_free(v);
  }
  
@@ -5216,7 +4243,7 @@ index f4ee0d21..5f5e0c02 100644
  void qapi_free_BlockdevCreateOptionsGluster(BlockdevCreateOptionsGluster *obj)
  {
      Visitor *v;
-@@ -2201,6 +2226,7 @@ void qapi_free_BlockdevCreateOptionsQcow(BlockdevCreateOptionsQcow *obj)
+@@ -2201,6 +2228,7 @@ void qapi_free_BlockdevCreateOptionsQcow(BlockdevCreateOptionsQcow *obj)
      visit_type_BlockdevCreateOptionsQcow(v, NULL, &obj, NULL);
      visit_free(v);
  }
@@ -5224,7 +4251,7 @@ index f4ee0d21..5f5e0c02 100644
  
  const QEnumLookup BlockdevQcow2Version_lookup = {
      .array = (const char *const[]) {
-@@ -2233,6 +2259,7 @@ void qapi_free_BlockdevCreateOptionsQcow2(BlockdevCreateOptionsQcow2 *obj)
+@@ -2233,6 +2261,7 @@ void qapi_free_BlockdevCreateOptionsQcow2(BlockdevCreateOptionsQcow2 *obj)
      visit_free(v);
  }
  
@@ -5232,7 +4259,7 @@ index f4ee0d21..5f5e0c02 100644
  void qapi_free_BlockdevCreateOptionsQed(BlockdevCreateOptionsQed *obj)
  {
      Visitor *v;
-@@ -2360,6 +2387,7 @@ void qapi_free_BlockdevCreateOptionsVpc(BlockdevCreateOptionsVpc *obj)
+@@ -2360,6 +2389,7 @@ void qapi_free_BlockdevCreateOptionsVpc(BlockdevCreateOptionsVpc *obj)
      visit_type_BlockdevCreateOptionsVpc(v, NULL, &obj, NULL);
      visit_free(v);
  }
@@ -5240,7 +4267,7 @@ index f4ee0d21..5f5e0c02 100644
  
  void qapi_free_BlockdevCreateOptions(BlockdevCreateOptions *obj)
  {
-@@ -2374,6 +2402,7 @@ void qapi_free_BlockdevCreateOptions(BlockdevCreateOptions *obj)
+@@ -2374,6 +2404,7 @@ void qapi_free_BlockdevCreateOptions(BlockdevCreateOptions *obj)
      visit_free(v);
  }
  
@@ -5248,7 +4275,7 @@ index f4ee0d21..5f5e0c02 100644
  void qapi_free_BlockdevAmendOptionsLUKS(BlockdevAmendOptionsLUKS *obj)
  {
      Visitor *v;
-@@ -2386,6 +2415,7 @@ void qapi_free_BlockdevAmendOptionsLUKS(BlockdevAmendOptionsLUKS *obj)
+@@ -2386,6 +2417,7 @@ void qapi_free_BlockdevAmendOptionsLUKS(BlockdevAmendOptionsLUKS *obj)
      visit_type_BlockdevAmendOptionsLUKS(v, NULL, &obj, NULL);
      visit_free(v);
  }
@@ -5256,30 +4283,14 @@ index f4ee0d21..5f5e0c02 100644
  
  void qapi_free_BlockdevAmendOptionsQcow2(BlockdevAmendOptionsQcow2 *obj)
  {
-@@ -2400,6 +2430,7 @@ void qapi_free_BlockdevAmendOptionsQcow2(BlockdevAmendOptionsQcow2 *obj)
-     visit_free(v);
- }
+@@ -2441,6 +2473,7 @@ const QEnumLookup QuorumOpType_lookup = {
+     .size = QUORUM_OP_TYPE__MAX
+ };
  
 +#if 0
- void qapi_free_BlockdevAmendOptions(BlockdevAmendOptions *obj)
+ void qapi_free_BlockdevSnapshotInternal(BlockdevSnapshotInternal *obj)
  {
      Visitor *v;
-@@ -2421,6 +2452,7 @@ const QEnumLookup BlockErrorAction_lookup = {
-     },
-     .size = BLOCK_ERROR_ACTION__MAX
- };
-+#endif
- 
- const QEnumLookup PreallocMode_lookup = {
-     .array = (const char *const[]) {
-@@ -2432,6 +2464,7 @@ const QEnumLookup PreallocMode_lookup = {
-     .size = PREALLOC_MODE__MAX
- };
- 
-+#if 0
- const QEnumLookup QuorumOpType_lookup = {
-     .array = (const char *const[]) {
-         [QUORUM_OP_TYPE_READ] = "read",
 @@ -2453,6 +2486,7 @@ void qapi_free_BlockdevSnapshotInternal(BlockdevSnapshotInternal *obj)
      visit_type_BlockdevSnapshotInternal(v, NULL, &obj, NULL);
      visit_free(v);
@@ -5303,8 +4314,23 @@ index 16045e73..f00b36f1 100644
  
  const QEnumLookup IoOperationType_lookup = {
      .array = (const char *const[]) {
+diff --git a/qcow2/lib/qapi/qapi-types-job.c b/qcow2/lib/qapi/qapi-types-job.c
+index eba27079..64010acb 100644
+--- a/qcow2/lib/qapi/qapi-types-job.c
++++ b/qcow2/lib/qapi/qapi-types-job.c
+@@ -12,8 +12,8 @@
+ 
+ #include "qemu/osdep.h"
+ #include "qapi/dealloc-visitor.h"
+-#include "qapi-types-job.h"
+-#include "qapi-visit-job.h"
++#include "qapi/qapi-types-job.h"
++#include "qapi/qapi-visit-job.h"
+ 
+ const QEnumLookup JobType_lookup = {
+     .array = (const char *const[]) {
 diff --git a/qcow2/lib/qapi/qapi-visit-block-core.c b/qcow2/lib/qapi/qapi-visit-block-core.c
-index b8d709cb..9987c12f 100644
+index b8d709cb..7e63d3f5 100644
 --- a/qcow2/lib/qapi/qapi-visit-block-core.c
 +++ b/qcow2/lib/qapi/qapi-visit-block-core.c
 @@ -12,7 +12,7 @@
@@ -5442,7 +4468,39 @@ index b8d709cb..9987c12f 100644
  bool visit_type_BlockDeviceTimedStats_members(Visitor *v, BlockDeviceTimedStats *obj, Error **errp)
  {
      if (!visit_type_int(v, "interval_length", &obj->interval_length, errp)) {
-@@ -2977,6 +2992,7 @@ bool visit_type_q_obj_query_named_block_nodes_arg_members(Visitor *v, q_obj_quer
+@@ -2323,6 +2338,7 @@ bool visit_type_MirrorCopyMode(Visitor *v, const char *name,
+     *obj = value;
+     return ok;
+ }
++#endif
+ 
+ bool visit_type_BlockJobInfoMirror_members(Visitor *v, BlockJobInfoMirror *obj, Error **errp)
+ {
+@@ -2332,6 +2348,7 @@ bool visit_type_BlockJobInfoMirror_members(Visitor *v, BlockJobInfoMirror *obj,
+     return true;
+ }
+ 
++#if 0
+ bool visit_type_BlockJobInfoMirror(Visitor *v, const char *name,
+                  BlockJobInfoMirror **obj, Error **errp)
+ {
+@@ -2358,6 +2375,7 @@ out_obj:
+     }
+     return ok;
+ }
++#endif
+ 
+ bool visit_type_q_obj_BlockJobInfo_base_members(Visitor *v, q_obj_BlockJobInfo_base *obj, Error **errp)
+ {
+@@ -2492,6 +2510,7 @@ out_obj:
+     return ok;
+ }
+ 
++#if 0
+ bool visit_type_q_obj_block_resize_arg_members(Visitor *v, q_obj_block_resize_arg *obj, Error **errp)
+ {
+     bool has_device = !!obj->device;
+@@ -2977,6 +2996,7 @@ bool visit_type_q_obj_query_named_block_nodes_arg_members(Visitor *v, q_obj_quer
      }
      return true;
  }
@@ -5450,7 +4508,7 @@ index b8d709cb..9987c12f 100644
  
  bool visit_type_BlockDeviceInfoList(Visitor *v, const char *name,
                   BlockDeviceInfoList **obj, Error **errp)
-@@ -3006,6 +3022,7 @@ out_obj:
+@@ -3006,6 +3026,7 @@ out_obj:
      return ok;
  }
  
@@ -5458,7 +4516,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_XDbgBlockGraphNodeType(Visitor *v, const char *name,
                   XDbgBlockGraphNodeType *obj, Error **errp)
  {
-@@ -3349,6 +3366,7 @@ out_obj:
+@@ -3349,6 +3370,7 @@ out_obj:
      }
      return ok;
  }
@@ -5466,7 +4524,7 @@ index b8d709cb..9987c12f 100644
  
  bool visit_type_BlockDirtyBitmap_members(Visitor *v, BlockDirtyBitmap *obj, Error **errp)
  {
-@@ -3517,6 +3535,7 @@ out_obj:
+@@ -3517,6 +3539,7 @@ out_obj:
      return ok;
  }
  
@@ -5474,7 +4532,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_BlockDirtyBitmapMerge_members(Visitor *v, BlockDirtyBitmapMerge *obj, Error **errp)
  {
      if (!visit_type_str(v, "node", &obj->node, errp)) {
-@@ -4397,6 +4416,7 @@ out_obj:
+@@ -4397,6 +4420,7 @@ out_obj:
      }
      return ok;
  }
@@ -5482,7 +4540,7 @@ index b8d709cb..9987c12f 100644
  
  bool visit_type_BlockdevDiscardOptions(Visitor *v, const char *name,
                   BlockdevDiscardOptions *obj, Error **errp)
-@@ -4550,6 +4570,7 @@ out_obj:
+@@ -4550,6 +4574,7 @@ out_obj:
      return ok;
  }
  
@@ -5490,7 +4548,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_BlockdevOptionsNull_members(Visitor *v, BlockdevOptionsNull *obj, Error **errp)
  {
      if (visit_optional(v, "size", &obj->has_size)) {
-@@ -4691,6 +4712,7 @@ out_obj:
+@@ -4691,6 +4716,7 @@ out_obj:
      }
      return ok;
  }
@@ -5498,7 +4556,7 @@ index b8d709cb..9987c12f 100644
  
  bool visit_type_BlockdevOptionsGenericFormat_members(Visitor *v, BlockdevOptionsGenericFormat *obj, Error **errp)
  {
-@@ -4700,6 +4722,7 @@ bool visit_type_BlockdevOptionsGenericFormat_members(Visitor *v, BlockdevOptions
+@@ -4700,6 +4726,7 @@ bool visit_type_BlockdevOptionsGenericFormat_members(Visitor *v, BlockdevOptions
      return true;
  }
  
@@ -5506,7 +4564,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_BlockdevOptionsGenericFormat(Visitor *v, const char *name,
                   BlockdevOptionsGenericFormat **obj, Error **errp)
  {
-@@ -4774,6 +4797,7 @@ out_obj:
+@@ -4774,6 +4801,7 @@ out_obj:
      }
      return ok;
  }
@@ -5514,7 +4572,7 @@ index b8d709cb..9987c12f 100644
  
  bool visit_type_BlockdevOptionsGenericCOWFormat_members(Visitor *v, BlockdevOptionsGenericCOWFormat *obj, Error **errp)
  {
-@@ -4956,6 +4980,7 @@ out_obj:
+@@ -4956,6 +4984,7 @@ out_obj:
      return ok;
  }
  
@@ -5522,7 +4580,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_BlockdevQcowEncryptionFormat(Visitor *v, const char *name,
                   BlockdevQcowEncryptionFormat *obj, Error **errp)
  {
-@@ -5160,11 +5185,12 @@ out_obj:
+@@ -5160,11 +5189,12 @@ out_obj:
      }
      return ok;
  }
@@ -5536,7 +4594,7 @@ index b8d709cb..9987c12f 100644
      bool has_data_file = !!obj->data_file;
  
      if (!visit_type_BlockdevOptionsGenericCOWFormat_members(v, (BlockdevOptionsGenericCOWFormat *)obj, errp)) {
-@@ -5225,11 +5251,13 @@ bool visit_type_BlockdevOptionsQcow2_members(Visitor *v, BlockdevOptionsQcow2 *o
+@@ -5225,11 +5255,13 @@ bool visit_type_BlockdevOptionsQcow2_members(Visitor *v, BlockdevOptionsQcow2 *o
              return false;
          }
      }
@@ -5550,7 +4608,7 @@ index b8d709cb..9987c12f 100644
      if (visit_optional(v, "data-file", &has_data_file)) {
          if (!visit_type_BlockdevRef(v, "data-file", &obj->data_file, errp)) {
              return false;
-@@ -5265,6 +5293,7 @@ out_obj:
+@@ -5265,6 +5297,7 @@ out_obj:
      return ok;
  }
  
@@ -5558,7 +4616,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_SshHostKeyCheckMode(Visitor *v, const char *name,
                   SshHostKeyCheckMode *obj, Error **errp)
  {
-@@ -5915,6 +5944,7 @@ out_obj:
+@@ -5915,6 +5948,7 @@ out_obj:
      return ok;
  }
  
@@ -5566,7 +4624,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_BlockdevOptionsGluster_members(Visitor *v, BlockdevOptionsGluster *obj, Error **errp)
  {
      bool has_logfile = !!obj->logfile;
-@@ -5967,6 +5997,7 @@ out_obj:
+@@ -5967,6 +6001,7 @@ out_obj:
      }
      return ok;
  }
@@ -5574,7 +4632,7 @@ index b8d709cb..9987c12f 100644
  
  #if defined(CONFIG_BLKIO)
  bool visit_type_BlockdevOptionsIoUring_members(Visitor *v, BlockdevOptionsIoUring *obj, Error **errp)
-@@ -6153,6 +6184,7 @@ out_obj:
+@@ -6153,6 +6188,7 @@ out_obj:
  }
  #endif /* defined(CONFIG_BLKIO) */
  
@@ -5582,7 +4640,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_IscsiTransport(Visitor *v, const char *name,
                   IscsiTransport *obj, Error **errp)
  {
-@@ -6739,6 +6771,7 @@ out_obj:
+@@ -6739,6 +6775,7 @@ out_obj:
      }
      return ok;
  }
@@ -5590,7 +4648,7 @@ index b8d709cb..9987c12f 100644
  
  #if defined(CONFIG_REPLICATION)
  bool visit_type_ReplicationMode(Visitor *v, const char *name,
-@@ -7159,6 +7192,7 @@ out_obj:
+@@ -7159,6 +7196,7 @@ out_obj:
      return ok;
  }
  
@@ -5598,7 +4656,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_BlockdevOptionsNbd_members(Visitor *v, BlockdevOptionsNbd *obj, Error **errp)
  {
      bool has_export = !!obj->export;
-@@ -7233,6 +7267,7 @@ out_obj:
+@@ -7233,6 +7271,7 @@ out_obj:
      }
      return ok;
  }
@@ -5606,7 +4664,7 @@ index b8d709cb..9987c12f 100644
  
  bool visit_type_BlockdevOptionsRaw_members(Visitor *v, BlockdevOptionsRaw *obj, Error **errp)
  {
-@@ -7422,6 +7457,7 @@ out_obj:
+@@ -7422,6 +7461,7 @@ out_obj:
      }
      return ok;
  }
@@ -5614,7 +4672,7 @@ index b8d709cb..9987c12f 100644
  
  bool visit_type_q_obj_BlockdevOptions_base_members(Visitor *v, q_obj_BlockdevOptions_base *obj, Error **errp)
  {
-@@ -7475,6 +7511,7 @@ bool visit_type_BlockdevOptions_members(Visitor *v, BlockdevOptions *obj, Error
+@@ -7475,6 +7515,7 @@ bool visit_type_BlockdevOptions_members(Visitor *v, BlockdevOptions *obj, Error
          return false;
      }
      switch (obj->driver) {
@@ -5622,7 +4680,7 @@ index b8d709cb..9987c12f 100644
      case BLOCKDEV_DRIVER_BLKDEBUG:
          return visit_type_BlockdevOptionsBlkdebug_members(v, &obj->u.blkdebug, errp);
      case BLOCKDEV_DRIVER_BLKLOGWRITES:
-@@ -7495,8 +7532,10 @@ bool visit_type_BlockdevOptions_members(Visitor *v, BlockdevOptions *obj, Error
+@@ -7495,8 +7536,10 @@ bool visit_type_BlockdevOptions_members(Visitor *v, BlockdevOptions *obj, Error
          return visit_type_BlockdevOptionsCor_members(v, &obj->u.copy_on_read, errp);
      case BLOCKDEV_DRIVER_DMG:
          return visit_type_BlockdevOptionsGenericFormat_members(v, &obj->u.dmg, errp);
@@ -5633,7 +4691,7 @@ index b8d709cb..9987c12f 100644
      case BLOCKDEV_DRIVER_FTP:
          return visit_type_BlockdevOptionsCurlFtp_members(v, &obj->u.ftp, errp);
      case BLOCKDEV_DRIVER_FTPS:
-@@ -7541,8 +7580,10 @@ bool visit_type_BlockdevOptions_members(Visitor *v, BlockdevOptions *obj, Error
+@@ -7541,8 +7584,10 @@ bool visit_type_BlockdevOptions_members(Visitor *v, BlockdevOptions *obj, Error
          return visit_type_BlockdevOptionsGenericFormat_members(v, &obj->u.parallels, errp);
      case BLOCKDEV_DRIVER_PREALLOCATE:
          return visit_type_BlockdevOptionsPreallocate_members(v, &obj->u.preallocate, errp);
@@ -5644,7 +4702,7 @@ index b8d709cb..9987c12f 100644
      case BLOCKDEV_DRIVER_QCOW:
          return visit_type_BlockdevOptionsQcow_members(v, &obj->u.qcow, errp);
      case BLOCKDEV_DRIVER_QED:
-@@ -7585,6 +7626,7 @@ bool visit_type_BlockdevOptions_members(Visitor *v, BlockdevOptions *obj, Error
+@@ -7585,6 +7630,7 @@ bool visit_type_BlockdevOptions_members(Visitor *v, BlockdevOptions *obj, Error
          return visit_type_BlockdevOptionsGenericFormat_members(v, &obj->u.vpc, errp);
      case BLOCKDEV_DRIVER_VVFAT:
          return visit_type_BlockdevOptionsVVFAT_members(v, &obj->u.vvfat, errp);
@@ -5652,7 +4710,7 @@ index b8d709cb..9987c12f 100644
      default:
          abort();
      }
-@@ -7717,6 +7759,7 @@ out_obj:
+@@ -7717,6 +7763,7 @@ out_obj:
      return ok;
  }
  
@@ -5660,7 +4718,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_BlockdevOptionsList(Visitor *v, const char *name,
                   BlockdevOptionsList **obj, Error **errp)
  {
-@@ -7760,6 +7803,7 @@ bool visit_type_q_obj_blockdev_del_arg_members(Visitor *v, q_obj_blockdev_del_ar
+@@ -7760,6 +7807,7 @@ bool visit_type_q_obj_blockdev_del_arg_members(Visitor *v, q_obj_blockdev_del_ar
      }
      return true;
  }
@@ -5668,7 +4726,7 @@ index b8d709cb..9987c12f 100644
  
  bool visit_type_BlockdevCreateOptionsFile_members(Visitor *v, BlockdevCreateOptionsFile *obj, Error **errp)
  {
-@@ -7814,6 +7858,7 @@ out_obj:
+@@ -7814,6 +7862,7 @@ out_obj:
      return ok;
  }
  
@@ -5676,7 +4734,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_BlockdevCreateOptionsGluster_members(Visitor *v, BlockdevCreateOptionsGluster *obj, Error **errp)
  {
      if (!visit_type_BlockdevOptionsGluster(v, "location", &obj->location, errp)) {
-@@ -8044,6 +8089,7 @@ out_obj:
+@@ -8044,6 +8093,7 @@ out_obj:
      }
      return ok;
  }
@@ -5684,7 +4742,7 @@ index b8d709cb..9987c12f 100644
  
  bool visit_type_BlockdevQcow2Version(Visitor *v, const char *name,
                   BlockdevQcow2Version *obj, Error **errp)
-@@ -8067,7 +8113,7 @@ bool visit_type_BlockdevCreateOptionsQcow2_members(Visitor *v, BlockdevCreateOpt
+@@ -8067,7 +8117,7 @@ bool visit_type_BlockdevCreateOptionsQcow2_members(Visitor *v, BlockdevCreateOpt
  {
      bool has_data_file = !!obj->data_file;
      bool has_backing_file = !!obj->backing_file;
@@ -5693,7 +4751,7 @@ index b8d709cb..9987c12f 100644
  
      if (!visit_type_BlockdevRef(v, "file", &obj->file, errp)) {
          return false;
-@@ -8105,11 +8151,13 @@ bool visit_type_BlockdevCreateOptionsQcow2_members(Visitor *v, BlockdevCreateOpt
+@@ -8105,11 +8155,13 @@ bool visit_type_BlockdevCreateOptionsQcow2_members(Visitor *v, BlockdevCreateOpt
              return false;
          }
      }
@@ -5707,7 +4765,7 @@ index b8d709cb..9987c12f 100644
      if (visit_optional(v, "cluster-size", &obj->has_cluster_size)) {
          if (!visit_type_size(v, "cluster-size", &obj->cluster_size, errp)) {
              return false;
-@@ -8165,6 +8213,7 @@ out_obj:
+@@ -8165,6 +8217,7 @@ out_obj:
      return ok;
  }
  
@@ -5715,7 +4773,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_BlockdevCreateOptionsQed_members(Visitor *v, BlockdevCreateOptionsQed *obj, Error **errp)
  {
      bool has_backing_file = !!obj->backing_file;
-@@ -8574,6 +8623,7 @@ out_obj:
+@@ -8574,6 +8627,7 @@ out_obj:
      }
      return ok;
  }
@@ -5723,7 +4781,7 @@ index b8d709cb..9987c12f 100644
  
  bool visit_type_q_obj_BlockdevCreateOptions_base_members(Visitor *v, q_obj_BlockdevCreateOptions_base *obj, Error **errp)
  {
-@@ -8591,6 +8641,7 @@ bool visit_type_BlockdevCreateOptions_members(Visitor *v, BlockdevCreateOptions
+@@ -8591,6 +8645,7 @@ bool visit_type_BlockdevCreateOptions_members(Visitor *v, BlockdevCreateOptions
      switch (obj->driver) {
      case BLOCKDEV_DRIVER_FILE:
          return visit_type_BlockdevCreateOptionsFile_members(v, &obj->u.file, errp);
@@ -5731,7 +4789,7 @@ index b8d709cb..9987c12f 100644
      case BLOCKDEV_DRIVER_GLUSTER:
          return visit_type_BlockdevCreateOptionsGluster_members(v, &obj->u.gluster, errp);
      case BLOCKDEV_DRIVER_LUKS:
-@@ -8601,8 +8652,10 @@ bool visit_type_BlockdevCreateOptions_members(Visitor *v, BlockdevCreateOptions
+@@ -8601,8 +8656,10 @@ bool visit_type_BlockdevCreateOptions_members(Visitor *v, BlockdevCreateOptions
          return visit_type_BlockdevCreateOptionsParallels_members(v, &obj->u.parallels, errp);
      case BLOCKDEV_DRIVER_QCOW:
          return visit_type_BlockdevCreateOptionsQcow_members(v, &obj->u.qcow, errp);
@@ -5742,7 +4800,7 @@ index b8d709cb..9987c12f 100644
      case BLOCKDEV_DRIVER_QED:
          return visit_type_BlockdevCreateOptionsQed_members(v, &obj->u.qed, errp);
      case BLOCKDEV_DRIVER_RBD:
-@@ -8699,6 +8752,7 @@ bool visit_type_BlockdevCreateOptions_members(Visitor *v, BlockdevCreateOptions
+@@ -8699,6 +8756,7 @@ bool visit_type_BlockdevCreateOptions_members(Visitor *v, BlockdevCreateOptions
  #endif /* defined(CONFIG_BLKIO) */
      case BLOCKDEV_DRIVER_VVFAT:
          break;
@@ -5750,7 +4808,7 @@ index b8d709cb..9987c12f 100644
      default:
          abort();
      }
-@@ -8732,6 +8786,7 @@ out_obj:
+@@ -8732,6 +8790,7 @@ out_obj:
      return ok;
  }
  
@@ -5758,7 +4816,7 @@ index b8d709cb..9987c12f 100644
  bool visit_type_q_obj_blockdev_create_arg_members(Visitor *v, q_obj_blockdev_create_arg *obj, Error **errp)
  {
      if (!visit_type_str(v, "job-id", &obj->job_id, errp)) {
-@@ -8777,9 +8832,11 @@ out_obj:
+@@ -8777,9 +8836,11 @@ out_obj:
      }
      return ok;
  }
@@ -5770,7 +4828,7 @@ index b8d709cb..9987c12f 100644
      bool has_encrypt = !!obj->encrypt;
  
      if (visit_optional(v, "encrypt", &has_encrypt)) {
-@@ -8787,6 +8844,7 @@ bool visit_type_BlockdevAmendOptionsQcow2_members(Visitor *v, BlockdevAmendOptio
+@@ -8787,6 +8848,7 @@ bool visit_type_BlockdevAmendOptionsQcow2_members(Visitor *v, BlockdevAmendOptio
              return false;
          }
      }
@@ -5778,7 +4836,7 @@ index b8d709cb..9987c12f 100644
      return true;
  }
  
-@@ -8831,10 +8889,13 @@ bool visit_type_BlockdevAmendOptions_members(Visitor *v, BlockdevAmendOptions *o
+@@ -8831,10 +8893,13 @@ bool visit_type_BlockdevAmendOptions_members(Visitor *v, BlockdevAmendOptions *o
          return false;
      }
      switch (obj->driver) {
@@ -5792,7 +4850,7 @@ index b8d709cb..9987c12f 100644
      case BLOCKDEV_DRIVER_BLKDEBUG:
          break;
      case BLOCKDEV_DRIVER_BLKLOGWRITES:
-@@ -8855,8 +8916,10 @@ bool visit_type_BlockdevAmendOptions_members(Visitor *v, BlockdevAmendOptions *o
+@@ -8855,8 +8920,10 @@ bool visit_type_BlockdevAmendOptions_members(Visitor *v, BlockdevAmendOptions *o
          break;
      case BLOCKDEV_DRIVER_DMG:
          break;
@@ -5803,7 +4861,7 @@ index b8d709cb..9987c12f 100644
      case BLOCKDEV_DRIVER_SNAPSHOT_ACCESS:
          break;
      case BLOCKDEV_DRIVER_FTP:
-@@ -8941,12 +9004,14 @@ bool visit_type_BlockdevAmendOptions_members(Visitor *v, BlockdevAmendOptions *o
+@@ -8941,6 +9008,7 @@ bool visit_type_BlockdevAmendOptions_members(Visitor *v, BlockdevAmendOptions *o
          break;
      case BLOCKDEV_DRIVER_VVFAT:
          break;
@@ -5811,30 +4869,31 @@ index b8d709cb..9987c12f 100644
      default:
          abort();
      }
+@@ -9177,6 +9245,7 @@ bool visit_type_q_obj_BLOCK_WRITE_THRESHOLD_arg_members(Visitor *v, q_obj_BLOCK_
      return true;
  }
  
 +#if 0
- bool visit_type_BlockdevAmendOptions(Visitor *v, const char *name,
-                  BlockdevAmendOptions **obj, Error **errp)
+ bool visit_type_q_obj_block_set_write_threshold_arg_members(Visitor *v, q_obj_block_set_write_threshold_arg *obj, Error **errp)
  {
-@@ -9153,6 +9218,7 @@ bool visit_type_q_obj_BLOCK_JOB_PENDING_arg_members(Visitor *v, q_obj_BLOCK_JOB_
+     if (!visit_type_str(v, "node-name", &obj->node_name, errp)) {
+@@ -9224,6 +9293,7 @@ bool visit_type_q_obj_x_blockdev_set_iothread_arg_members(Visitor *v, q_obj_x_bl
      }
      return true;
  }
 +#endif
  
- bool visit_type_PreallocMode(Visitor *v, const char *name,
-                  PreallocMode *obj, Error **errp)
-@@ -9163,6 +9229,7 @@ bool visit_type_PreallocMode(Visitor *v, const char *name,
-     return ok;
+ bool visit_type_QuorumOpType(Visitor *v, const char *name,
+                  QuorumOpType *obj, Error **errp)
+@@ -9272,6 +9342,7 @@ bool visit_type_q_obj_QUORUM_REPORT_BAD_arg_members(Visitor *v, q_obj_QUORUM_REP
+     return true;
  }
  
 +#if 0
- bool visit_type_q_obj_BLOCK_WRITE_THRESHOLD_arg_members(Visitor *v, q_obj_BLOCK_WRITE_THRESHOLD_arg *obj, Error **errp)
+ bool visit_type_BlockdevSnapshotInternal_members(Visitor *v, BlockdevSnapshotInternal *obj, Error **errp)
  {
-     if (!visit_type_str(v, "node-name", &obj->node_name, errp)) {
-@@ -9330,6 +9397,7 @@ bool visit_type_q_obj_blockdev_snapshot_delete_internal_sync_arg_members(Visitor
+     if (!visit_type_str(v, "device", &obj->device, errp)) {
+@@ -9330,6 +9401,7 @@ bool visit_type_q_obj_blockdev_snapshot_delete_internal_sync_arg_members(Visitor
      }
      return true;
  }
@@ -6132,8 +5191,38 @@ index 6c13510a..895f89fd 100644
      switch (v->type) {
      case VISITOR_INPUT:
          return input_type_enum(v, name, obj, lookup, errp);
+diff --git a/qcow2/lib/qapi/qapi-visit-job.c b/qcow2/lib/qapi/qapi-visit-job.c
+index 092f9a03..77c6bcd0 100644
+--- a/qcow2/lib/qapi/qapi-visit-job.c
++++ b/qcow2/lib/qapi/qapi-visit-job.c
+@@ -12,7 +12,7 @@
+ 
+ #include "qemu/osdep.h"
+ #include "qapi/error.h"
+-#include "qapi-visit-job.h"
++#include "qapi/qapi-visit-job.h"
+ 
+ bool visit_type_JobType(Visitor *v, const char *name,
+                  JobType *obj, Error **errp)
+diff --git a/qcow2/lib/qapi/qmp-dispatch.c b/qcow2/lib/qapi/qmp-dispatch.c
+index 176b5494..1bce84ea 100644
+--- a/qcow2/lib/qapi/qmp-dispatch.c
++++ b/qcow2/lib/qapi/qmp-dispatch.c
+@@ -41,6 +41,7 @@ Visitor *qobject_output_visitor_new_qmp(QObject **result)
+     return v;
+ }
+ 
++#if 0
+ static QDict *qmp_dispatch_check_obj(QDict *dict, bool allow_oob,
+                                      Error **errp)
+ {
+@@ -294,3 +295,4 @@ out:
+ 
+     return rsp;
+ }
++#endif
 diff --git a/qcow2/lib/qapi/qobject-input-visitor.c b/qcow2/lib/qapi/qobject-input-visitor.c
-index f110a804..d291322d 100644
+index f110a804..408ade81 100644
 --- a/qcow2/lib/qapi/qobject-input-visitor.c
 +++ b/qcow2/lib/qapi/qobject-input-visitor.c
 @@ -28,7 +28,7 @@
@@ -6145,103 +5234,7 @@ index f110a804..d291322d 100644
  
  typedef struct StackObject {
      const char *name;            /* Name of @obj in its parent, if any */
-@@ -393,6 +393,7 @@ static bool qobject_input_start_alternate(Visitor *v, const char *name,
-     return true;
- }
- 
-+#if 0
- static bool qobject_input_type_int64(Visitor *v, const char *name, int64_t *obj,
-                                      Error **errp)
- {
-@@ -411,6 +412,7 @@ static bool qobject_input_type_int64(Visitor *v, const char *name, int64_t *obj,
-     }
-     return true;
- }
-+#endif
- 
- static bool qobject_input_type_int64_keyval(Visitor *v, const char *name,
-                                             int64_t *obj, Error **errp)
-@@ -431,6 +433,7 @@ static bool qobject_input_type_int64_keyval(Visitor *v, const char *name,
-     return true;
- }
- 
-+#if 0
- static bool qobject_input_type_uint64(Visitor *v, const char *name,
-                                       uint64_t *obj, Error **errp)
- {
-@@ -462,6 +465,7 @@ err:
-                full_name(qiv, name), "uint64");
-     return false;
- }
-+#endif
- 
- static bool qobject_input_type_uint64_keyval(Visitor *v, const char *name,
-                                              uint64_t *obj, Error **errp)
-@@ -482,6 +486,7 @@ static bool qobject_input_type_uint64_keyval(Visitor *v, const char *name,
-     return true;
- }
- 
-+#if 0
- static bool qobject_input_type_bool(Visitor *v, const char *name, bool *obj,
-                                     Error **errp)
- {
-@@ -502,6 +507,7 @@ static bool qobject_input_type_bool(Visitor *v, const char *name, bool *obj,
-     *obj = qbool_get_bool(qbool);
-     return true;
- }
-+#endif
- 
- static bool qobject_input_type_bool_keyval(Visitor *v, const char *name,
-                                            bool *obj, Error **errp)
-@@ -521,6 +527,7 @@ static bool qobject_input_type_bool_keyval(Visitor *v, const char *name,
-     return true;
- }
- 
-+#if 0
- static bool qobject_input_type_str(Visitor *v, const char *name, char **obj,
-                                    Error **errp)
- {
-@@ -542,6 +549,7 @@ static bool qobject_input_type_str(Visitor *v, const char *name, char **obj,
-     *obj = g_strdup(qstring_get_str(qstr));
-     return true;
- }
-+#endif
- 
- static bool qobject_input_type_str_keyval(Visitor *v, const char *name,
-                                           char **obj, Error **errp)
-@@ -553,6 +561,7 @@ static bool qobject_input_type_str_keyval(Visitor *v, const char *name,
-     return !!str;
- }
- 
-+#if 0
- static bool qobject_input_type_number(Visitor *v, const char *name, double *obj,
-                                       Error **errp)
- {
-@@ -573,6 +582,7 @@ static bool qobject_input_type_number(Visitor *v, const char *name, double *obj,
-     *obj = qnum_get_double(qnum);
-     return true;
- }
-+#endif
- 
- static bool qobject_input_type_number_keyval(Visitor *v, const char *name,
-                                              double *obj, Error **errp)
-@@ -714,6 +724,7 @@ static QObjectInputVisitor *qobject_input_visitor_base_new(QObject *obj)
-     return v;
- }
- 
-+#if 0
- Visitor *qobject_input_visitor_new(QObject *obj)
- {
-     QObjectInputVisitor *v = qobject_input_visitor_base_new(obj);
-@@ -728,6 +739,7 @@ Visitor *qobject_input_visitor_new(QObject *obj)
- 
-     return &v->visitor;
- }
-+#endif
- 
- Visitor *qobject_input_visitor_new_keyval(QObject *obj)
- {
-@@ -746,6 +758,7 @@ Visitor *qobject_input_visitor_new_keyval(QObject *obj)
+@@ -746,6 +746,7 @@ Visitor *qobject_input_visitor_new_keyval(QObject *obj)
      return &v->visitor;
  }
  
@@ -6249,7 +5242,7 @@ index f110a804..d291322d 100644
  Visitor *qobject_input_visitor_new_str(const char *str,
                                         const char *implied_key,
                                         Error **errp)
-@@ -774,3 +787,4 @@ Visitor *qobject_input_visitor_new_str(const char *str,
+@@ -774,3 +775,4 @@ Visitor *qobject_input_visitor_new_str(const char *str,
  
      return v;
  }
@@ -7269,897 +6262,109 @@ index 4a83bda2..0d2eba5b 100644
  /**
   * qdict_join(): Absorb the src QDict into the dest QDict, that is, move all
 diff --git a/qcow2/lib/system/cpus.c b/qcow2/lib/system/cpus.c
-new file mode 100644
-index 00000000..81236835
---- /dev/null
+index 1c818ff6..81236835 100644
+--- a/qcow2/lib/system/cpus.c
 +++ b/qcow2/lib/system/cpus.c
-@@ -0,0 +1,886 @@
-+/*
-+ * QEMU System Emulator
-+ *
-+ * Copyright (c) 2003-2008 Fabrice Bellard
-+ *
-+ * Permission is hereby granted, free of charge, to any person obtaining a copy
-+ * of this software and associated documentation files (the "Software"), to deal
-+ * in the Software without restriction, including without limitation the rights
-+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-+ * copies of the Software, and to permit persons to whom the Software is
-+ * furnished to do so, subject to the following conditions:
-+ *
-+ * The above copyright notice and this permission notice shall be included in
-+ * all copies or substantial portions of the Software.
-+ *
-+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-+ * THE SOFTWARE.
-+ */
-+
-+#include "qemu/osdep.h"
+@@ -23,29 +23,29 @@
+  */
+ 
+ #include "qemu/osdep.h"
+-#include "monitor/monitor.h"
 +//#include "monitor/monitor.h"
-+#include "qemu/coroutine-tls.h"
-+#include "qapi/error.h"
+ #include "qemu/coroutine-tls.h"
+ #include "qapi/error.h"
+-#include "qapi/qapi-commands-machine.h"
+-#include "qapi/qapi-commands-misc.h"
+-#include "qapi/qapi-events-run-state.h"
 +//#include "qapi/qapi-commands-machine.h"
 +//#include "qapi/qapi-commands-misc.h"
 +//#include "qapi/qapi-events-run-state.h"
-+#include "qapi/qmp/qerror.h"
+ #include "qapi/qmp/qerror.h"
+-#include "exec/gdbstub.h"
+-#include "sysemu/hw_accel.h"
+-#include "exec/cpu-common.h"
 +//#include "exec/gdbstub.h"
 +//#include "sysemu/hw_accel.h"
 +//#include "exec/cpu-common.h"
-+#include "qemu/thread.h"
-+#include "qemu/main-loop.h"
+ #include "qemu/thread.h"
+ #include "qemu/main-loop.h"
+-#include "qemu/plugin.h"
+-#include "sysemu/cpus.h"
+-#include "qemu/guest-random.h"
+-#include "hw/nmi.h"
+-#include "sysemu/replay.h"
+-#include "sysemu/runstate.h"
 +//#include "qemu/plugin.h"
 +//#include "sysemu/cpus.h"
 +//#include "qemu/guest-random.h"
 +//#include "hw/nmi.h"
 +//#include "sysemu/replay.h"
 +//#include "sysemu/runstate.h"
-+#include "sysemu/cpu-timers.h"
+ #include "sysemu/cpu-timers.h"
+-#include "sysemu/whpx.h"
+-#include "hw/boards.h"
+-#include "hw/hw.h"
+-#include "trace.h"
 +//#include "sysemu/whpx.h"
 +//#include "hw/boards.h"
 +//#include "hw/hw.h"
 +//#include "trace.h"
-+
-+#ifdef CONFIG_LINUX
-+
-+#include <sys/prctl.h>
-+
-+#ifndef PR_MCE_KILL
-+#define PR_MCE_KILL 33
-+#endif
-+
-+#ifndef PR_MCE_KILL_SET
-+#define PR_MCE_KILL_SET 1
-+#endif
-+
-+#ifndef PR_MCE_KILL_EARLY
-+#define PR_MCE_KILL_EARLY 1
-+#endif
-+
-+#endif /* CONFIG_LINUX */
-+
-+/* The Big QEMU Lock (BQL) */
-+static QemuMutex bql;
-+
+ 
+ #ifdef CONFIG_LINUX
+ 
+@@ -68,6 +68,7 @@
+ /* The Big QEMU Lock (BQL) */
+ static QemuMutex bql;
+ 
 +#if 0
-+/*
-+ * The chosen accelerator is supposed to register this.
-+ */
-+static const AccelOpsClass *cpus_accel;
-+
-+bool cpu_is_stopped(CPUState *cpu)
-+{
-+    return cpu->stopped || !runstate_is_running();
-+}
-+
-+bool cpu_work_list_empty(CPUState *cpu)
-+{
-+    return QSIMPLEQ_EMPTY_ATOMIC(&cpu->work_list);
-+}
-+
-+bool cpu_thread_is_idle(CPUState *cpu)
-+{
-+    if (cpu->stop || !cpu_work_list_empty(cpu)) {
-+        return false;
-+    }
-+    if (cpu_is_stopped(cpu)) {
-+        return true;
-+    }
-+    if (!cpu->halted || cpu_has_work(cpu)) {
-+        return false;
-+    }
-+    if (cpus_accel->cpu_thread_is_idle) {
-+        return cpus_accel->cpu_thread_is_idle(cpu);
-+    }
-+    return true;
-+}
-+
-+bool all_cpu_threads_idle(void)
-+{
-+    CPUState *cpu;
-+
-+    CPU_FOREACH(cpu) {
-+        if (!cpu_thread_is_idle(cpu)) {
-+            return false;
-+        }
-+    }
-+    return true;
-+}
-+
-+/***********************************************************/
-+void hw_error(const char *fmt, ...)
-+{
-+    va_list ap;
-+    CPUState *cpu;
-+
-+    va_start(ap, fmt);
-+    fprintf(stderr, "qemu: hardware error: ");
-+    vfprintf(stderr, fmt, ap);
-+    fprintf(stderr, "\n");
-+    CPU_FOREACH(cpu) {
-+        fprintf(stderr, "CPU #%d:\n", cpu->cpu_index);
-+        cpu_dump_state(cpu, stderr, CPU_DUMP_FPU);
-+    }
-+    va_end(ap);
-+    abort();
-+}
-+
-+void cpu_synchronize_all_states(void)
-+{
-+    CPUState *cpu;
-+
-+    CPU_FOREACH(cpu) {
-+        cpu_synchronize_state(cpu);
-+    }
-+}
-+
-+void cpu_synchronize_all_post_reset(void)
-+{
-+    CPUState *cpu;
-+
-+    CPU_FOREACH(cpu) {
-+        cpu_synchronize_post_reset(cpu);
-+    }
-+}
-+
-+void cpu_synchronize_all_post_init(void)
-+{
-+    CPUState *cpu;
-+
-+    CPU_FOREACH(cpu) {
-+        cpu_synchronize_post_init(cpu);
-+    }
-+}
-+
-+void cpu_synchronize_all_pre_loadvm(void)
-+{
-+    CPUState *cpu;
-+
-+    CPU_FOREACH(cpu) {
-+        cpu_synchronize_pre_loadvm(cpu);
-+    }
-+}
-+
-+void cpu_synchronize_state(CPUState *cpu)
-+{
-+    if (cpus_accel->synchronize_state) {
-+        cpus_accel->synchronize_state(cpu);
-+    }
-+}
-+
-+void cpu_synchronize_post_reset(CPUState *cpu)
-+{
-+    if (cpus_accel->synchronize_post_reset) {
-+        cpus_accel->synchronize_post_reset(cpu);
-+    }
-+}
-+
-+void cpu_synchronize_post_init(CPUState *cpu)
-+{
-+    if (cpus_accel->synchronize_post_init) {
-+        cpus_accel->synchronize_post_init(cpu);
-+    }
-+}
-+
-+void cpu_synchronize_pre_loadvm(CPUState *cpu)
-+{
-+    if (cpus_accel->synchronize_pre_loadvm) {
-+        cpus_accel->synchronize_pre_loadvm(cpu);
-+    }
-+}
-+
-+bool cpus_are_resettable(void)
-+{
-+    if (cpus_accel->cpus_are_resettable) {
-+        return cpus_accel->cpus_are_resettable();
-+    }
-+    return true;
-+}
-+
-+void cpu_exec_reset_hold(CPUState *cpu)
-+{
-+    if (cpus_accel->cpu_reset_hold) {
-+        cpus_accel->cpu_reset_hold(cpu);
-+    }
-+}
-+
-+int64_t cpus_get_virtual_clock(void)
-+{
-+    /*
-+     * XXX
-+     *
-+     * need to check that cpus_accel is not NULL, because qcow2 calls
-+     * qemu_get_clock_ns(CLOCK_VIRTUAL) without any accel initialized and
-+     * with ticks disabled in some io-tests:
-+     * 030 040 041 060 099 120 127 140 156 161 172 181 191 192 195 203 229 249 256 267
-+     *
-+     * is this expected?
-+     *
-+     * XXX
-+     */
-+    if (cpus_accel && cpus_accel->get_virtual_clock) {
-+        return cpus_accel->get_virtual_clock();
-+    }
-+    return cpu_get_clock();
-+}
-+
-+/*
-+ * Signal the new virtual time to the accelerator. This is only needed
-+ * by accelerators that need to track the changes as we warp time.
-+ */
-+void cpus_set_virtual_clock(int64_t new_time)
-+{
-+    if (cpus_accel && cpus_accel->set_virtual_clock) {
-+        cpus_accel->set_virtual_clock(new_time);
-+    }
-+}
-+
-+/*
-+ * return the time elapsed in VM between vm_start and vm_stop.  Unless
-+ * icount is active, cpus_get_elapsed_ticks() uses units of the host CPU cycle
-+ * counter.
-+ */
-+int64_t cpus_get_elapsed_ticks(void)
-+{
-+    if (cpus_accel->get_elapsed_ticks) {
-+        return cpus_accel->get_elapsed_ticks();
-+    }
-+    return cpu_get_ticks();
-+}
-+
-+static void generic_handle_interrupt(CPUState *cpu, int mask)
-+{
-+    cpu->interrupt_request |= mask;
-+
-+    if (!qemu_cpu_is_self(cpu)) {
-+        qemu_cpu_kick(cpu);
-+    }
-+}
-+
-+void cpu_interrupt(CPUState *cpu, int mask)
-+{
-+    if (cpus_accel->handle_interrupt) {
-+        cpus_accel->handle_interrupt(cpu, mask);
-+    } else {
-+        generic_handle_interrupt(cpu, mask);
-+    }
-+}
-+
-+/*
-+ * True if the vm was previously suspended, and has not been woken or reset.
-+ */
-+static int vm_was_suspended;
-+
-+void vm_set_suspended(bool suspended)
-+{
-+    vm_was_suspended = suspended;
-+}
-+
-+bool vm_get_suspended(void)
-+{
-+    return vm_was_suspended;
-+}
-+
-+static int do_vm_stop(RunState state, bool send_stop)
-+{
-+    int ret = 0;
-+    RunState oldstate = runstate_get();
-+
-+    if (runstate_is_live(oldstate)) {
-+        vm_was_suspended = (oldstate == RUN_STATE_SUSPENDED);
-+        runstate_set(state);
-+        cpu_disable_ticks();
-+        if (oldstate == RUN_STATE_RUNNING) {
-+            pause_all_vcpus();
-+        }
-+        vm_state_notify(0, state);
-+        if (send_stop) {
-+            qapi_event_send_stop();
-+        }
-+    }
-+
-+    bdrv_drain_all();
-+    ret = bdrv_flush_all();
-+    trace_vm_stop_flush_all(ret);
-+
-+    return ret;
-+}
-+
-+/* Special vm_stop() variant for terminating the process.  Historically clients
-+ * did not expect a QMP STOP event and so we need to retain compatibility.
-+ */
-+int vm_shutdown(void)
-+{
-+    return do_vm_stop(RUN_STATE_SHUTDOWN, false);
-+}
-+
-+bool cpu_can_run(CPUState *cpu)
-+{
-+    if (cpu->stop) {
-+        return false;
-+    }
-+    if (cpu_is_stopped(cpu)) {
-+        return false;
-+    }
-+    return true;
-+}
-+
-+void cpu_handle_guest_debug(CPUState *cpu)
-+{
-+    if (replay_running_debug()) {
-+        if (!cpu->singlestep_enabled) {
-+            /*
-+             * Report about the breakpoint and
-+             * make a single step to skip it
-+             */
-+            replay_breakpoint();
-+            cpu_single_step(cpu, SSTEP_ENABLE);
-+        } else {
-+            cpu_single_step(cpu, 0);
-+        }
-+    } else {
-+        gdb_set_stop_cpu(cpu);
-+        qemu_system_debug_request();
-+        cpu->stopped = true;
-+    }
-+}
-+
-+#ifdef CONFIG_LINUX
-+static void sigbus_reraise(void)
-+{
-+    sigset_t set;
-+    struct sigaction action;
-+
-+    memset(&action, 0, sizeof(action));
-+    action.sa_handler = SIG_DFL;
-+    if (!sigaction(SIGBUS, &action, NULL)) {
-+        raise(SIGBUS);
-+        sigemptyset(&set);
-+        sigaddset(&set, SIGBUS);
-+        pthread_sigmask(SIG_UNBLOCK, &set, NULL);
-+    }
-+    perror("Failed to re-raise SIGBUS!");
-+    abort();
-+}
-+
-+static void sigbus_handler(int n, siginfo_t *siginfo, void *ctx)
-+{
-+    if (siginfo->si_code != BUS_MCEERR_AO && siginfo->si_code != BUS_MCEERR_AR) {
-+        sigbus_reraise();
-+    }
-+
-+    if (current_cpu) {
-+        /* Called asynchronously in VCPU thread.  */
-+        if (kvm_on_sigbus_vcpu(current_cpu, siginfo->si_code, siginfo->si_addr)) {
-+            sigbus_reraise();
-+        }
-+    } else {
-+        /* Called synchronously (via signalfd) in main thread.  */
-+        if (kvm_on_sigbus(siginfo->si_code, siginfo->si_addr)) {
-+            sigbus_reraise();
-+        }
-+    }
-+}
-+
-+static void qemu_init_sigbus(void)
-+{
-+    struct sigaction action;
-+
-+    /*
-+     * ALERT: when modifying this, take care that SIGBUS forwarding in
-+     * qemu_prealloc_mem() will continue working as expected.
-+     */
-+    memset(&action, 0, sizeof(action));
-+    action.sa_flags = SA_SIGINFO;
-+    action.sa_sigaction = sigbus_handler;
-+    sigaction(SIGBUS, &action, NULL);
-+
-+    prctl(PR_MCE_KILL, PR_MCE_KILL_SET, PR_MCE_KILL_EARLY, 0, 0);
-+}
-+#else /* !CONFIG_LINUX */
-+static void qemu_init_sigbus(void)
-+{
-+}
-+#endif /* !CONFIG_LINUX */
-+
-+static QemuThread io_thread;
-+
-+/* cpu creation */
-+static QemuCond qemu_cpu_cond;
-+/* system init */
-+static QemuCond qemu_pause_cond;
+ /*
+  * The chosen accelerator is supposed to register this.
+  */
+@@ -414,17 +415,21 @@ static QemuThread io_thread;
+ static QemuCond qemu_cpu_cond;
+ /* system init */
+ static QemuCond qemu_pause_cond;
 +#endif
-+
-+void qemu_init_cpu_loop(void)
-+{
+ 
+ void qemu_init_cpu_loop(void)
+ {
 +#if 0
-+    qemu_init_sigbus();
-+    qemu_cond_init(&qemu_cpu_cond);
-+    qemu_cond_init(&qemu_pause_cond);
+     qemu_init_sigbus();
+     qemu_cond_init(&qemu_cpu_cond);
+     qemu_cond_init(&qemu_pause_cond);
 +#endif
-+    qemu_mutex_init(&bql);
-+
+     qemu_mutex_init(&bql);
+ 
+-    qemu_thread_get_self(&io_thread);
 +    //qemu_thread_get_self(&io_thread);
-+}
-+
+ }
+ 
 +#if 0
-+void run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data)
-+{
-+    do_run_on_cpu(cpu, func, data, &bql);
-+}
-+
-+static void qemu_cpu_stop(CPUState *cpu, bool exit)
-+{
-+    g_assert(qemu_cpu_is_self(cpu));
-+    cpu->stop = false;
-+    cpu->stopped = true;
-+    if (exit) {
-+        cpu_exit(cpu);
-+    }
-+    qemu_cond_broadcast(&qemu_pause_cond);
-+}
-+
-+void qemu_wait_io_event_common(CPUState *cpu)
-+{
-+    qatomic_set_mb(&cpu->thread_kicked, false);
-+    if (cpu->stop) {
-+        qemu_cpu_stop(cpu, false);
-+    }
-+    process_queued_cpu_work(cpu);
-+}
-+
-+void qemu_wait_io_event(CPUState *cpu)
-+{
-+    bool slept = false;
-+
-+    while (cpu_thread_is_idle(cpu)) {
-+        if (!slept) {
-+            slept = true;
-+            qemu_plugin_vcpu_idle_cb(cpu);
-+        }
-+        qemu_cond_wait(cpu->halt_cond, &bql);
-+    }
-+    if (slept) {
-+        qemu_plugin_vcpu_resume_cb(cpu);
-+    }
-+
-+    qemu_wait_io_event_common(cpu);
-+}
-+
-+void cpus_kick_thread(CPUState *cpu)
-+{
-+    if (cpu->thread_kicked) {
-+        return;
-+    }
-+    cpu->thread_kicked = true;
-+
-+#ifndef _WIN32
-+    int err = pthread_kill(cpu->thread->thread, SIG_IPI);
-+    if (err && err != ESRCH) {
-+        fprintf(stderr, "qemu:%s: %s", __func__, strerror(err));
-+        exit(1);
-+    }
-+#else
-+    qemu_sem_post(&cpu->sem);
+ void run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data)
+ {
+     do_run_on_cpu(cpu, func, data, &bql);
+@@ -511,6 +516,7 @@ bool qemu_in_vcpu_thread(void)
+ {
+     return current_cpu && qemu_cpu_is_self(current_cpu);
+ }
 +#endif
-+}
-+
-+void qemu_cpu_kick(CPUState *cpu)
-+{
-+    qemu_cond_broadcast(cpu->halt_cond);
-+    if (cpus_accel->kick_vcpu_thread) {
-+        cpus_accel->kick_vcpu_thread(cpu);
-+    } else { /* default */
-+        cpus_kick_thread(cpu);
-+    }
-+}
-+
-+void qemu_cpu_kick_self(void)
-+{
-+    assert(current_cpu);
-+    cpus_kick_thread(current_cpu);
-+}
-+
-+bool qemu_cpu_is_self(CPUState *cpu)
-+{
-+    return qemu_thread_is_self(cpu->thread);
-+}
-+
-+bool qemu_in_vcpu_thread(void)
-+{
-+    return current_cpu && qemu_cpu_is_self(current_cpu);
-+}
-+#endif
-+
-+QEMU_DEFINE_STATIC_CO_TLS(bool, bql_locked)
-+
-+bool bql_locked(void)
-+{
-+    return get_bql_locked();
-+}
-+
-+bool qemu_in_main_thread(void)
-+{
-+    return bql_locked();
-+}
-+
-+/*
-+ * The BQL is taken from so many places that it is worth profiling the
-+ * callers directly, instead of funneling them all through a single function.
-+ */
-+void bql_lock_impl(const char *file, int line)
-+{
-+    QemuMutexLockFunc bql_lock_fn = qatomic_read(&bql_mutex_lock_func);
-+
-+    g_assert(!bql_locked());
-+    bql_lock_fn(&bql, file, line);
-+    set_bql_locked(true);
-+}
-+
-+void bql_unlock(void)
-+{
-+    g_assert(bql_locked());
-+    set_bql_locked(false);
-+    qemu_mutex_unlock(&bql);
-+}
-+
+ 
+ QEMU_DEFINE_STATIC_CO_TLS(bool, bql_locked)
+ 
+@@ -544,6 +550,7 @@ void bql_unlock(void)
+     qemu_mutex_unlock(&bql);
+ }
+ 
 +#if 0
-+void qemu_cond_wait_bql(QemuCond *cond)
-+{
-+    qemu_cond_wait(cond, &bql);
-+}
-+
-+void qemu_cond_timedwait_bql(QemuCond *cond, int ms)
-+{
-+    qemu_cond_timedwait(cond, &bql, ms);
-+}
-+
-+/* signal CPU creation */
-+void cpu_thread_signal_created(CPUState *cpu)
-+{
-+    cpu->created = true;
-+    qemu_cond_signal(&qemu_cpu_cond);
-+}
-+
-+/* signal CPU destruction */
-+void cpu_thread_signal_destroyed(CPUState *cpu)
-+{
-+    cpu->created = false;
-+    qemu_cond_signal(&qemu_cpu_cond);
-+}
-+
-+void cpu_pause(CPUState *cpu)
-+{
-+    if (qemu_cpu_is_self(cpu)) {
-+        qemu_cpu_stop(cpu, true);
-+    } else {
-+        cpu->stop = true;
-+        qemu_cpu_kick(cpu);
-+    }
-+}
-+
-+void cpu_resume(CPUState *cpu)
-+{
-+    cpu->stop = false;
-+    cpu->stopped = false;
-+    qemu_cpu_kick(cpu);
-+}
-+
-+static bool all_vcpus_paused(void)
-+{
-+    CPUState *cpu;
-+
-+    CPU_FOREACH(cpu) {
-+        if (!cpu->stopped) {
-+            return false;
-+        }
-+    }
-+
-+    return true;
-+}
-+
-+void pause_all_vcpus(void)
-+{
-+    CPUState *cpu;
-+
-+    qemu_clock_enable(QEMU_CLOCK_VIRTUAL, false);
-+    CPU_FOREACH(cpu) {
-+        cpu_pause(cpu);
-+    }
-+
-+    /* We need to drop the replay_lock so any vCPU threads woken up
-+     * can finish their replay tasks
-+     */
-+    replay_mutex_unlock();
-+
-+    while (!all_vcpus_paused()) {
-+        qemu_cond_wait(&qemu_pause_cond, &bql);
-+        CPU_FOREACH(cpu) {
-+            qemu_cpu_kick(cpu);
-+        }
-+    }
-+
-+    bql_unlock();
-+    replay_mutex_lock();
-+    bql_lock();
-+}
-+
-+void resume_all_vcpus(void)
-+{
-+    CPUState *cpu;
-+
-+    if (!runstate_is_running()) {
-+        return;
-+    }
-+
-+    qemu_clock_enable(QEMU_CLOCK_VIRTUAL, true);
-+    CPU_FOREACH(cpu) {
-+        cpu_resume(cpu);
-+    }
-+}
-+
-+void cpu_remove_sync(CPUState *cpu)
-+{
-+    cpu->stop = true;
-+    cpu->unplug = true;
-+    qemu_cpu_kick(cpu);
-+    bql_unlock();
-+    qemu_thread_join(cpu->thread);
-+    bql_lock();
-+}
-+
-+void cpus_register_accel(const AccelOpsClass *ops)
-+{
-+    assert(ops != NULL);
-+    assert(ops->create_vcpu_thread != NULL); /* mandatory */
-+    cpus_accel = ops;
-+}
-+
-+const AccelOpsClass *cpus_get_accel(void)
-+{
-+    /* broken if we call this early */
-+    assert(cpus_accel);
-+    return cpus_accel;
-+}
-+
-+void qemu_init_vcpu(CPUState *cpu)
-+{
-+    MachineState *ms = MACHINE(qdev_get_machine());
-+
-+    cpu->nr_cores = machine_topo_get_cores_per_socket(ms);
-+    cpu->nr_threads =  ms->smp.threads;
-+    cpu->stopped = true;
-+    cpu->random_seed = qemu_guest_random_seed_thread_part1();
-+
-+    if (!cpu->as) {
-+        /* If the target cpu hasn't set up any address spaces itself,
-+         * give it the default one.
-+         */
-+        cpu->num_ases = 1;
-+        cpu_address_space_init(cpu, 0, "cpu-memory", cpu->memory);
-+    }
-+
-+    /* accelerators all implement the AccelOpsClass */
-+    g_assert(cpus_accel != NULL && cpus_accel->create_vcpu_thread != NULL);
-+    cpus_accel->create_vcpu_thread(cpu);
-+
-+    while (!cpu->created) {
-+        qemu_cond_wait(&qemu_cpu_cond, &bql);
-+    }
-+}
-+
-+void cpu_stop_current(void)
-+{
-+    if (current_cpu) {
-+        current_cpu->stop = true;
-+        cpu_exit(current_cpu);
-+    }
-+}
-+
-+int vm_stop(RunState state)
-+{
-+    if (qemu_in_vcpu_thread()) {
-+        qemu_system_vmstop_request_prepare();
-+        qemu_system_vmstop_request(state);
-+        /*
-+         * FIXME: should not return to device code in case
-+         * vm_stop() has been requested.
-+         */
-+        cpu_stop_current();
-+        return 0;
-+    }
-+
-+    return do_vm_stop(state, true);
-+}
-+
-+/**
-+ * Prepare for (re)starting the VM.
-+ * Returns 0 if the vCPUs should be restarted, -1 on an error condition,
-+ * and 1 otherwise.
-+ */
-+int vm_prepare_start(bool step_pending)
-+{
-+    int ret = vm_was_suspended ? 1 : 0;
-+    RunState state = vm_was_suspended ? RUN_STATE_SUSPENDED : RUN_STATE_RUNNING;
-+    RunState requested;
-+
-+    qemu_vmstop_requested(&requested);
-+    if (runstate_is_running() && requested == RUN_STATE__MAX) {
-+        return -1;
-+    }
-+
-+    /* Ensure that a STOP/RESUME pair of events is emitted if a
-+     * vmstop request was pending.  The BLOCK_IO_ERROR event, for
-+     * example, according to documentation is always followed by
-+     * the STOP event.
-+     */
-+    if (runstate_is_running()) {
-+        qapi_event_send_stop();
-+        qapi_event_send_resume();
-+        return -1;
-+    }
-+
-+    /*
-+     * WHPX accelerator needs to know whether we are going to step
-+     * any CPUs, before starting the first one.
-+     */
-+    if (cpus_accel->synchronize_pre_resume) {
-+        cpus_accel->synchronize_pre_resume(step_pending);
-+    }
-+
-+    /* We are sending this now, but the CPUs will be resumed shortly later */
-+    qapi_event_send_resume();
-+
-+    cpu_enable_ticks();
-+    runstate_set(state);
-+    vm_state_notify(1, state);
-+    vm_was_suspended = false;
-+    return ret;
-+}
-+
-+void vm_start(void)
-+{
-+    if (!vm_prepare_start(false)) {
-+        resume_all_vcpus();
-+    }
-+}
-+
-+void vm_resume(RunState state)
-+{
-+    if (runstate_is_live(state)) {
-+        vm_start();
-+    } else {
-+        runstate_set(state);
-+    }
-+}
-+
-+/* does a state transition even if the VM is already stopped,
-+   current state is forgotten forever */
-+int vm_stop_force_state(RunState state)
-+{
-+    if (runstate_is_live(runstate_get())) {
-+        return vm_stop(state);
-+    } else {
-+        int ret;
-+        runstate_set(state);
-+
-+        bdrv_drain_all();
-+        /* Make sure to return an error if the flush in a previous vm_stop()
-+         * failed. */
-+        ret = bdrv_flush_all();
-+        trace_vm_stop_flush_all(ret);
-+        return ret;
-+    }
-+}
-+
-+void qmp_memsave(uint64_t addr, uint64_t size, const char *filename,
-+                 bool has_cpu, int64_t cpu_index, Error **errp)
-+{
-+    FILE *f;
-+    uint64_t l;
-+    CPUState *cpu;
-+    uint8_t buf[1024];
-+    uint64_t orig_addr = addr, orig_size = size;
-+
-+    if (!has_cpu) {
-+        cpu_index = 0;
-+    }
-+
-+    cpu = qemu_get_cpu(cpu_index);
-+    if (cpu == NULL) {
-+        error_setg(errp, QERR_INVALID_PARAMETER_VALUE, "cpu-index",
-+                   "a CPU number");
-+        return;
-+    }
-+
-+    f = fopen(filename, "wb");
-+    if (!f) {
-+        error_setg_file_open(errp, errno, filename);
-+        return;
-+    }
-+
-+    while (size != 0) {
-+        l = sizeof(buf);
-+        if (l > size)
-+            l = size;
-+        if (cpu_memory_rw_debug(cpu, addr, buf, l, 0) != 0) {
-+            error_setg(errp, "Invalid addr 0x%016" PRIx64 "/size %" PRIu64
-+                             " specified", orig_addr, orig_size);
-+            goto exit;
-+        }
-+        if (fwrite(buf, 1, l, f) != l) {
-+            error_setg(errp, "writing memory to '%s' failed",
-+                       filename);
-+            goto exit;
-+        }
-+        addr += l;
-+        size -= l;
-+    }
-+
-+exit:
-+    fclose(f);
-+}
-+
-+void qmp_pmemsave(uint64_t addr, uint64_t size, const char *filename,
-+                  Error **errp)
-+{
-+    FILE *f;
-+    uint64_t l;
-+    uint8_t buf[1024];
-+
-+    f = fopen(filename, "wb");
-+    if (!f) {
-+        error_setg_file_open(errp, errno, filename);
-+        return;
-+    }
-+
-+    while (size != 0) {
-+        l = sizeof(buf);
-+        if (l > size)
-+            l = size;
-+        cpu_physical_memory_read(addr, buf, l);
-+        if (fwrite(buf, 1, l, f) != l) {
-+            error_setg(errp, "writing memory to '%s' failed",
-+                       filename);
-+            goto exit;
-+        }
-+        addr += l;
-+        size -= l;
-+    }
-+
-+exit:
-+    fclose(f);
-+}
-+
-+void qmp_inject_nmi(Error **errp)
-+{
-+    nmi_monitor_handle(monitor_get_cpu_index(monitor_cur()), errp);
-+}
+ void qemu_cond_wait_bql(QemuCond *cond)
+ {
+     qemu_cond_wait(cond, &bql);
+@@ -875,4 +882,5 @@ void qmp_inject_nmi(Error **errp)
+ {
+     nmi_monitor_handle(monitor_get_cpu_index(monitor_cur()), errp);
+ }
 +#endif
-+
+ 
 diff --git a/qcow2/lib/util/aio-posix.c b/qcow2/lib/util/aio-posix.c
 index 266c9dd3..237951d9 100644
 --- a/qcow2/lib/util/aio-posix.c
@@ -8287,169 +6492,6 @@ index 3e3e4fc7..bcc6dee9 100644
      const char *scheduled = qatomic_cmpxchg(&co->scheduled, NULL,
                                             __func__);
  
-diff --git a/qcow2/lib/util/bitops.c b/qcow2/lib/util/bitops.c
-new file mode 100644
-index 00000000..4b647b3e
---- /dev/null
-+++ b/qcow2/lib/util/bitops.c
-@@ -0,0 +1,157 @@
-+/*
-+ * Copyright (C) 2004 Red Hat, Inc. All Rights Reserved.
-+ * Written by David Howells (dhowells@redhat.com)
-+ * Copyright (C) 2008 IBM Corporation
-+ * Written by Rusty Russell <rusty@rustcorp.com.au>
-+ * (Inspired by David Howell's find_next_bit implementation)
-+ *
-+ * This program is free software; you can redistribute it and/or
-+ * modify it under the terms of the GNU General Public License
-+ * as published by the Free Software Foundation; either version
-+ * 2 of the License, or (at your option) any later version.
-+ */
-+
-+#include "qemu/osdep.h"
-+#include "qemu/bitops.h"
-+
-+/*
-+ * Find the next set bit in a memory region.
-+ */
-+unsigned long find_next_bit(const unsigned long *addr, unsigned long size,
-+                            unsigned long offset)
-+{
-+    const unsigned long *p = addr + BIT_WORD(offset);
-+    unsigned long result = offset & ~(BITS_PER_LONG-1);
-+    unsigned long tmp;
-+
-+    if (offset >= size) {
-+        return size;
-+    }
-+    size -= result;
-+    offset %= BITS_PER_LONG;
-+    if (offset) {
-+        tmp = *(p++);
-+        tmp &= (~0UL << offset);
-+        if (size < BITS_PER_LONG) {
-+            goto found_first;
-+        }
-+        if (tmp) {
-+            goto found_middle;
-+        }
-+        size -= BITS_PER_LONG;
-+        result += BITS_PER_LONG;
-+    }
-+    while (size >= 4*BITS_PER_LONG) {
-+        unsigned long d1, d2, d3;
-+        tmp = *p;
-+        d1 = *(p+1);
-+        d2 = *(p+2);
-+        d3 = *(p+3);
-+        if (tmp) {
-+            goto found_middle;
-+        }
-+        if (d1 | d2 | d3) {
-+            break;
-+        }
-+        p += 4;
-+        result += 4*BITS_PER_LONG;
-+        size -= 4*BITS_PER_LONG;
-+    }
-+    while (size >= BITS_PER_LONG) {
-+        if ((tmp = *(p++))) {
-+            goto found_middle;
-+        }
-+        result += BITS_PER_LONG;
-+        size -= BITS_PER_LONG;
-+    }
-+    if (!size) {
-+        return result;
-+    }
-+    tmp = *p;
-+
-+found_first:
-+    tmp &= (~0UL >> (BITS_PER_LONG - size));
-+    if (tmp == 0UL) {           /* Are any bits set? */
-+        return result + size;   /* Nope. */
-+    }
-+found_middle:
-+    return result + ctzl(tmp);
-+}
-+
-+/*
-+ * This implementation of find_{first,next}_zero_bit was stolen from
-+ * Linus' asm-alpha/bitops.h.
-+ */
-+unsigned long find_next_zero_bit(const unsigned long *addr, unsigned long size,
-+                                 unsigned long offset)
-+{
-+    const unsigned long *p = addr + BIT_WORD(offset);
-+    unsigned long result = offset & ~(BITS_PER_LONG-1);
-+    unsigned long tmp;
-+
-+    if (offset >= size) {
-+        return size;
-+    }
-+    size -= result;
-+    offset %= BITS_PER_LONG;
-+    if (offset) {
-+        tmp = *(p++);
-+        tmp |= ~0UL >> (BITS_PER_LONG - offset);
-+        if (size < BITS_PER_LONG) {
-+            goto found_first;
-+        }
-+        if (~tmp) {
-+            goto found_middle;
-+        }
-+        size -= BITS_PER_LONG;
-+        result += BITS_PER_LONG;
-+    }
-+    while (size & ~(BITS_PER_LONG-1)) {
-+        if (~(tmp = *(p++))) {
-+            goto found_middle;
-+        }
-+        result += BITS_PER_LONG;
-+        size -= BITS_PER_LONG;
-+    }
-+    if (!size) {
-+        return result;
-+    }
-+    tmp = *p;
-+
-+found_first:
-+    tmp |= ~0UL << size;
-+    if (tmp == ~0UL) {          /* Are any bits zero? */
-+        return result + size;   /* Nope. */
-+    }
-+found_middle:
-+    return result + ctzl(~tmp);
-+}
-+
-+unsigned long find_last_bit(const unsigned long *addr, unsigned long size)
-+{
-+    unsigned long words;
-+    unsigned long tmp;
-+
-+    /* Start at final word. */
-+    words = size / BITS_PER_LONG;
-+
-+    /* Partial final word? */
-+    if (size & (BITS_PER_LONG-1)) {
-+        tmp = (addr[words] & (~0UL >> (BITS_PER_LONG
-+                                       - (size & (BITS_PER_LONG-1)))));
-+        if (tmp) {
-+            goto found;
-+        }
-+    }
-+
-+    while (words) {
-+        tmp = addr[--words];
-+        if (tmp) {
-+        found:
-+            return words * BITS_PER_LONG + BITS_PER_LONG - 1 - clzl(tmp);
-+        }
-+    }
-+
-+    /* Not found */
-+    return size;
-+}
 diff --git a/qcow2/lib/util/bufferiszero.c b/qcow2/lib/util/bufferiszero.c
 index 522146da..b86b90a2 100644
 --- a/qcow2/lib/util/bufferiszero.c
@@ -8573,168 +6615,6 @@ index 1b17c11d..3e216295 100644
      error_printf("\n");
  }
  
-diff --git a/qcow2/lib/util/fdmon-epoll.c b/qcow2/lib/util/fdmon-epoll.c
-new file mode 100644
-index 00000000..c6413cb1
---- /dev/null
-+++ b/qcow2/lib/util/fdmon-epoll.c
-@@ -0,0 +1,156 @@
-+/* SPDX-License-Identifier: GPL-2.0-or-later */
-+/*
-+ * epoll(7) file descriptor monitoring
-+ */
-+
-+#include "qemu/osdep.h"
-+#include <sys/epoll.h>
-+#include "qemu/rcu_queue.h"
-+#include "aio-posix.h"
-+
-+/* The fd number threshold to switch to epoll */
-+#define EPOLL_ENABLE_THRESHOLD 64
-+
-+void fdmon_epoll_disable(AioContext *ctx)
-+{
-+    if (ctx->epollfd >= 0) {
-+        close(ctx->epollfd);
-+        ctx->epollfd = -1;
-+    }
-+
-+    /* Switch back */
-+    ctx->fdmon_ops = &fdmon_poll_ops;
-+}
-+
-+static inline int epoll_events_from_pfd(int pfd_events)
-+{
-+    return (pfd_events & G_IO_IN ? EPOLLIN : 0) |
-+           (pfd_events & G_IO_OUT ? EPOLLOUT : 0) |
-+           (pfd_events & G_IO_HUP ? EPOLLHUP : 0) |
-+           (pfd_events & G_IO_ERR ? EPOLLERR : 0);
-+}
-+
-+static void fdmon_epoll_update(AioContext *ctx,
-+                               AioHandler *old_node,
-+                               AioHandler *new_node)
-+{
-+    struct epoll_event event = {
-+        .data.ptr = new_node,
-+        .events = new_node ? epoll_events_from_pfd(new_node->pfd.events) : 0,
-+    };
-+    int r;
-+
-+    if (!new_node) {
-+        r = epoll_ctl(ctx->epollfd, EPOLL_CTL_DEL, old_node->pfd.fd, &event);
-+    } else if (!old_node) {
-+        r = epoll_ctl(ctx->epollfd, EPOLL_CTL_ADD, new_node->pfd.fd, &event);
-+    } else {
-+        r = epoll_ctl(ctx->epollfd, EPOLL_CTL_MOD, new_node->pfd.fd, &event);
-+    }
-+
-+    if (r) {
-+        fdmon_epoll_disable(ctx);
-+    }
-+}
-+
-+static int fdmon_epoll_wait(AioContext *ctx, AioHandlerList *ready_list,
-+                            int64_t timeout)
-+{
-+    GPollFD pfd = {
-+        .fd = ctx->epollfd,
-+        .events = G_IO_IN | G_IO_OUT | G_IO_HUP | G_IO_ERR,
-+    };
-+    AioHandler *node;
-+    int i, ret = 0;
-+    struct epoll_event events[128];
-+
-+    if (timeout > 0) {
-+        ret = qemu_poll_ns(&pfd, 1, timeout);
-+        if (ret > 0) {
-+            timeout = 0;
-+        }
-+    }
-+    if (timeout <= 0 || ret > 0) {
-+        ret = epoll_wait(ctx->epollfd, events,
-+                         ARRAY_SIZE(events),
-+                         timeout);
-+        if (ret <= 0) {
-+            goto out;
-+        }
-+        for (i = 0; i < ret; i++) {
-+            int ev = events[i].events;
-+            int revents = (ev & EPOLLIN ? G_IO_IN : 0) |
-+                          (ev & EPOLLOUT ? G_IO_OUT : 0) |
-+                          (ev & EPOLLHUP ? G_IO_HUP : 0) |
-+                          (ev & EPOLLERR ? G_IO_ERR : 0);
-+
-+            node = events[i].data.ptr;
-+            aio_add_ready_handler(ready_list, node, revents);
-+        }
-+    }
-+out:
-+    return ret;
-+}
-+
-+static const FDMonOps fdmon_epoll_ops = {
-+    .update = fdmon_epoll_update,
-+    .wait = fdmon_epoll_wait,
-+    .need_wait = aio_poll_disabled,
-+};
-+
-+static bool fdmon_epoll_try_enable(AioContext *ctx)
-+{
-+    AioHandler *node;
-+    struct epoll_event event;
-+
-+    QLIST_FOREACH_RCU(node, &ctx->aio_handlers, node) {
-+        int r;
-+        if (QLIST_IS_INSERTED(node, node_deleted) || !node->pfd.events) {
-+            continue;
-+        }
-+        event.events = epoll_events_from_pfd(node->pfd.events);
-+        event.data.ptr = node;
-+        r = epoll_ctl(ctx->epollfd, EPOLL_CTL_ADD, node->pfd.fd, &event);
-+        if (r) {
-+            return false;
-+        }
-+    }
-+
-+    ctx->fdmon_ops = &fdmon_epoll_ops;
-+    return true;
-+}
-+
-+bool fdmon_epoll_try_upgrade(AioContext *ctx, unsigned npfd)
-+{
-+    bool ok;
-+
-+    if (ctx->epollfd < 0) {
-+        return false;
-+    }
-+
-+    if (npfd < EPOLL_ENABLE_THRESHOLD) {
-+        return false;
-+    }
-+
-+    /* The list must not change while we add fds to epoll */
-+    if (!qemu_lockcnt_dec_if_lock(&ctx->list_lock)) {
-+        return false;
-+    }
-+
-+    ok = fdmon_epoll_try_enable(ctx);
-+
-+    qemu_lockcnt_inc_and_unlock(&ctx->list_lock);
-+
-+    if (!ok) {
-+        fdmon_epoll_disable(ctx);
-+    }
-+    return ok;
-+}
-+
-+void fdmon_epoll_setup(AioContext *ctx)
-+{
-+    ctx->epollfd = epoll_create1(EPOLL_CLOEXEC);
-+    if (ctx->epollfd == -1) {
-+        fprintf(stderr, "Failed to create epoll instance: %s", strerror(errno));
-+    }
-+}
 diff --git a/qcow2/lib/util/hbitmap.c b/qcow2/lib/util/hbitmap.c
 index 6d6e1b59..106be57b 100644
 --- a/qcow2/lib/util/hbitmap.c
@@ -9697,7 +7577,7 @@ index 27eb777e..c0026baa 100644
      qemu_mutex_lock(&pool->lock);
      if (pool->idle_threads == 0 && pool->cur_threads < pool->max_threads) {
 diff --git a/qcow2/qemu-img.c b/qcow2/qemu-img.c
-index 7668f867..fb0ce946 100644
+index 7668f867..60db40b2 100644
 --- a/qcow2/qemu-img.c
 +++ b/qcow2/qemu-img.c
 @@ -25,9 +25,9 @@
@@ -9773,65 +7653,16 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -902,6 +901,7 @@ typedef struct CommonBlockJobCBInfo {
-     Error **errp;
- } CommonBlockJobCBInfo;
- 
-+#if 0
- static void common_block_job_cb(void *opaque, int ret)
- {
-     CommonBlockJobCBInfo *cbi = opaque;
-@@ -913,23 +913,25 @@ static void common_block_job_cb(void *opaque, int ret)
- 
- static void run_block_job(BlockJob *job, Error **errp)
- {
--    uint64_t progress_current, progress_total;
-+    //uint64_t progress_current, progress_total;
-     AioContext *aio_context = block_job_get_aio_context(job);
-     int ret = 0;
- 
-     job_lock();
-     job_ref_locked(&job->job);
-     do {
--        float progress = 0.0f;
-+        //float progress = 0.0f;
-         job_unlock();
-         aio_poll(aio_context, true);
- 
-+#if 0
-         progress_get_snapshot(&job->job.progress, &progress_current,
-                               &progress_total);
-         if (progress_total) {
+@@ -930,6 +929,8 @@ static void run_block_job(BlockJob *job, Error **errp)
              progress = (float)progress_current / progress_total * 100.f;
          }
          qemu_progress_print(progress, 0);
-+#endif
++        printf("(%ld/%ld)\r", progress_current, progress_total);
++        fflush(stdout);
          job_lock();
      } while (!job_is_ready_locked(&job->job) &&
               !job_is_completed_locked(&job->job));
-@@ -947,6 +949,7 @@ static void run_block_job(BlockJob *job, Error **errp)
-         qemu_progress_print(100.f, 0);
-     }
- }
-+#endif
- 
- static int img_commit(int argc, char **argv)
- {
-@@ -954,11 +957,11 @@ static int img_commit(int argc, char **argv)
-     const char *filename, *fmt, *cache, *base;
-     BlockBackend *blk;
-     BlockDriverState *bs, *base_bs;
--    BlockJob *job;
-+    //BlockJob *job;
-     bool progress = false, quiet = false, drop = false;
-     bool writethrough;
-     Error *local_err = NULL;
--    CommonBlockJobCBInfo cbi;
-+    //CommonBlockJobCBInfo cbi;
-     bool image_opts = false;
-     int64_t rate_limit = 0;
- 
-@@ -1014,7 +1017,7 @@ static int img_commit(int argc, char **argv)
+@@ -1014,7 +1015,7 @@ static int img_commit(int argc, char **argv)
              }
              break;
          case OPTION_OBJECT:
@@ -9840,36 +7671,15 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -1072,6 +1075,7 @@ static int img_commit(int argc, char **argv)
-     }
-     bdrv_graph_rdunlock_main_loop();
+@@ -1124,6 +1125,7 @@ unref_backing:
  
-+#if 0
-     cbi = (CommonBlockJobCBInfo){
-         .errp = &local_err,
-         .bs   = bs,
-@@ -1083,6 +1087,7 @@ static int img_commit(int argc, char **argv)
-     if (local_err) {
-         goto done;
-     }
-+#endif
+ done:
+     qemu_progress_end();
++    printf("\n");
  
-     /* When the block job completes, the BlockBackend reference will point to
-      * the old backing file. In order to avoid that the top image is already
-@@ -1092,9 +1097,9 @@ static int img_commit(int argc, char **argv)
-         bdrv_ref(bs);
-     }
- 
--    job = block_job_get("commit");
--    assert(job);
--    run_block_job(job, &local_err);
-+    //job = block_job_get("commit");
-+    //assert(job);
-+    //run_block_job(job, &local_err);
-     if (local_err) {
-         goto unref_backing;
-     }
-@@ -1423,6 +1428,7 @@ static int img_compare(int argc, char **argv)
+     /*
+      * Manually inactivate the image first because this way we can know whether
+@@ -1423,6 +1425,7 @@ static int img_compare(int argc, char **argv)
              break;
          case OPTION_OBJECT:
              {
@@ -9877,7 +7687,7 @@ index 7668f867..fb0ce946 100644
                  Error *local_err = NULL;
  
                  if (!user_creatable_add_from_str(optarg, &local_err)) {
-@@ -1434,6 +1440,7 @@ static int img_compare(int argc, char **argv)
+@@ -1434,6 +1437,7 @@ static int img_compare(int argc, char **argv)
                          exit(EXIT_SUCCESS);
                      }
                  }
@@ -9885,7 +7695,7 @@ index 7668f867..fb0ce946 100644
                  break;
              }
          case OPTION_IMAGE_OPTS:
-@@ -2222,6 +2229,7 @@ static int convert_copy_bitmaps(BlockDriverState *src, BlockDriverState *dst,
+@@ -2222,6 +2226,7 @@ static int convert_copy_bitmaps(BlockDriverState *src, BlockDriverState *dst,
  
  static void set_rate_limit(BlockBackend *blk, int64_t rate_limit)
  {
@@ -9893,7 +7703,7 @@ index 7668f867..fb0ce946 100644
      ThrottleConfig cfg;
  
      throttle_config_init(&cfg);
-@@ -2229,6 +2237,7 @@ static void set_rate_limit(BlockBackend *blk, int64_t rate_limit)
+@@ -2229,6 +2234,7 @@ static void set_rate_limit(BlockBackend *blk, int64_t rate_limit)
  
      blk_io_limits_enable(blk, CONVERT_THROTTLE_GROUP);
      blk_set_io_limits(blk, &cfg);
@@ -9901,7 +7711,7 @@ index 7668f867..fb0ce946 100644
  }
  
  static int img_convert(int argc, char **argv)
-@@ -2384,7 +2393,7 @@ static int img_convert(int argc, char **argv)
+@@ -2384,7 +2390,7 @@ static int img_convert(int argc, char **argv)
              }
              break;
          case OPTION_OBJECT:
@@ -9910,7 +7720,7 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -3051,7 +3060,7 @@ static int img_info(int argc, char **argv)
+@@ -3051,7 +3057,7 @@ static int img_info(int argc, char **argv)
              chain = true;
              break;
          case OPTION_OBJECT:
@@ -9919,7 +7729,7 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -3291,7 +3300,7 @@ static int img_map(int argc, char **argv)
+@@ -3291,7 +3297,7 @@ static int img_map(int argc, char **argv)
              }
              break;
          case OPTION_OBJECT:
@@ -9928,7 +7738,7 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -3451,7 +3460,7 @@ static int img_snapshot(int argc, char **argv)
+@@ -3451,7 +3457,7 @@ static int img_snapshot(int argc, char **argv)
              force_share = true;
              break;
          case OPTION_OBJECT:
@@ -9937,7 +7747,7 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -3608,7 +3617,7 @@ static int img_rebase(int argc, char **argv)
+@@ -3608,7 +3614,7 @@ static int img_rebase(int argc, char **argv)
              quiet = true;
              break;
          case OPTION_OBJECT:
@@ -9946,7 +7756,7 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -4093,7 +4102,7 @@ static int img_resize(int argc, char **argv)
+@@ -4093,7 +4099,7 @@ static int img_resize(int argc, char **argv)
              quiet = true;
              break;
          case OPTION_OBJECT:
@@ -9955,7 +7765,7 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -4297,7 +4306,7 @@ static int img_amend(int argc, char **argv)
+@@ -4297,7 +4303,7 @@ static int img_amend(int argc, char **argv)
              quiet = true;
              break;
          case OPTION_OBJECT:
@@ -9964,7 +7774,7 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -4870,7 +4879,7 @@ static int img_bitmap(int argc, char **argv)
+@@ -4870,7 +4876,7 @@ static int img_bitmap(int argc, char **argv)
              merge = true;
              break;
          case OPTION_OBJECT:
@@ -9973,7 +7783,7 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -5145,7 +5154,7 @@ static int img_dd(int argc, char **argv)
+@@ -5145,7 +5151,7 @@ static int img_dd(int argc, char **argv)
              force_share = true;
              break;
          case OPTION_OBJECT:
@@ -9982,7 +7792,7 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -5405,7 +5414,7 @@ static int img_measure(int argc, char **argv)
+@@ -5405,7 +5411,7 @@ static int img_measure(int argc, char **argv)
              force_share = true;
              break;
          case OPTION_OBJECT:
@@ -9991,7 +7801,7 @@ index 7668f867..fb0ce946 100644
              break;
          case OPTION_IMAGE_OPTS:
              image_opts = true;
-@@ -5555,14 +5564,16 @@ int main(int argc, char **argv)
+@@ -5555,14 +5561,16 @@ int main(int argc, char **argv)
      signal(SIGPIPE, SIG_IGN);
  #endif
  
@@ -10010,7 +7820,7 @@ index 7668f867..fb0ce946 100644
  
      module_call_init(MODULE_INIT_QOM);
      bdrv_init();
-@@ -5571,7 +5582,7 @@ int main(int argc, char **argv)
+@@ -5571,7 +5579,7 @@ int main(int argc, char **argv)
      }
  
      qemu_add_opts(&qemu_source_opts);
@@ -10019,7 +7829,7 @@ index 7668f867..fb0ce946 100644
  
      while ((c = getopt_long(argc, argv, "+:hVT:", long_options, NULL)) != -1) {
          switch (c) {
-@@ -5588,7 +5599,7 @@ int main(int argc, char **argv)
+@@ -5588,7 +5596,7 @@ int main(int argc, char **argv)
              printf(QEMU_IMG_VERSION);
              return 0;
          case 'T':
@@ -10028,7 +7838,7 @@ index 7668f867..fb0ce946 100644
              break;
          }
      }
-@@ -5603,11 +5614,11 @@ int main(int argc, char **argv)
+@@ -5603,11 +5611,11 @@ int main(int argc, char **argv)
      argv += optind;
      qemu_reset_optind();
  
@@ -10045,40 +7855,3 @@ index 7668f867..fb0ce946 100644
  
      /* find the command */
      for (cmd = img_cmds; cmd->name != NULL; cmd++) {
-diff --git a/qemu-files.lst b/qemu-files.lst
-index c3b67f9f..9467eaca 100644
---- a/qemu-files.lst
-+++ b/qemu-files.lst
-@@ -126,8 +126,10 @@ block/dirty-bitmap.c
- block/file-posix.c
- block/graph-lock.c
- block/io.c
-+block/linux-aio.c
- block/monitor/bitmap-qmp-cmds.c
- block/qapi.c
-+block/raw-format.c
- block/snapshot.c
- crypto/hash.c
- hw/block/block.c
-@@ -153,11 +155,13 @@ qobject/qnum.c
- qobject/qobject-internal.h
- qobject/qobject.c
- qobject/qstring.c
-+system/cpus.c
- util/aio-posix.c
- util/aio-posix.h
- util/aio-wait.c
- util/aiocb.c
- util/async.c
-+util/bitops.c
- util/bufferiszero.c
- util/compatfd.c
- util/coroutine-ucontext.c
-@@ -166,6 +170,7 @@ util/defer-call.c
- util/error-report.c
- util/error.c
- util/event_notifier-posix.c
-+util/fdmon-epoll.c
- util/fdmon-poll.c
- util/hbitmap.c
- util/host-utils.c

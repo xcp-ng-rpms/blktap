@@ -1,7 +1,7 @@
 From f15425f673121cea6c4cab02e417a40580364282 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Fri, 17 Jan 2025 09:21:01 +0100
-Subject: [PATCH 03/19] Fix string copy errors (safe_strncpy)
+Subject: [PATCH 03/24] Fix string copy errors (safe_strncpy)
 
 Errors come from -Wstringop-truncation with gcc-8 and above.
 

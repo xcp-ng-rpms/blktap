@@ -1,7 +1,7 @@
 From 2014bb1bff94304df22165b967e83bdea4e2513e Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:07 +0100
-Subject: [PATCH 04/19] tapdisk: remove useless code
+Subject: [PATCH 04/24] tapdisk: remove useless code
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---

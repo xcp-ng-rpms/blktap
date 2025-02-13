@@ -4,7 +4,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.54.9
-Release: 1%{?xsrel}.2.0.qcow2.1%{?dist}
+Release: 1%{?xsrel}.2.0.qcow2.2%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -45,15 +45,20 @@ Patch1007: 0007-tapdisk-use-defined-abstraction.patch
 Patch1008: 0008-blkif-Avoid-use-after-free-on-BLKIF_OP_WRITE_BARRIER.patch
 Patch1009: 0009-tapdisk-vbd-remove-double-assignment-of-error-variab.patch
 Patch1010: 0010-tapdisk-replace-flag-number-by-its-name.patch
-Patch1011: 0011-qcow2-manage-qcow2-sources.patch
-Patch1012: 0012-qcow2-import-vanilla-sources-from-qemu-9.1.1.patch
-Patch1013: 0013-qcow2-build-qcow2-support-in-tapdisk.patch
-Patch1014: 0014-qcow2-fix-support-for-old-components-gcc-glibc-glib-.patch
-Patch1015: 0015-tapdisk-protect-td_vbd_t-structure.patch
-Patch1016: 0016-tapdisk-protect-td_blktap_t-structure.patch
-Patch1017: 0017-tapdisk-protect-td_xenblkif-structure.patch
-Patch1018: 0018-qcow2-driver-support-qcow2-files-in-tapdisk.patch
-Patch1019: 0019-blktap.spec-add-qcow2-dependencies.patch
+Patch1011: 0011-tapdisk-set-generic-TAPDISK_MESSAGE_MAX-limit-inside.patch
+Patch1012: 0012-qcow2-manage-qcow2-sources.patch
+Patch1013: 0013-qcow2-import-vanilla-sources-from-qemu-9.1.1.patch
+Patch1014: 0014-qcow2-build-qcow2-support-in-tapdisk.patch
+Patch1015: 0015-qcow2-fix-support-for-old-components-gcc-glibc-glib-.patch
+Patch1016: 0016-tapdisk-protect-td_vbd_t-structure.patch
+Patch1017: 0017-tapdisk-protect-td_blktap_t-structure.patch
+Patch1018: 0018-tapdisk-protect-td_xenblkif-structure.patch
+Patch1019: 0019-qcow2-driver-support-qcow2-files-in-tapdisk.patch
+Patch1020: 0020-blktap.spec-add-qcow2-dependencies.patch
+Patch1021: 0021-tapdisk-support-new-commit-command.patch
+Patch1022: 0022-qcow2-support-commit-command.patch
+Patch1023: 0023-tapdisk-support-new-query-command.patch
+Patch1024: 0024-qcow2-support-query-command.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -198,6 +203,10 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Tue Feb 18 2025 Damien Thenot <damien.thenot@vates.tech> - 3.54.9-1.2.0.qcow2.2
+- Add commit and query commands for tapdisk
+- Other improvements
+
 * Thu Jan 24 2025 Damien Thenot <damien.thenot.vates.tech> - 3.54.9-1.2.0.qcow2.1
 - Add QCOW2 support
 

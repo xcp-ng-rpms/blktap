@@ -1,7 +1,7 @@
 From b90317a6647aa01e9d0098143d330d79e5a217f9 Mon Sep 17 00:00:00 2001
 From: Ronan Abhamon <ronan.abhamon@vates.fr>
 Date: Thu, 16 Mar 2023 15:55:07 +0100
-Subject: [PATCH 01/19] Add an option to never resolve parent path when
+Subject: [PATCH 01/24] Add an option to never resolve parent path when
  vhd-util query is called
 
 Signed-off-by: Ronan Abhamon <ronan.abhamon@vates.fr>

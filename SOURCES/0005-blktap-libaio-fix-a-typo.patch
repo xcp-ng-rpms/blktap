@@ -1,7 +1,7 @@
 From f88e1b7d74e2f08fccf79e0e111bde9c53ccd656 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:11 +0100
-Subject: [PATCH 05/19] blktap: libaio: fix a typo
+Subject: [PATCH 05/24] blktap: libaio: fix a typo
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---

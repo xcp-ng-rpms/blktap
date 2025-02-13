@@ -1,7 +1,7 @@
 From 72772be6df968ba6bf38fc6824f8e165f9da786b Mon Sep 17 00:00:00 2001
 From: Ronan Abhamon <ronan.abhamon@vates.tech>
 Date: Wed, 18 Dec 2024 16:55:26 +0100
-Subject: [PATCH 02/19] Add an option to use backup footer when vhd-util query
+Subject: [PATCH 02/24] Add an option to use backup footer when vhd-util query
  is called
 
 This option already exists on td-util but it was not implemented

@@ -1,7 +1,7 @@
 From 01edf1fa187136536efaf796a6eaa96aa8a97ebc Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 15 Jan 2025 16:33:02 +0100
-Subject: [PATCH 07/19] tapdisk: use defined abstraction
+Subject: [PATCH 07/24] tapdisk: use defined abstraction
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---

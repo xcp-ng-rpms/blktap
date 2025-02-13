@@ -1,7 +1,7 @@
 From cc917b8948a82b58bdce9c788209ad154589bf9d Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 20 Jan 2025 14:45:35 +0100
-Subject: [PATCH 06/19] tapdisk: doc final param in
+Subject: [PATCH 06/24] tapdisk: doc final param in
  __tapdisk_xenblkif_request_cb
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>

@@ -1,7 +1,7 @@
-From 8b502e7d0cdcecdfb8164e14678825c797089322 Mon Sep 17 00:00:00 2001
+From c8020354cdbeda59ac1d1102693297b176054362 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:54 +0100
-Subject: [PATCH 19/19] blktap.spec: add qcow2 dependencies
+Subject: [PATCH 20/24] blktap.spec: add qcow2 dependencies
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
