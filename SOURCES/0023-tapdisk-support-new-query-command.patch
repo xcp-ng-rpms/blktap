@@ -1,7 +1,7 @@
-From 0cbf97cdfc673d0f79a2b859257d1af64020d0ca Mon Sep 17 00:00:00 2001
+From a8c457c30796c4cfc66844d50b27391d12ae350e Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 13 Feb 2025 08:54:48 +0100
-Subject: [PATCH 23/24] tapdisk: support new query command
+Subject: [PATCH] tapdisk: support new query command
 
 This command will print the status of the coalesce in background.
 $ tap-ctl query -m 0 -p 12345
@@ -12,8 +12,6 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  control/tap-ctl-commit.c    | 32 ++++++++++++++++++++++++++++
  control/tap-ctl.c           | 42 +++++++++++++++++++++++++++++++++++++
  drivers/tapdisk-control.c   | 41 ++++++++++++++++++++++++++++++++++++
- drivers/tapdisk-image.c     | 11 ++++++++++
- drivers/tapdisk-image.h     |  1 +
  drivers/tapdisk-interface.c | 20 ++++++++++++++++++
  drivers/tapdisk-interface.h |  1 +
  drivers/tapdisk-vbd.c       | 16 ++++++++++++++
@@ -21,7 +19,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  drivers/tapdisk.h           |  8 +++++++
  include/tap-ctl.h           |  1 +
  include/tapdisk-message.h   | 18 +++++++++++++++-
- 12 files changed, 191 insertions(+), 1 deletion(-)
+ 10 files changed, 179 insertions(+), 1 deletion(-)
 
 diff --git a/control/tap-ctl-commit.c b/control/tap-ctl-commit.c
 index 1edf57c9..ae188d4a 100644
@@ -64,7 +62,7 @@ index 1edf57c9..ae188d4a 100644
 +	return err;
 +}
 diff --git a/control/tap-ctl.c b/control/tap-ctl.c
-index 42bd6274..ee9eebce 100644
+index 2bfc802a..70d3a562 100644
 --- a/control/tap-ctl.c
 +++ b/control/tap-ctl.c
 @@ -989,6 +989,47 @@ usage:
@@ -182,41 +180,11 @@ index bb0e8973..130cd2a7 100644
  	}
  };
  
-diff --git a/drivers/tapdisk-image.c b/drivers/tapdisk-image.c
-index dbd69530..22d6e063 100644
---- a/drivers/tapdisk-image.c
-+++ b/drivers/tapdisk-image.c
-@@ -635,3 +635,14 @@ tapdisk_image_commit(struct list_head *list, const char *name)
- 
- 	return -1;
- }
-+
-+int
-+tapdisk_image_query_commit_job(struct list_head *list, td_query_t *query)
-+{
-+	td_image_t *image, *next;
-+
-+	tapdisk_for_each_image_safe(image, next, list)
-+		return td_query_commit_job(image, query);
-+
-+	return -1;
-+}
-diff --git a/drivers/tapdisk-image.h b/drivers/tapdisk-image.h
-index d30d6fc6..7a79c421 100644
---- a/drivers/tapdisk-image.h
-+++ b/drivers/tapdisk-image.h
-@@ -91,5 +91,6 @@ int tapdisk_image_check_request(td_image_t *, struct td_vbd_request *);
- void tapdisk_image_stats(td_image_t *, td_stats_t *);
- 
- int tapdisk_image_commit(struct list_head *, const char *);
-+int tapdisk_image_query_commit_job(struct list_head *, td_query_t *query);
- 
- #endif
 diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
-index a18bb858..f5e46147 100644
+index 7a0d10c8..f8dcdce7 100644
 --- a/drivers/tapdisk-interface.c
 +++ b/drivers/tapdisk-interface.c
-@@ -288,6 +288,26 @@ td_commit(td_image_t *image, const char *name)
+@@ -292,6 +292,26 @@ td_commit(td_image_t *image, const char *name)
  	return driver->ops->td_commit(driver, name);
  }
  
@@ -256,7 +224,7 @@ index 076528ea..b3ff6e13 100644
  void td_queue_write(td_image_t *, td_request_t);
  void td_queue_read(td_image_t *, td_request_t);
 diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
-index 54691224..174ad41f 100644
+index 8f29d52d..e3f6462b 100644
 --- a/drivers/tapdisk-vbd.c
 +++ b/drivers/tapdisk-vbd.c
 @@ -1089,6 +1089,22 @@ tapdisk_vbd_commit(td_vbd_t *vbd, const char *name)
@@ -272,7 +240,7 @@ index 54691224..174ad41f 100644
 +		INFO("query commit job.\n");
 +	}
 +
-+	err = tapdisk_image_query_commit_job(&vbd->images, query);
++	err = td_query_commit_job(tapdisk_vbd_first_image(vbd), query);
 +
 +	INFO("query commit job (%d)\n", err);
 +

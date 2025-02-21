@@ -1,15 +1,16 @@
-From 1f886f67bb95c5c4345d9ac646690acc96569802 Mon Sep 17 00:00:00 2001
+From dc8549a2ef6058fdd8f4f9676e3956f033dc2343 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 10 Feb 2025 18:54:25 +0100
-Subject: [PATCH 22/24] qcow2: support commit command
+Subject: [PATCH] qcow2: support commit command
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
- drivers/block-qcow2.c | 59 ++++++++++++++++++++++++++++++++++++++++++-
- 1 file changed, 58 insertions(+), 1 deletion(-)
+ drivers/block-qcow2.c       | 76 ++++++++++++++++++++++++++++++++++++-
+ drivers/tapdisk-interface.c |  4 ++
+ 2 files changed, 79 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index 9ec20f5f..45902fe1 100644
+index 9b7dbe34..390e9922 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -59,6 +59,8 @@
@@ -54,7 +55,7 @@ index 9ec20f5f..45902fe1 100644
  
  static int
  qcow2_initialize(struct qcow2_state *s, Error **perr)
-@@ -211,6 +216,9 @@ static void qcow2_handle_requests(struct qcow2_state *s)
+@@ -212,6 +217,9 @@ static void qcow2_handle_requests(struct qcow2_state *s)
              case QCOW2_OP_WRITE:
                  do_aio_write(s, req, 0);
                  break;
@@ -64,15 +65,21 @@ index 9ec20f5f..45902fe1 100644
          }
          pthread_mutex_lock(&lock);
      }
-@@ -815,6 +823,54 @@ fail:
+@@ -827,6 +835,71 @@ fail:
      td_complete_request(treq, err);
  }
  
++#define COMMIT_JOB_ID "JIDCOMMIT0"
++static pthread_mutex_t commit_lock = PTHREAD_MUTEX_INITIALIZER;
++static pthread_cond_t commit_cond = PTHREAD_COND_INITIALIZER;
++static JobInfo job_info;
++
 +int
 +qcow2_commit(td_driver_t *driver, const char *name)
 +{
 +    struct qcow2_state *s = (struct qcow2_state *)driver->data;
 +    struct qcow2_request *req;
++    int err;
 +
 +    DBG(TLOG_DBG, "Qcow2: commit %s.\n", name);
 +
@@ -89,16 +96,23 @@ index 9ec20f5f..45902fe1 100644
 +
 +    qemu_bh_schedule(s->bh);
 +
-+    return 0;
-+}
++    pthread_mutex_lock(&commit_lock);
++    pthread_cond_wait(&commit_cond, &commit_lock);
++    err = req->error;
++    pthread_mutex_unlock(&commit_lock);
 +
-+#define COMMIT_JOB_ID "JIDCOMMIT0"
++    free(req->top);
++    free_qcow2_request(s, req);
++
++    return err;
++}
 +
 +static inline void
 +do_commit(struct qcow2_state *s, struct qcow2_request *req)
 +{
 +    Error *local_err = NULL;
 +    char *node_name;
++    int err = 0;
 +
 +    node_name = blk_bs(s->conf.blk)->node_name;
 +
@@ -111,18 +125,37 @@ index 9ec20f5f..45902fe1 100644
 +    if (local_err) {
 +        DPRINTF("qcow2_commit: error: %s\n", error_get_pretty(local_err));
 +        error_free(local_err);
++        err = -EINVAL;
 +    }
 +
-+    free(req->top);
++    pthread_mutex_lock(&commit_lock);
++    req->error = err;
++    pthread_cond_signal(&commit_cond);
++    pthread_mutex_unlock(&commit_lock);
 +}
 +
  void
  qcow2_debug(td_driver_t *driver)
  {
-@@ -831,5 +887,6 @@ struct tap_disk tapdisk_qcow = {
+@@ -843,5 +916,6 @@ struct tap_disk tapdisk_qcow = {
  	.td_queue_write     = qcow2_queue_write,
  	.td_get_parent_id   = qcow2_get_parent_id,
  	.td_validate_parent = qcow2_validate_parent,
 +	.td_commit          = qcow2_commit,
  	.td_debug           = qcow2_debug,
  };
+diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
+index a18bb858..7a0d10c8 100644
+--- a/drivers/tapdisk-interface.c
++++ b/drivers/tapdisk-interface.c
+@@ -272,6 +272,10 @@ td_commit(td_image_t *image, const char *name)
+ {
+ 	td_driver_t *driver;
+ 
++	if (!image) {
++		return -ENODEV;
++	}
++
+ 	driver = image->driver;
+ 	if (!driver) {
+ 		return -ENODEV;

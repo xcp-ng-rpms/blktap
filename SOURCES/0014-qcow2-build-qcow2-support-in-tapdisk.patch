@@ -1,7 +1,7 @@
 From 3867d8f0e5391d0f9c7c5e8c2457262ecc856d22 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:28 +0100
-Subject: [PATCH 14/24] qcow2: build qcow2 support in tapdisk
+Subject: [PATCH] qcow2: build qcow2 support in tapdisk
 
 This commit modify sources from qemu to disable some features
 unneeded for tapdisk.

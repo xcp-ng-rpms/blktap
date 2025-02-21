@@ -1,8 +1,8 @@
 From fc01b4026f18cbe0a9d10cd6425a07449ddf0675 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 13 Feb 2025 14:52:10 +0100
-Subject: [PATCH 11/24] tapdisk: set generic TAPDISK_MESSAGE_MAX limit inside
- the enum
+Subject: [PATCH] tapdisk: set generic TAPDISK_MESSAGE_MAX limit inside the
+ enum
 
 This avoid to forget to update the TAPDISK_MESSAGE_MAX define.
 

@@ -1,7 +1,7 @@
 From 2b99529fee648fb48488b046abe1ed3b48f60242 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:16 +0100
-Subject: [PATCH 12/24] qcow2: manage qcow2 sources
+Subject: [PATCH] qcow2: manage qcow2 sources
 
 This commit includes a list of files imported from qemu to build
 the qcow2 library for tapdisk.

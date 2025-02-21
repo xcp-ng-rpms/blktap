@@ -1,7 +1,7 @@
 From dfb4617436a1c06087bea9451dce0881cc675cf0 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 20 Jan 2025 14:48:57 +0100
-Subject: [PATCH 09/24] tapdisk-vbd: remove double assignment of error variable
+Subject: [PATCH] tapdisk-vbd: remove double assignment of error variable
 
 fail label already set vreq->error with err, so remove the
 first assignment in both paths that lead to fail label.

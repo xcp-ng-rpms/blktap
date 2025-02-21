@@ -1,7 +1,7 @@
 From 3ad53eefb08674e24e260df25c7f4895232d2eb6 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:33 +0100
-Subject: [PATCH 16/24] tapdisk: protect td_vbd_t structure
+Subject: [PATCH] tapdisk: protect td_vbd_t structure
 
 Add a mutex to protect vbd structure from qcow2 concurrency.
 

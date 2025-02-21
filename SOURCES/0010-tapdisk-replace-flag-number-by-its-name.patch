@@ -1,7 +1,7 @@
 From b2333ace9428a261b31c980a5c216503ea0e170f Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 21 Jan 2025 10:34:16 +0100
-Subject: [PATCH 10/24] tapdisk: replace flag number by its name
+Subject: [PATCH] tapdisk: replace flag number by its name
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---

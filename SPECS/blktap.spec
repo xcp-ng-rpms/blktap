@@ -4,7 +4,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.54.9
-Release: 1%{?xsrel}.2.0.qcow2.2%{?dist}
+Release: 1%{?xsrel}.2.0.qcow2.3%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -32,7 +32,7 @@ Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
-# git format-patch v3.54.9..v3.54.9-qcow2 --abbrev=8 --no-signature
+# git format-patch v3.54.9..v3.54.9-qcow2 --no-signature --no-numbered
 #
 # Required by XOSTOR. Upstream PR: https://github.com/xapi-project/blktap/pull/378
 Patch1001: 0001-Add-an-option-to-never-resolve-parent-path-when-vhd-.patch
@@ -203,6 +203,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Feb 21 2025 Damien Thenot <damien.thenot@vates.tech> - 3.54.9-1.2.0.qcow2.3
+- Fix for call to TapCtl.commit for online coalesce of QCOW2
+
 * Tue Feb 18 2025 Damien Thenot <damien.thenot@vates.tech> - 3.54.9-1.2.0.qcow2.2
 - Add commit and query commands for tapdisk
 - Other improvements

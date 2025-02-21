@@ -1,8 +1,8 @@
 From 4d33b40367fe20dbf254fd1250457998a80f5440 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 14 Jan 2025 11:41:26 +0100
-Subject: [PATCH 15/24] qcow2: fix support for old components (gcc, glibc,
- glib, gnutls)
+Subject: [PATCH] qcow2: fix support for old components (gcc, glibc, glib,
+ gnutls)
 
 XCP-ng-8.3 doesn't have components recent enough for qemu sources.
 Fix a few things to support old tools.

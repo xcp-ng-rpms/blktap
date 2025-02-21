@@ -1,15 +1,16 @@
-From 536301ca325aea9f70d36884d6d190a7b41effe6 Mon Sep 17 00:00:00 2001
+From 700a57632d39d437f0a476b76d29cbe7c407d417 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 13 Feb 2025 08:56:22 +0100
-Subject: [PATCH 24/24] qcow2: support query command
+Subject: [PATCH] qcow2: support query command
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
- drivers/block-qcow2.c | 100 ++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 100 insertions(+)
+ drivers/block-qcow2.c       | 107 ++++++++++++++++++++++++++++++++++++
+ drivers/tapdisk-interface.c |   4 ++
+ 2 files changed, 111 insertions(+)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index 45902fe1..e522a072 100644
+index 390e9922..81440505 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -60,6 +60,7 @@
@@ -36,7 +37,7 @@ index 45902fe1..e522a072 100644
  
  static int
  qcow2_initialize(struct qcow2_state *s, Error **perr)
-@@ -219,6 +222,9 @@ static void qcow2_handle_requests(struct qcow2_state *s)
+@@ -220,6 +223,9 @@ static void qcow2_handle_requests(struct qcow2_state *s)
              case QCOW2_OP_COMMIT:
                  do_commit(s, req);
                  break;
@@ -46,19 +47,16 @@ index 45902fe1..e522a072 100644
          }
          pthread_mutex_lock(&lock);
      }
-@@ -871,6 +877,99 @@ do_commit(struct qcow2_state *s, struct qcow2_request *req)
-     free(req->top);
+@@ -900,6 +906,106 @@ do_commit(struct qcow2_state *s, struct qcow2_request *req)
+     pthread_mutex_unlock(&commit_lock);
  }
  
-+static pthread_mutex_t query_lock = PTHREAD_MUTEX_INITIALIZER;
-+static pthread_cond_t query_cond = PTHREAD_COND_INITIALIZER;
-+static JobInfo job_info;
-+
 +int
 +qcow2_query_commit_job(td_driver_t *driver, td_query_t *query)
 +{
 +    struct qcow2_state *s = (struct qcow2_state *)driver->data;
 +    struct qcow2_request *req;
++    int err;
 +
 +    DBG(TLOG_DBG, "Qcow2: query commit job.\n");
 +
@@ -72,21 +70,25 @@ index 45902fe1..e522a072 100644
 +    QLIST_INSERT_HEAD(&s->inflight, req, list);
 +    pthread_mutex_unlock(&lock);
 +
-+    pthread_mutex_lock(&query_lock);
 +    qemu_bh_schedule(s->bh);
 +
-+    pthread_cond_wait(&query_cond, &query_lock);
++    pthread_mutex_lock(&commit_lock);
++    pthread_cond_wait(&commit_cond, &commit_lock);
 +
 +    query->status = JobStatus_str(job_info.status);
 +    query->current_progress = job_info.current_progress;
 +    query->total_progress = job_info.total_progress;
 +
 +    memset(&job_info, 0, sizeof(JobInfo));
-+    pthread_mutex_unlock(&query_lock);
++
++    err = req->error;
++    pthread_mutex_unlock(&commit_lock);
 +
 +    DBG(TLOG_DBG, "Qcow2: query commit job done.\n");
 +
-+    return 0;
++    free_qcow2_request(s, req);
++
++    return err;
 +}
 +
 +static inline void
@@ -94,22 +96,24 @@ index 45902fe1..e522a072 100644
 +{
 +    JobInfoList *jobs_info;
 +    Error *local_err = NULL;
++    int err = 0;
 +
 +    jobs_info = qmp_query_jobs(&local_err);
 +    if (local_err) {
 +        DPRINTF("qcow2_query_commit_job: query job error: %s\n", error_get_pretty(local_err));
 +        error_free(local_err);
++        err = -EINVAL;
 +        goto signal;
 +    }
 +
 +    if (jobs_info && jobs_info->value) {
 +        DPRINTF("Qcow2: commit job '%s'.\n", JobStatus_str(jobs_info->value->status));
 +
-+        pthread_mutex_lock(&query_lock);
++        pthread_mutex_lock(&commit_lock);
 +        job_info.status = jobs_info->value->status;
 +        job_info.current_progress = jobs_info->value->current_progress;
 +        job_info.total_progress = jobs_info->value->total_progress;
-+        pthread_mutex_unlock(&query_lock);
++        pthread_mutex_unlock(&commit_lock);
 +
 +        DBG(TLOG_DBG, "Qcow2: commit job status '%s'\n", JobStatus_str(jobs_info->value->status));
 +        if (jobs_info->value->status == JOB_STATUS_READY) {
@@ -117,6 +121,7 @@ index 45902fe1..e522a072 100644
 +            if (local_err) {
 +                DPRINTF("qcow2_query_commit_job: job complete error: %s\n", error_get_pretty(local_err));
 +                error_free(local_err);
++                err = -EINVAL;
 +            }
 +        }
 +        if (jobs_info->value->status == JOB_STATUS_PENDING) {
@@ -124,6 +129,7 @@ index 45902fe1..e522a072 100644
 +            if (local_err) {
 +                DPRINTF("qcow2_query_commit_job: job finalize error: %s\n", error_get_pretty(local_err));
 +                error_free(local_err);
++                err = -EINVAL;
 +            }
 +        }
 +        if (jobs_info->value->status == JOB_STATUS_CONCLUDED) {
@@ -131,6 +137,7 @@ index 45902fe1..e522a072 100644
 +            if (local_err) {
 +                DPRINTF("qcow2_query_commit_job: job dismiss error: %s\n", error_get_pretty(local_err));
 +                error_free(local_err);
++                err = -EINVAL;
 +            }
 +        }
 +    } else {
@@ -138,18 +145,34 @@ index 45902fe1..e522a072 100644
 +    }
 +
 +signal:
-+    pthread_mutex_lock(&query_lock);
-+    pthread_cond_signal(&query_cond);
-+    pthread_mutex_unlock(&query_lock);
++    pthread_mutex_lock(&commit_lock);
++    req->error = err;
++    pthread_cond_signal(&commit_cond);
++    pthread_mutex_unlock(&commit_lock);
 +}
 +
  void
  qcow2_debug(td_driver_t *driver)
  {
-@@ -888,5 +987,6 @@ struct tap_disk tapdisk_qcow = {
+@@ -917,5 +1023,6 @@ struct tap_disk tapdisk_qcow = {
  	.td_get_parent_id   = qcow2_get_parent_id,
  	.td_validate_parent = qcow2_validate_parent,
  	.td_commit          = qcow2_commit,
 +	.td_query_commit_job = qcow2_query_commit_job,
  	.td_debug           = qcow2_debug,
  };
+diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
+index f8dcdce7..b0c213b2 100644
+--- a/drivers/tapdisk-interface.c
++++ b/drivers/tapdisk-interface.c
+@@ -297,6 +297,10 @@ td_query_commit_job(td_image_t *image, td_query_t *query)
+ {
+ 	td_driver_t *driver;
+ 
++	if (!image) {
++		return -ENODEV;
++	}
++
+ 	driver = image->driver;
+ 	if (!driver) {
+ 		return -ENODEV;

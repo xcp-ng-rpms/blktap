@@ -1,7 +1,7 @@
-From 9608ca6073d11543f9c90bf41731f555de867393 Mon Sep 17 00:00:00 2001
+From 195d23e6a1ac355b62f76f721cfd8bba520c7705 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 10 Feb 2025 16:45:05 +0100
-Subject: [PATCH 21/24] tapdisk: support new commit command
+Subject: [PATCH] tapdisk: support new commit command
 
 This command will coalesce the disk in parameter with its parent.
 tap-ctl commit -m 0 -p 12345 -a /path/to/disk.qcow2
@@ -12,8 +12,6 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  control/tap-ctl-commit.c    | 77 +++++++++++++++++++++++++++++++++++++
  control/tap-ctl.c           | 47 ++++++++++++++++++++++
  drivers/tapdisk-control.c   | 36 +++++++++++++++++
- drivers/tapdisk-image.c     | 11 ++++++
- drivers/tapdisk-image.h     |  2 +
  drivers/tapdisk-interface.c | 21 ++++++++++
  drivers/tapdisk-interface.h |  1 +
  drivers/tapdisk-vbd.c       | 16 ++++++++
@@ -21,7 +19,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  drivers/tapdisk.h           |  1 +
  include/tap-ctl.h           |  5 +++
  include/tapdisk-message.h   |  8 ++++
- 13 files changed, 227 insertions(+)
+ 11 files changed, 214 insertions(+)
  create mode 100644 control/tap-ctl-commit.c
 
 diff --git a/control/Makefile.am b/control/Makefile.am
@@ -120,7 +118,7 @@ index 00000000..1edf57c9
 +	return err;
 +}
 diff --git a/control/tap-ctl.c b/control/tap-ctl.c
-index 64d96d0d..42bd6274 100644
+index 64d96d0d..2bfc802a 100644
 --- a/control/tap-ctl.c
 +++ b/control/tap-ctl.c
 @@ -943,6 +943,52 @@ usage:
@@ -130,7 +128,7 @@ index 64d96d0d..42bd6274 100644
 +static void
 +tap_cli_commit_usage(FILE *stream)
 +{
-+	fprintf(stream, "usage: commit <-p pid> <-m minor> -a type:/path/to/file\n");
++	fprintf(stream, "usage: commit <-p pid> <-m minor> -a /path/to/file\n");
 +}
 +
 +int
@@ -238,36 +236,6 @@ index 58a3a3cb..bb0e8973 100644
  	}
  };
  
-diff --git a/drivers/tapdisk-image.c b/drivers/tapdisk-image.c
-index 86599b34..dbd69530 100644
---- a/drivers/tapdisk-image.c
-+++ b/drivers/tapdisk-image.c
-@@ -624,3 +624,14 @@ tapdisk_image_stats(td_image_t *image, td_stats_t *st)
- 
- 	tapdisk_stats_leave(st, '}');
- }
-+
-+int
-+tapdisk_image_commit(struct list_head *list, const char *name)
-+{
-+	td_image_t *image, *next;
-+
-+	tapdisk_for_each_image_safe(image, next, list)
-+		return td_commit(image, name);
-+
-+	return -1;
-+}
-diff --git a/drivers/tapdisk-image.h b/drivers/tapdisk-image.h
-index dad72d44..d30d6fc6 100644
---- a/drivers/tapdisk-image.h
-+++ b/drivers/tapdisk-image.h
-@@ -90,4 +90,6 @@ int tapdisk_image_check_td_request(td_image_t *, td_request_t);
- int tapdisk_image_check_request(td_image_t *, struct td_vbd_request *);
- void tapdisk_image_stats(td_image_t *, td_stats_t *);
- 
-+int tapdisk_image_commit(struct list_head *, const char *);
-+
- #endif
 diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
 index facb6d01..a18bb858 100644
 --- a/drivers/tapdisk-interface.c
@@ -313,7 +281,7 @@ index 437feb58..076528ea 100644
  void td_queue_write(td_image_t *, td_request_t);
  void td_queue_read(td_image_t *, td_request_t);
 diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
-index 87e070a2..54691224 100644
+index 87e070a2..8f29d52d 100644
 --- a/drivers/tapdisk-vbd.c
 +++ b/drivers/tapdisk-vbd.c
 @@ -1073,6 +1073,22 @@ resume_failed:
@@ -329,7 +297,7 @@ index 87e070a2..54691224 100644
 +		INFO("commit %s\n", name);
 +	}
 +
-+	err = tapdisk_image_commit(&vbd->images, name);
++	err = td_commit(tapdisk_vbd_first_image(vbd), name);
 +
 +	INFO("commit started (%d)\n", err);
 +

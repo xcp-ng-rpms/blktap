@@ -1,7 +1,7 @@
 From 7badf2b3492d2c2dfbe8eba53612c55787c294bf Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:22 +0100
-Subject: [PATCH 13/24] qcow2: import vanilla sources from qemu 9.1.1
+Subject: [PATCH] qcow2: import vanilla sources from qemu 9.1.1
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---

@@ -1,8 +1,7 @@
 From 15f5fc4835706ef5f2245b2fccfd7d94c508cc43 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 20 Jan 2025 18:22:07 +0100
-Subject: [PATCH 08/24] blkif: Avoid use-after-free on BLKIF_OP_WRITE_BARRIER
- request
+Subject: [PATCH] blkif: Avoid use-after-free on BLKIF_OP_WRITE_BARRIER request
 
 Function tapdisk_xenblkif_make_vbd_request will release
 tapreq->msg and reinsert it in the reqs_free array if the

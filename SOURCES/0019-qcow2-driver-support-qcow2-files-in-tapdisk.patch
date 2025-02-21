@@ -1,14 +1,14 @@
-From 85177d57d82510cfbc8152d89be857858d66ec12 Mon Sep 17 00:00:00 2001
+From 857dd25d935702fe03d1101b8f1d4be9836e3f8a Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:50 +0100
-Subject: [PATCH 19/24] qcow2: driver: support qcow2 files in tapdisk
+Subject: [PATCH] qcow2: driver: support qcow2 files in tapdisk
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
  drivers/Makefile.am        |   3 +
- drivers/block-qcow2.c      | 835 +++++++++++++++++++++++++++++++++++++
+ drivers/block-qcow2.c      | 847 +++++++++++++++++++++++++++++++++++++
  drivers/tapdisk-disktype.c |   8 +-
- 3 files changed, 840 insertions(+), 6 deletions(-)
+ 3 files changed, 852 insertions(+), 6 deletions(-)
  create mode 100644 drivers/block-qcow2.c
 
 diff --git a/drivers/Makefile.am b/drivers/Makefile.am
@@ -41,10 +41,10 @@ index c8a00fd9..1bb0c7dc 100644
  libtapdisk_la_LIBADD += -lxengnttab
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
 new file mode 100644
-index 00000000..9ec20f5f
+index 00000000..9b7dbe34
 --- /dev/null
 +++ b/drivers/block-qcow2.c
-@@ -0,0 +1,835 @@
+@@ -0,0 +1,847 @@
 +/*
 + * Copyright (c) 2024, Vates
 + *
@@ -239,6 +239,7 @@ index 00000000..9ec20f5f
 +static pthread_mutex_t lock;
 +static pthread_cond_t cond;
 +static bool loop_cond = true;
++static int open_status;
 +static MemReentrancyGuard mem_reentrancy_guard;
 +
 +static void qcow2_handle_requests(struct qcow2_state *s)
@@ -284,16 +285,10 @@ index 00000000..9ec20f5f
 +    Error *local_err = NULL;
 +    BlockConf *conf = NULL;
 +    bool writethrough;
-+#define AIO_NATIVE
-+#ifdef AIO_NATIVE
++    bool has_aio_native = true;
 +    const char *cache = "none";
-+#else
-+    const char *cache = "writeback";
-+#endif
-+#define DISCARD
-+#ifdef DISCARD
-+    const char *discard = "unmap";
-+#endif
++    bool has_discard = false;
++    const char *discard = "off";
 +
 +    s = opaque;
 +    conf = &s->conf;
@@ -303,9 +298,8 @@ index 00000000..9ec20f5f
 +
 +    err = qcow2_initialize(s, &local_err);
 +    if (err) {
-+        DBG(TLOG_INFO, "qcow2_open: initialize: %s\n", error_get_pretty(local_err));
-+        //return (void *)err;
-+        return NULL;
++        error_report("Initialization error: %s", error_get_pretty(local_err));
++        goto fail1;
 +    }
 +
 +    o_flags = 0;
@@ -320,6 +314,7 @@ index 00000000..9ec20f5f
 +            test_qcow2_flag(flags, QCOW2_FLAG_OPEN_NO_O_DIRECT)) {
 +        clear_qcow2_flag(o_flags, BDRV_O_NOCACHE);
 +        cache = "writeback";
++        has_aio_native = false;
 +    }
 +
 +    if (test_qcow2_flag(flags, QCOW2_FLAG_OPEN_RDONLY))
@@ -329,8 +324,9 @@ index 00000000..9ec20f5f
 +        set_qcow2_flag(o_flags, BDRV_O_NO_IO);
 +        set_qcow2_flag(o_flags, BDRV_O_NOCACHE);
 +    }
-+    if (test_qcow2_flag(o_flags, TD_OPEN_LOCAL_CACHE)) {
++    if (test_qcow2_flag(o_flags, QCOW2_FLAG_OPEN_LOCAL_CACHE)) {
 +        cache = "writeback";
++        has_aio_native = false;
 +    }
 +
 +    options = qdict_new();
@@ -340,12 +336,17 @@ index 00000000..9ec20f5f
 +
 +    qdict_put_str(options, "driver", "qcow2");
 +
-+#ifdef DISCARD
-+    qdict_put_str(options, "discard", discard);
-+    qdict_put_str(file_layer, "discard", discard);
-+    qdict_put_str(options, "detect-zeroes", discard);
-+    qdict_put_str(file_layer, "detect-zeroes", discard);
-+#endif
++    if (has_aio_native) {
++        has_discard = true;
++        discard = "unmap";
++    }
++
++    if (has_discard) {
++        qdict_put_str(options, "discard", discard);
++        qdict_put_str(file_layer, "discard", discard);
++        qdict_put_str(options, "detect-zeroes", discard);
++        qdict_put_str(file_layer, "detect-zeroes", discard);
++    }
 +
 +#if 0
 +    QDict *cache_qdict = qdict_new();
@@ -353,30 +354,32 @@ index 00000000..9ec20f5f
 +    qdict_put(file_layer, "cache", cache_qdict);
 +#endif
 +
-+#ifdef AIO_NATIVE
-+    qdict_put_str(file_layer, "aio", "native");
-+    o_flags |= BDRV_O_NATIVE_AIO;
-+#endif
++    if (has_aio_native) {
++        qdict_put_str(file_layer, "aio", "native");
++        o_flags |= BDRV_O_NATIVE_AIO;
++    }
 +
 +    qdict_put(options, "file", file_layer);
 +
 +    err = bdrv_parse_cache_mode(cache, &o_flags, &writethrough);
 +    if (err < 0) {
-+        error_report("Invalid source cache option: %s", cache);
-+        goto fail;
++        error_setg(&local_err, "Invalid source cache option: %s", cache);
++        goto fail1;
 +    }
 +
-+#ifdef DISCARD
-+    err = bdrv_parse_discard_flags(discard, &o_flags);
-+    if (err < 0) {
-+        error_report("Invalid discard option: %s", cache);
-+        goto fail;
++    if (has_discard) {
++        err = bdrv_parse_discard_flags(discard, &o_flags);
++        if (err < 0) {
++            error_setg(&local_err, "Invalid discard option: %s", cache);
++            goto fail1;
++        }
 +    }
-+#endif
++
++    DPRINTF("discard %d (%s), aio_native %d (cache %s), flags %x\n", has_discard, discard, has_aio_native, cache, o_flags);
 +
 +    conf->blk = blk_new_open(name, NULL, options, o_flags, &local_err);
 +    if (!conf->blk) {
-+        goto fail;
++        goto fail1;
 +    }
 +    blk_set_enable_write_cache(conf->blk, !writethrough);
 +
@@ -425,6 +428,7 @@ index 00000000..9ec20f5f
 +        driver->info.size, driver->info.sector_size, driver->info.info);
 +
 +    pthread_mutex_lock(&lock);
++    open_status = 0;
 +    pthread_cond_signal(&cond);
 +
 +    while (loop_cond) {
@@ -440,11 +444,17 @@ index 00000000..9ec20f5f
 +
 +    return NULL;
 +fail:
-+    DBG(TLOG_INFO, "qcow2_open: error: %s\n", error_get_pretty(local_err));
-+    error_free(local_err);
 +    blk_unref(conf->blk);
++fail1:
++    EPRINTF("open error: %s\n", error_get_pretty(local_err));
++    error_free(local_err);
++
++    pthread_mutex_lock(&lock);
++    open_status = -EINVAL;
++    pthread_cond_signal(&cond);
++    pthread_mutex_unlock(&lock);
++
 +    qcow2_free(s);
-+    //return (void *)err;
 +    return NULL;
 +}
 +
@@ -480,7 +490,7 @@ index 00000000..9ec20f5f
 +            driver->storage != TAPDISK_STORAGE_TYPE_LVM)
 +        qcow2_flags |= QCOW2_FLAG_OPEN_PREALLOCATE;
 +
-+    DBG(TLOG_INFO, "%s: name %s\n", __func__, name);
++    DPRINTF("%s: name %s, flags %x + %x\n", __func__, name, flags, qcow2_flags);
 +
 +    s = (struct qcow2_state *)driver->data;
 +    memset(s, 0, sizeof(struct qcow2_state));
@@ -513,9 +523,11 @@ index 00000000..9ec20f5f
 +    pthread_create(&thread, NULL, qcow2_open, s);
 +
 +    pthread_cond_wait(&cond, &lock);
++    err = open_status;
++    open_status = 0;
 +    pthread_mutex_unlock(&lock);
 +
-+    return 0;
++    return err;
 +}
 +
 +static int

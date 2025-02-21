@@ -1,7 +1,7 @@
 From 8b200e9893a155badda9dc4140c7ac19ad77a297 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:40 +0100
-Subject: [PATCH 17/24] tapdisk: protect td_blktap_t structure
+Subject: [PATCH] tapdisk: protect td_blktap_t structure
 
 Add a mutex to protect blktap structure from qcow2 concurrency.
 
