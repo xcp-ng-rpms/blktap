@@ -1,0 +1,59 @@
+From a2ff9b3636d8b30040d96d13b1f9a08706804ec3 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 17 Mar 2025 14:48:06 +0100
+Subject: [PATCH] tapdisk: fix hardcoded array size with a macro
+
+The macro MAX_RING_PAGES is already defined. The comments are
+fixed accordingly.
+
+No functional change expected.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/td-blkif.h        | 6 +++---
+ include/tapdisk-message.h | 6 ++++--
+ 2 files changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/td-blkif.h b/drivers/td-blkif.h
+index b50fa8a5..d96888bd 100644
+--- a/drivers/td-blkif.h
++++ b/drivers/td-blkif.h
+@@ -99,10 +99,10 @@ struct td_xenblkif {
+     blkif_back_rings_t rings;
+ 
+     /**
+-     * TODO Why 8 specifically?
+-     * TODO Do we really need to keep it around?
++     * Grant references of the ring that holds the request descriptors.
++     * See ring_n_pages below to know the number of used refs in this array.
+      */
+-    grant_ref_t ring_ref[8];
++    grant_ref_t ring_ref[MAX_RING_PAGES];
+ 
+     /**
+      * Number of pages in the ring that holds the request descriptors.
+diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
+index 0f73e0c9..fe1b3066 100644
+--- a/include/tapdisk-message.h
++++ b/include/tapdisk-message.h
+@@ -34,6 +34,8 @@
+ #include <inttypes.h>
+ #include <sys/types.h>
+ 
++#include "xen_blkif.h"
++
+ /*
+  * TODO This is quite small since we don't allow path bigger than 256 chars. If
+  * we ever increase this, make sure tapdisk_message_t structures are not
+@@ -128,9 +130,9 @@ typedef struct tapdisk_message_blkif {
+ 
+ 	/**
+ 	 * Grant references for the shared ring.
+-	 * TODO Why 8 specifically?
++	 * See order below to know the number of used refs in this array.
+ 	 */
+-	uint32_t gref[8];
++	uint32_t gref[MAX_RING_PAGES];
+ 
+ 	/**
+ 	 * Number of pages in the ring, expressed as a page order.
