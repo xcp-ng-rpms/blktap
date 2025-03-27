@@ -1,0 +1,55 @@
+From 0f39ee073b672fafd82f3da1064c251652f80d29 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 21 Jan 2025 10:34:16 +0100
+Subject: [PATCH] tapdisk: replace flag number by its name
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/tapdisk-disktype.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/tapdisk-disktype.c b/drivers/tapdisk-disktype.c
+index 8ab96c4f..4a60c756 100644
+--- a/drivers/tapdisk-disktype.c
++++ b/drivers/tapdisk-disktype.c
+@@ -54,13 +54,13 @@ static const disk_info_t sync_disk = {
+ static const disk_info_t vmdk_disk = {
+        "vmdk",
+        "vmware image (vmdk)",
+-       1,
++       DISK_TYPE_SINGLE_CONTROLLER,
+ };
+ 
+ static const disk_info_t vhdsync_disk = {
+        "vhdsync",
+        "virtual server image (vhd) - synchronous",
+-       1,
++       DISK_TYPE_SINGLE_CONTROLLER,
+ };
+ 
+ static const disk_info_t vhd_disk = {
+@@ -73,7 +73,7 @@ static const disk_info_t vhd_disk = {
+ static const disk_info_t ram_disk = {
+        "ram",
+        "ramdisk image (ram)",
+-       1,
++       DISK_TYPE_SINGLE_CONTROLLER,
+ };
+ 
+ static const disk_info_t qcow_disk = {
+@@ -85,13 +85,13 @@ static const disk_info_t qcow_disk = {
+ static const disk_info_t block_cache_disk = {
+        "bc",
+        "block cache image (bc)",
+-       1,
++       DISK_TYPE_SINGLE_CONTROLLER,
+ };
+ 
+ static const disk_info_t vhd_index_disk = {
+        "vhdi",
+        "vhd index image (vhdi)",
+-       1,
++       DISK_TYPE_SINGLE_CONTROLLER,
+ };
+ 
+ static const disk_info_t log_disk = {
