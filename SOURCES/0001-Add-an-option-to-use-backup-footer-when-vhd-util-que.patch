@@ -13,7 +13,7 @@ Signed-off-by: Ronan Abhamon <ronan.abhamon@vates.tech>
  1 file changed, 20 insertions(+), 16 deletions(-)
 
 diff --git a/vhd/lib/vhd-util-query.c b/vhd/lib/vhd-util-query.c
-index 0cd0416..13bd563 100644
+index 0cd04166..13bd5639 100644
 --- a/vhd/lib/vhd-util-query.c
 +++ b/vhd/lib/vhd-util-query.c
 @@ -43,29 +43,29 @@

@@ -1,0 +1,24 @@
+From 6566141219c699c827f7f5e7be70e94e710bb830 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Thu, 27 Feb 2025 17:41:36 +0100
+Subject: [PATCH] blkif: the memory barrier is mandatory to see the queued
+ requests
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/td-ctx.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/td-ctx.c b/drivers/td-ctx.c
+index 86531c30..ff095471 100644
+--- a/drivers/td-ctx.c
++++ b/drivers/td-ctx.c
+@@ -220,7 +220,7 @@ __xenio_blkif_get_requests(struct td_xenblkif * const blkif,
+     ring = &blkif->rings.common;
+ 
+     rp = ring->sring->req_prod;
+-    xen_rmb(); /* TODO why? */
++    xen_rmb(); /* Ensure we see queued requests up to 'rp'. */
+ 
+     for (rc = ring->req_cons, n = 0, barrier = false;
+ 			rc != rp && n < count && !barrier;

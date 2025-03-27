@@ -1,0 +1,158 @@
+From ab68abe9373730911d6ca87ddca67036c7d62955 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 14 Jan 2025 11:41:26 +0100
+Subject: [PATCH] libqcow2: fix support for old components (gcc, glibc, glib,
+ gnutls)
+
+XCP-ng-8.3 doesn't have components recent enough for qemu sources.
+Fix a few things to support old tools.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ include/glib-compat.h              | 4 ++--
+ include/qemu/config-host.h         | 2 +-
+ include/qemu/host-utils.h          | 2 ++
+ qcow2/lib/block/file-posix.c       | 2 ++
+ qcow2/lib/crypto/hash.c            | 1 +
+ qcow2/lib/util/error-report.c      | 2 +-
+ qcow2/lib/util/qemu-thread-posix.c | 2 ++
+ qcow2/lib/util/thread-pool.c       | 5 +++--
+ 8 files changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/include/glib-compat.h b/include/glib-compat.h
+index 86be439b..e4a23999 100644
+--- a/include/glib-compat.h
++++ b/include/glib-compat.h
+@@ -19,12 +19,12 @@
+ /* Ask for warnings for anything that was marked deprecated in
+  * the defined version, or before. It is a candidate for rewrite.
+  */
+-#define GLIB_VERSION_MIN_REQUIRED GLIB_VERSION_2_66
++#define GLIB_VERSION_MIN_REQUIRED GLIB_VERSION_2_56
+ 
+ /* Ask for warnings if code tries to use function that did not
+  * exist in the defined version. These risk breaking builds
+  */
+-#define GLIB_VERSION_MAX_ALLOWED GLIB_VERSION_2_66
++#define GLIB_VERSION_MAX_ALLOWED GLIB_VERSION_2_56
+ 
+ #pragma GCC diagnostic push
+ #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+diff --git a/include/qemu/config-host.h b/include/qemu/config-host.h
+index feb0f0ed..4ac9b0fd 100644
+--- a/include/qemu/config-host.h
++++ b/include/qemu/config-host.h
+@@ -441,7 +441,7 @@
+ 
+ #define HAVE_BTRFS_H
+ 
+-#define HAVE_COPY_FILE_RANGE
++//#define HAVE_COPY_FILE_RANGE
+ 
+ #define HAVE_DRM_H
+ 
+diff --git a/include/qemu/host-utils.h b/include/qemu/host-utils.h
+index 12ae37af..b78a2b21 100644
+--- a/include/qemu/host-utils.h
++++ b/include/qemu/host-utils.h
+@@ -438,6 +438,7 @@ static inline uint64_t uabs64(int64_t v)
+     return v < 0 ? -v : v;
+ }
+ 
++#if 0
+ /**
+  * sadd32_overflow - addition with overflow indication
+  * @x, @y: addends
+@@ -681,6 +682,7 @@ static inline uint64_t usub64_borrow(uint64_t x, uint64_t y, bool *pborrow)
+     return x;
+ #endif
+ }
++#endif
+ 
+ /* Host type specific sizes of these routines.  */
+ 
+diff --git a/qcow2/lib/block/file-posix.c b/qcow2/lib/block/file-posix.c
+index 852f0222..efa8ec2b 100644
+--- a/qcow2/lib/block/file-posix.c
++++ b/qcow2/lib/block/file-posix.c
+@@ -2008,6 +2008,7 @@ static int handle_aiocb_write_zeroes_unmap(void *opaque)
+     return handle_aiocb_write_zeroes(aiocb);
+ }
+ 
++#if __GLIBC_MINOR__ < 27
+ #ifndef HAVE_COPY_FILE_RANGE
+ static off_t copy_file_range(int in_fd, off_t *in_off, int out_fd,
+                              off_t *out_off, size_t len, unsigned int flags)
+@@ -2021,6 +2022,7 @@ static off_t copy_file_range(int in_fd, off_t *in_off, int out_fd,
+ #endif
+ }
+ #endif
++#endif
+ 
+ /*
+  * parse_zone - Fill a zone descriptor
+diff --git a/qcow2/lib/crypto/hash.c b/qcow2/lib/crypto/hash.c
+index a282cf74..ffd74778 100644
+--- a/qcow2/lib/crypto/hash.c
++++ b/qcow2/lib/crypto/hash.c
+@@ -18,6 +18,7 @@
+  *
+  */
+ 
++#include <gnutls/gnutls.h>
+ #include <gnutls/crypto.h>
+ 
+ #include "qemu/osdep.h"
+diff --git a/qcow2/lib/util/error-report.c b/qcow2/lib/util/error-report.c
+index 0554f186..b3936a3c 100644
+--- a/qcow2/lib/util/error-report.c
++++ b/qcow2/lib/util/error-report.c
+@@ -174,7 +174,7 @@ static char *
+ real_time_iso8601(void)
+ {
+     g_autoptr(GDateTime) dt = g_date_time_new_now_utc();
+-    return g_date_time_format_iso8601(dt);
++    return g_date_time_format (dt, "%Y-%m-%dT%H:%M:%S");
+ }
+ 
+ /*
+diff --git a/qcow2/lib/util/qemu-thread-posix.c b/qcow2/lib/util/qemu-thread-posix.c
+index 8ea29d06..1bb011e3 100644
+--- a/qcow2/lib/util/qemu-thread-posix.c
++++ b/qcow2/lib/util/qemu-thread-posix.c
+@@ -534,7 +534,9 @@ static void *qemu_thread_start(void *args)
+      */
+ #pragma GCC diagnostic push
+ #ifndef __clang__
++#if __GNUC_PREREQ(8,0)
+ #pragma GCC diagnostic ignored "-Wstringop-overflow"
++#endif
+ #endif
+ 
+     pthread_cleanup_push(qemu_thread_atexit_notify, NULL);
+diff --git a/qcow2/lib/util/thread-pool.c b/qcow2/lib/util/thread-pool.c
+index c0026baa..225db985 100644
+--- a/qcow2/lib/util/thread-pool.c
++++ b/qcow2/lib/util/thread-pool.c
+@@ -297,6 +297,7 @@ void thread_pool_submit(ThreadPoolFunc *func, void *arg)
+ 
+ void thread_pool_update_params(ThreadPool *pool, AioContext *ctx)
+ {
++    int i;
+     qemu_mutex_lock(&pool->lock);
+ 
+     pool->min_threads = ctx->thread_pool_min;
+@@ -311,11 +312,11 @@ void thread_pool_update_params(ThreadPool *pool, AioContext *ctx)
+      *  - Do nothing. The current number of threads fall in between the min and
+      *    max thresholds. We'll let the pool manage itself.
+      */
+-    for (int i = pool->cur_threads; i < pool->min_threads; i++) {
++    for (i = pool->cur_threads; i < pool->min_threads; i++) {
+         spawn_thread(pool);
+     }
+ 
+-    for (int i = pool->cur_threads; i > pool->max_threads; i--) {
++    for (i = pool->cur_threads; i > pool->max_threads; i--) {
+         qemu_cond_signal(&pool->request_cond);
+     }
+ 
