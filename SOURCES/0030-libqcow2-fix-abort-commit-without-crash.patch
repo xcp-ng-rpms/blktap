@@ -1,0 +1,25 @@
+From c335ba952d0b4d77df0d3f85427181ff2151222f Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Wed, 12 Mar 2025 10:28:42 +0100
+Subject: [PATCH] libqcow2: fix abort commit without crash
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ qcow2/lib/block/commit.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/qcow2/lib/block/commit.c b/qcow2/lib/block/commit.c
+index 6b96a4c6..2e3705ba 100644
+--- a/qcow2/lib/block/commit.c
++++ b/qcow2/lib/block/commit.c
+@@ -98,6 +98,10 @@ static void commit_abort(Job *job)
+      * after the failed/cancelled commit job is gone? If we already wrote
+      * something to base, the intermediate images aren't valid any more. */
+     bdrv_graph_rdlock_main_loop();
++    if (!s->commit_top_bs->backing) {
++        bdrv_graph_rdunlock_main_loop();
++        return;
++    }
+     commit_top_backing_bs = s->commit_top_bs->backing->bs;
+     bdrv_graph_rdunlock_main_loop();
+ 

@@ -1,0 +1,352 @@
+From 4a0bee45d2b2ab0dc8abc1ae00b6a5c8dd66dcd0 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Wed, 5 Mar 2025 18:09:16 +0100
+Subject: [PATCH] tapdisk: support new cancel command
+
+This command will cancel the coalesce job in background.
+$ tap-ctl cancel -m 0 -p 12345
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ control/tap-ctl-commit.c    | 32 +++++++++++++++++++++
+ control/tap-ctl.c           | 57 +++++++++++++++++++++++++++++++++----
+ drivers/tapdisk-control.c   | 32 +++++++++++++++++++++
+ drivers/tapdisk-interface.c | 25 ++++++++++++++++
+ drivers/tapdisk-interface.h |  1 +
+ drivers/tapdisk-vbd.c       | 16 +++++++++++
+ drivers/tapdisk-vbd.h       |  1 +
+ drivers/tapdisk.h           |  1 +
+ include/tap-ctl.h           |  1 +
+ include/tapdisk-message.h   |  8 ++++++
+ 10 files changed, 169 insertions(+), 5 deletions(-)
+
+diff --git a/control/tap-ctl-commit.c b/control/tap-ctl-commit.c
+index ae188d4a..0166ef8f 100644
+--- a/control/tap-ctl-commit.c
++++ b/control/tap-ctl-commit.c
+@@ -107,3 +107,35 @@ tap_ctl_query_commit_job(const int id, const int minor)
+ 
+ 	return err;
+ }
++
++int
++tap_ctl_cancel_commit_job(const int id, const int minor, bool wait)
++{
++	int err;
++	tapdisk_message_t message;
++
++	memset(&message, 0, sizeof(message));
++	message.type = TAPDISK_MESSAGE_CANCEL_COMMIT_JOB;
++	message.cookie = minor;
++        message.u.params.flags = wait;
++
++        err = tap_ctl_connect_send_and_receive(id, &message, NULL);
++
++	if (err)
++		return err;
++
++	if (message.type == TAPDISK_MESSAGE_CANCEL_COMMIT_JOB_RSP) {
++	if (message.type == TAPDISK_MESSAGE_CANCEL_COMMIT_JOB_RSP
++			|| message.type == TAPDISK_MESSAGE_ERROR)
++		err = -message.u.response.error;
++	} else {
++		EPRINTF("got unexpected result '%s' from %d\n",
++				tapdisk_message_name(message.type), id);
++		err = -EINVAL;
++	}
++
++	if (err)
++		EPRINTF("cancel commit job failed: %s\n", strerror(-err));
++
++	return err;
++}
+diff --git a/control/tap-ctl.c b/control/tap-ctl.c
+index 5ca6d3b8..c5597c94 100644
+--- a/control/tap-ctl.c
++++ b/control/tap-ctl.c
+@@ -946,7 +946,7 @@ usage:
+ static void
+ tap_cli_commit_usage(FILE *stream)
+ {
+-	fprintf(stream, "usage: commit <-p pid> <-m minor> -a /path/to/file\n");
++	fprintf(stream, "usage: commit <-p pid> <-m minor> <-a /path/to/file>\n");
+ }
+ 
+ int
+@@ -955,12 +955,12 @@ tap_cli_commit(int argc, char **argv)
+ 	const char *args;
+ 	int c, pid, minor;
+ 
+-	pid        = -1;
++	pid   = -1;
+ 	minor = -1;
+ 	args  = NULL;
+ 
+ 	optind = 0;
+-	while ((c = getopt(argc, argv, "p:m:a:2:c:h")) != -1) {
++	while ((c = getopt(argc, argv, "p:m:a:h")) != -1) {
+ 		switch (c) {
+ 		case 'p':
+ 			pid = atoi(optarg);
+@@ -1000,11 +1000,11 @@ tap_cli_query_commit_job(int argc, char **argv)
+ {
+ 	int c, pid, minor;
+ 
+-	pid        = -1;
++	pid   = -1;
+ 	minor = -1;
+ 
+ 	optind = 0;
+-	while ((c = getopt(argc, argv, "p:m:a:2:c:h")) != -1) {
++	while ((c = getopt(argc, argv, "p:m:h")) != -1) {
+ 		switch (c) {
+ 		case 'p':
+ 			pid = atoi(optarg);
+@@ -1030,6 +1030,52 @@ usage:
+ 	return EINVAL;
+ }
+ 
++static void
++tap_cli_cancel_commit_job_usage(FILE *stream)
++{
++	fprintf(stream, "usage: cancel <-p pid> <-m minor> [-w]\n");
++}
++
++int
++tap_cli_cancel_commit_job(int argc, char **argv)
++{
++	int c, pid, minor;
++        bool wait;
++
++	pid   = -1;
++	minor = -1;
++        wait  = false;
++
++	optind = 0;
++	while ((c = getopt(argc, argv, "p:m:wh")) != -1) {
++		switch (c) {
++		case 'p':
++			pid = atoi(optarg);
++			break;
++		case 'm':
++			minor = atoi(optarg);
++			break;
++		case 'w':
++			wait = true;
++			break;
++		case '?':
++			goto usage;
++		case 'h':
++			tap_cli_cancel_commit_job_usage(stdout);
++			return 0;
++		}
++	}
++
++	if (pid == -1 || minor == -1)
++		goto usage;
++
++	return tap_ctl_cancel_commit_job(pid, minor, wait);
++
++usage:
++	tap_cli_cancel_commit_job_usage(stderr);
++	return EINVAL;
++}
++
+ struct command commands[] = {
+ 	{ .name = "list",         .func = tap_cli_list          },
+ 	{ .name = "allocate",     .func = tap_cli_allocate      },
+@@ -1048,6 +1094,7 @@ struct command commands[] = {
+ 	{ .name = "check",        .func = tap_cli_check         },
+ 	{ .name = "commit",       .func = tap_cli_commit        },
+ 	{ .name = "query",        .func = tap_cli_query_commit_job },
++	{ .name = "cancel",       .func = tap_cli_cancel_commit_job },
+ };
+ 
+ #define print_commands()					\
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index 78e84ce0..5e963994 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -1376,6 +1376,34 @@ out:
+ 	return err;
+ }
+ 
++static int
++tapdisk_control_cancel_commit_job(struct tapdisk_ctl_conn *conn,
++		       tapdisk_message_t *request, tapdisk_message_t * const response)
++{
++	int err;
++	td_vbd_t *vbd;
++
++	ASSERT(conn);
++	ASSERT(request);
++	ASSERT(response);
++
++	INFO("cancel commit job %d\n", request->cookie);
++
++	vbd = tapdisk_server_get_vbd(request->cookie);
++	if (!vbd) {
++		err = -ENODEV;
++	        ERR(err, "cancel commit job '%d' do not find an associated vbd, abort.\n", request->cookie);
++		goto out;
++	}
++
++	err = tapdisk_vbd_cancel_commit_job(vbd, request->u.params.flags);
++out:
++	response->cookie = request->cookie;
++	if (!err)
++		response->type = TAPDISK_MESSAGE_CANCEL_COMMIT_JOB_RSP;
++	return err;
++}
++
+ 
+ struct tapdisk_control_info message_infos[] = {
+ 	[TAPDISK_MESSAGE_PID] = {
+@@ -1441,6 +1469,10 @@ struct tapdisk_control_info message_infos[] = {
+ 	[TAPDISK_MESSAGE_QUERY_COMMIT_JOB] = {
+ 		.handler = tapdisk_control_query_commit_job,
+ 		.flags   = TAPDISK_MSG_VERBOSE,
++	},
++	[TAPDISK_MESSAGE_CANCEL_COMMIT_JOB] = {
++		.handler = tapdisk_control_cancel_commit_job,
++		.flags   = TAPDISK_MSG_VERBOSE,
+ 	}
+ };
+ 
+diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
+index 2bfc52ec..bcd87ff8 100644
+--- a/drivers/tapdisk-interface.c
++++ b/drivers/tapdisk-interface.c
+@@ -317,6 +317,31 @@ td_query_commit_job(td_image_t *image, td_query_t *query)
+ 	return driver->ops->td_query_commit_job(driver, query);
+ }
+ 
++int
++td_cancel_commit_job(td_image_t *image, bool wait)
++{
++	td_driver_t *driver;
++
++	if (!image) {
++		return -ENODEV;
++	}
++
++	driver = image->driver;
++	if (!driver) {
++		return -ENODEV;
++	}
++
++	if (!td_flag_test(driver->state, TD_DRIVER_OPEN)) {
++		return -EBADF;
++	}
++
++	if (!driver->ops->td_cancel_commit_job) {
++		return -EOPNOTSUPP;
++	}
++
++	return driver->ops->td_cancel_commit_job(driver, wait);
++}
++
+ void
+ td_forward_request(td_request_t treq)
+ {
+diff --git a/drivers/tapdisk-interface.h b/drivers/tapdisk-interface.h
+index b3ff6e13..d4ddf4d6 100644
+--- a/drivers/tapdisk-interface.h
++++ b/drivers/tapdisk-interface.h
+@@ -44,6 +44,7 @@ int td_get_parent_id(td_image_t *, td_disk_id_t *);
+ int td_validate_parent(td_image_t *, td_image_t *);
+ int td_commit(td_image_t *, const char *);
+ int td_query_commit_job(td_image_t *, td_query_t *);
++int td_cancel_commit_job(td_image_t *, bool);
+ 
+ void td_queue_write(td_image_t *, td_request_t);
+ void td_queue_read(td_image_t *, td_request_t);
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 611881c3..32cf75ba 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1109,6 +1109,22 @@ tapdisk_vbd_query_commit_job(td_vbd_t *vbd, td_query_t *query)
+ 	return err;
+ }
+ 
++int
++tapdisk_vbd_cancel_commit_job(td_vbd_t *vbd, bool wait)
++{
++	int err;
++
++	if (log) {
++		INFO("cancel commit job.\n");
++	}
++
++	err = td_cancel_commit_job(tapdisk_vbd_first_image(vbd), wait);
++
++	INFO("cancel commit job (%d)\n", err);
++
++	return err;
++}
++
+ static int
+ tapdisk_vbd_request_ttl(td_vbd_request_t *vreq,
+ 			const struct timeval *now)
+diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
+index 268a5327..258c1d35 100644
+--- a/drivers/tapdisk-vbd.h
++++ b/drivers/tapdisk-vbd.h
+@@ -230,6 +230,7 @@ void tapdisk_vbd_check_state(td_vbd_t *);
+ void tapdisk_vbd_free(td_vbd_t *);
+ int tapdisk_vbd_commit(td_vbd_t *, const char *);
+ int tapdisk_vbd_query_commit_job(td_vbd_t *, td_query_t *);
++int tapdisk_vbd_cancel_commit_job(td_vbd_t *, bool);
+ 
+ void tapdisk_vbd_complete_td_request(td_request_t, int);
+ int add_extent(tapdisk_extents_t *, td_request_t *);
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index db814668..0982e13e 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -235,6 +235,7 @@ struct tap_disk {
+ 	void (*td_stats)             (td_driver_t *, td_stats_t *);
+ 	int (*td_commit)             (td_driver_t *, const char *);
+ 	int (*td_query_commit_job)   (td_driver_t *, td_query_t *);
++	int (*td_cancel_commit_job)  (td_driver_t *, bool);
+ 
+     /**
+      * Callback to produce RRD output.
+diff --git a/include/tap-ctl.h b/include/tap-ctl.h
+index 76ad885e..5fb2b87b 100644
+--- a/include/tap-ctl.h
++++ b/include/tap-ctl.h
+@@ -148,6 +148,7 @@ int tap_ctl_blk_major(void);
+  */
+ int tap_ctl_commit(const int id, const int minor, const char *params);
+ int tap_ctl_query_commit_job(const int id, const int minor);
++int tap_ctl_cancel_commit_job(const int id, const int minor, bool wait);
+ 
+ /**
+  * Instructs a tapdisk to connect to the shared ring.
+diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
+index 0d637ae5..89c5e2ce 100644
+--- a/include/tapdisk-message.h
++++ b/include/tapdisk-message.h
+@@ -245,6 +245,8 @@ enum tapdisk_message_id {
+ 	TAPDISK_MESSAGE_COMMIT_RSP,
+ 	TAPDISK_MESSAGE_QUERY_COMMIT_JOB,
+ 	TAPDISK_MESSAGE_QUERY_COMMIT_JOB_RSP,
++	TAPDISK_MESSAGE_CANCEL_COMMIT_JOB,
++	TAPDISK_MESSAGE_CANCEL_COMMIT_JOB_RSP,
+ 	TAPDISK_MESSAGE_MAX /* This value must be the last. */
+ };
+ 
+@@ -351,6 +353,12 @@ tapdisk_message_name(enum tapdisk_message_id id)
+ 	case TAPDISK_MESSAGE_QUERY_COMMIT_JOB_RSP:
+ 		return "query commit job response";
+ 
++	case TAPDISK_MESSAGE_CANCEL_COMMIT_JOB:
++		return "cancel commit job";
++
++	case TAPDISK_MESSAGE_CANCEL_COMMIT_JOB_RSP:
++		return "cancel commit job response";
++
+ 	default:
+ 		return "unknown";
+ 	}
