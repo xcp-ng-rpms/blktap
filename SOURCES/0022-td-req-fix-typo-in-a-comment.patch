@@ -1,0 +1,27 @@
+From 1660d6c774c44398512c8a84882faa1652bd001a Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 17 Mar 2026 16:52:55 +0100
+Subject: [PATCH] td-req: fix typo in a comment
+
+Fix 'fist_sect' to 'first_sect'.
+
+No functional change.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/td-req.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 68760dd0..028e4bf6 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -669,7 +669,7 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
+             iov++;
+             iov->base = next;
+             iov->secs = size;
+-        } else /* The "else" is true if fist_sect is 0. */
++        } else /* The "else" is true if first_sect is 0. */
+             iov->secs += size;
+ 
+         last = iov->base + (iov->secs << SECTOR_SHIFT);
