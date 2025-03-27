@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.3%{?dist}
+Release: %{?xsrel}.3.0.qcow2.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -22,6 +22,7 @@ BuildRequires: xs-openssl-devel >= 1.1.1
 BuildRequires: devtoolset-11-gcc
 BuildRequires: devtoolset-11-binutils
 BuildRequires: devtoolset-11-liblsan-devel
+BuildRequires: glib2, glib2-devel, gnutls, gnutls-devel, libzstd, libzstd-devel
 %{?_cov_buildrequires}
 Requires(post): systemd
 Requires(post): /sbin/ldconfig
@@ -34,10 +35,42 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
+# git format-patch v3.55.5..v3.55.5-qcow2 --no-signature --no-numbered
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 Patch1002: 0002-CP-308382-fix-sign-conversion-in-coalesce.patch
 Patch1003: 0003-Fix-coalesced-size-conversion-in-vhd-util-coalesce.patch
+Patch1004: 0002-Fix-string-copy-errors-safe_strncpy.patch
+Patch1005: 0003-tapdisk-remove-useless-code.patch
+Patch1006: 0004-blktap-libaio-fix-a-typo.patch
+Patch1007: 0005-tapdisk-doc-final-param-in-__tapdisk_xenblkif_reques.patch
+Patch1008: 0006-tapdisk-use-defined-abstraction.patch
+Patch1009: 0007-blkif-Avoid-use-after-free-on-BLKIF_OP_WRITE_BARRIER.patch
+Patch1010: 0008-tapdisk-vbd-remove-double-assignment-of-error-variab.patch
+Patch1011: 0009-tapdisk-replace-flag-number-by-its-name.patch
+Patch1012: 0010-tapdisk-set-generic-TAPDISK_MESSAGE_MAX-limit-inside.patch
+Patch1013: 0011-libqcow2-manage-qcow2-sources.patch
+Patch1014: 0012-libqcow2-import-vanilla-sources-from-qemu-9.1.1.patch
+Patch1015: 0013-libqcow2-build-qcow2-library-for-tapdisk.patch
+Patch1016: 0014-libqcow2-fix-support-for-old-components-gcc-glibc-gl.patch
+Patch1017: 0015-tapdisk-protect-td_vbd_t-structure.patch
+Patch1018: 0016-tapdisk-protect-td_blktap_t-structure.patch
+Patch1019: 0017-tapdisk-protect-td_xenblkif-structure.patch
+Patch1020: 0018-tapdisk-protect-scheduler-structure.patch
+Patch1021: 0019-libqcow2-prepare-proper-cleanup-of-libqcow2-on-close.patch
+Patch1022: 0020-qcow2-driver-support-qcow2-images-in-tapdisk.patch
+Patch1023: 0021-blktap.spec-add-qcow2-dependencies.patch
+Patch1024: 0022-tapdisk-support-new-commit-command.patch
+Patch1025: 0023-qcow2-support-commit-command.patch
+Patch1026: 0024-tapdisk-support-new-query-command.patch
+Patch1027: 0025-qcow2-support-query-command.patch
+Patch1028: 0026-tests-dummy-driver.patch
+Patch1029: 0027-blkif-the-memory-barrier-is-mandatory-to-see-the-que.patch
+Patch1030: 0028-tapdisk-support-new-cancel-command.patch
+Patch1031: 0029-qcow2-support-cancel-command.patch
+Patch1032: 0030-libqcow2-fix-abort-commit-without-crash.patch
+Patch1033: 0031-tapdisk-check-if-RD-macros-are-defined-in-ring.h-sin.patch
+Patch1034: 0032-qemu-img-add-NBD-support.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -74,13 +107,14 @@ sh autogen.sh
 # The following can be used for leak tracing
 #%%configure LDFLAGS="$LDFLAGS -Wl,-rpath=/lib64/citrix -lrt -static-liblsan" CFLAGS="$CFLAGS  -Wno-stringop-truncation -fsanitize=leak -ggdb -fno-omit-frame-pointer"
 #%%configure LDFLAGS="$LDFLAGS -Wl,-rpath=/lib64/citrix" CFLAGS="$CFLAGS -Wno-stringop-truncation -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
-%configure LDFLAGS="$LDFLAGS -Wl,-rpath=/lib64/citrix" CFLAGS="$CFLAGS -Wno-stringop-truncation"
+%configure LDFLAGS="$LDFLAGS -Wl,-rpath=/lib64/citrix" CFLAGS="-g -O0 $CFLAGS -Wno-stringop-truncation"
 %{?_cov_wrap} make %{?coverage:GCOV=true}
 
 %check
+source /opt/rh/devtoolset-11/enable
 make clean
 make check GCOV=true || (find mockatests -name \*.log -print -exec cat {} \; && false)
-./collect-test-results.sh %{buildroot}/testresults
+#./collect-test-results.sh %{buildroot}/testresults
 
 %install
 rm -rf %{buildroot}
@@ -108,6 +142,7 @@ cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-inc
 %{_bindir}/vhd-index
 %{_bindir}/tapback
 %{_bindir}/cpumond
+%{_bindir}/qemu-img
 %{_sbindir}/cbt-util
 %{_sbindir}/lvm-util
 %{_sbindir}/tap-ctl
@@ -151,19 +186,8 @@ fi
 
 # The posttrans invocation of ldconfig is needed because older
 # versions of blktap did not have ldconfig in their postun script.
-%posttrans -p /sbin/ldconfig
-
-%{?_cov_results_package}
-
-%package testresults
-Group:    System/Hypervisor
-Summary:  test results for blktap package
-
-%description testresults
-The package contains the build time test results for the blktap package
-
-%files testresults
-/testresults
+%posttrans
+/sbin/ldconfig
 
 %package -n vhd-util-standalone
 Group:   System/Hypervisor
@@ -180,6 +204,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Jul 31 2025 Damien Thenot <damien.thenot@vates.tech> - 3.55.5-2.3.0.qcow2.1
+- Add QCOW2 support
+
 * Thu Jul 31 2025 Ronan Abhamon <ronan.abhamon@vates.tech> - 3.55.5-2.3
 - Fix a bad integer conversion that interrupts valid coalesce calls on large VDIs
 - Add 0002-CP-308382-fix-sign-conversion-in-coalesce.patch
