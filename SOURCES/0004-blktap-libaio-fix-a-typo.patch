@@ -1,0 +1,20 @@
+From a54f3ea8863e39dbfbe74a02208b439afc33540d Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Thu, 16 Jan 2025 14:09:11 +0100
+Subject: [PATCH] blktap: libaio: fix a typo
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/libaio-backend.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/libaio-backend.h b/drivers/libaio-backend.h
+index 2759307d..b673fe5a 100644
+--- a/drivers/libaio-backend.h
++++ b/drivers/libaio-backend.h
+@@ -43,4 +43,4 @@ enum {
+ 
+ struct backend* get_libaio_backend();
+ 
+-#endif /* LIBAIO_BACLEND_H */
++#endif /* LIBAIO_BACKEND_H */
