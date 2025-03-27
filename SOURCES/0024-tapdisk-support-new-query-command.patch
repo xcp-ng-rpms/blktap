@@ -1,0 +1,371 @@
+From 968c944994ee40d21749d4a1203ee85d11d8cc44 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Thu, 13 Feb 2025 08:54:48 +0100
+Subject: [PATCH] tapdisk: support new query command
+
+This command will print the status of the coalesce in background.
+$ tap-ctl query -m 0 -p 12345
+Commit status 'running' (2817589248/4558422016)
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ control/tap-ctl-commit.c    | 32 ++++++++++++++++++++++++++++
+ control/tap-ctl.c           | 42 +++++++++++++++++++++++++++++++++++++
+ drivers/tapdisk-control.c   | 41 ++++++++++++++++++++++++++++++++++++
+ drivers/tapdisk-interface.c | 25 ++++++++++++++++++++++
+ drivers/tapdisk-interface.h |  1 +
+ drivers/tapdisk-vbd.c       | 16 ++++++++++++++
+ drivers/tapdisk-vbd.h       |  1 +
+ drivers/tapdisk.h           |  8 +++++++
+ include/tap-ctl.h           |  1 +
+ include/tapdisk-message.h   | 18 +++++++++++++++-
+ 10 files changed, 184 insertions(+), 1 deletion(-)
+
+diff --git a/control/tap-ctl-commit.c b/control/tap-ctl-commit.c
+index 1edf57c9..ae188d4a 100644
+--- a/control/tap-ctl-commit.c
++++ b/control/tap-ctl-commit.c
+@@ -75,3 +75,35 @@ tap_ctl_commit(const int id, const int minor, const char *params)
+ 
+ 	return err;
+ }
++
++int
++tap_ctl_query_commit_job(const int id, const int minor)
++{
++	int err;
++	tapdisk_message_t message;
++
++	memset(&message, 0, sizeof(message));
++	message.type = TAPDISK_MESSAGE_QUERY_COMMIT_JOB;
++	message.cookie = minor;
++
++        err = tap_ctl_connect_send_and_receive(id, &message, NULL);
++
++	if (err)
++		return err;
++
++	if (message.type == TAPDISK_MESSAGE_QUERY_COMMIT_JOB_RSP) {
++		printf("Commit status '%s' (%lu/%lu)\n", message.u.query.status, message.u.query.current_progress, message.u.query.total_progress);
++		err = 0;
++	} else if (message.type == TAPDISK_MESSAGE_ERROR) {
++		err = -message.u.response.error;
++	} else {
++		EPRINTF("got unexpected result '%s' from %d\n",
++				tapdisk_message_name(message.type), id);
++		err = -EINVAL;
++	}
++
++	if (err)
++		EPRINTF("query commit job failed: %s\n", strerror(-err));
++
++	return err;
++}
+diff --git a/control/tap-ctl.c b/control/tap-ctl.c
+index 958431da..5ca6d3b8 100644
+--- a/control/tap-ctl.c
++++ b/control/tap-ctl.c
+@@ -989,6 +989,47 @@ usage:
+ 	return EINVAL;
+ }
+ 
++static void
++tap_cli_query_commit_job_usage(FILE *stream)
++{
++	fprintf(stream, "usage: query <-p pid> <-m minor>\n");
++}
++
++int
++tap_cli_query_commit_job(int argc, char **argv)
++{
++	int c, pid, minor;
++
++	pid        = -1;
++	minor = -1;
++
++	optind = 0;
++	while ((c = getopt(argc, argv, "p:m:a:2:c:h")) != -1) {
++		switch (c) {
++		case 'p':
++			pid = atoi(optarg);
++			break;
++		case 'm':
++			minor = atoi(optarg);
++			break;
++		case '?':
++			goto usage;
++		case 'h':
++			tap_cli_query_commit_job_usage(stdout);
++			return 0;
++		}
++	}
++
++	if (pid == -1 || minor == -1)
++		goto usage;
++
++	return tap_ctl_query_commit_job(pid, minor);
++
++usage:
++	tap_cli_query_commit_job_usage(stderr);
++	return EINVAL;
++}
++
+ struct command commands[] = {
+ 	{ .name = "list",         .func = tap_cli_list          },
+ 	{ .name = "allocate",     .func = tap_cli_allocate      },
+@@ -1006,6 +1047,7 @@ struct command commands[] = {
+ 	{ .name = "major",        .func = tap_cli_major         },
+ 	{ .name = "check",        .func = tap_cli_check         },
+ 	{ .name = "commit",       .func = tap_cli_commit        },
++	{ .name = "query",        .func = tap_cli_query_commit_job },
+ };
+ 
+ #define print_commands()					\
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index ece3a077..78e84ce0 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -1339,6 +1339,43 @@ out:
+ 	return err;
+ }
+ 
++static int
++tapdisk_control_query_commit_job(struct tapdisk_ctl_conn *conn,
++		       tapdisk_message_t *request, tapdisk_message_t * const response)
++{
++	int err;
++	td_vbd_t *vbd;
++	td_query_t query;
++
++	ASSERT(conn);
++	ASSERT(request);
++	ASSERT(response);
++
++	INFO("query commit job %d\n", request->cookie);
++
++	vbd = tapdisk_server_get_vbd(request->cookie);
++	if (!vbd) {
++		/* TODO log error */
++		err = -ENODEV;
++		goto out;
++	}
++
++	err = tapdisk_vbd_query_commit_job(vbd, &query);
++out:
++	response->cookie = request->cookie;
++
++	if (!err) {
++		response->type = TAPDISK_MESSAGE_QUERY_COMMIT_JOB_RSP;
++
++		if (query.status)
++			safe_strncpy(response->u.query.status, query.status,
++				sizeof(response->u.query.status));
++		response->u.query.current_progress = query.current_progress;
++		response->u.query.total_progress = query.total_progress;
++	}
++	return err;
++}
++
+ 
+ struct tapdisk_control_info message_infos[] = {
+ 	[TAPDISK_MESSAGE_PID] = {
+@@ -1400,6 +1437,10 @@ struct tapdisk_control_info message_infos[] = {
+ 	[TAPDISK_MESSAGE_COMMIT] = {
+ 		.handler = tapdisk_control_commit,
+ 		.flags   = TAPDISK_MSG_VERBOSE,
++	},
++	[TAPDISK_MESSAGE_QUERY_COMMIT_JOB] = {
++		.handler = tapdisk_control_query_commit_job,
++		.flags   = TAPDISK_MSG_VERBOSE,
+ 	}
+ };
+ 
+diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
+index 7a0d10c8..2bfc52ec 100644
+--- a/drivers/tapdisk-interface.c
++++ b/drivers/tapdisk-interface.c
+@@ -292,6 +292,31 @@ td_commit(td_image_t *image, const char *name)
+ 	return driver->ops->td_commit(driver, name);
+ }
+ 
++int
++td_query_commit_job(td_image_t *image, td_query_t *query)
++{
++	td_driver_t *driver;
++
++	if (!image) {
++		return -ENODEV;
++	}
++
++	driver = image->driver;
++	if (!driver) {
++		return -ENODEV;
++	}
++
++	if (!td_flag_test(driver->state, TD_DRIVER_OPEN)) {
++		return -EBADF;
++	}
++
++	if (!driver->ops->td_query_commit_job) {
++		return -EOPNOTSUPP;
++	}
++
++	return driver->ops->td_query_commit_job(driver, query);
++}
++
+ void
+ td_forward_request(td_request_t treq)
+ {
+diff --git a/drivers/tapdisk-interface.h b/drivers/tapdisk-interface.h
+index 076528ea..b3ff6e13 100644
+--- a/drivers/tapdisk-interface.h
++++ b/drivers/tapdisk-interface.h
+@@ -43,6 +43,7 @@ int td_close(td_image_t *);
+ int td_get_parent_id(td_image_t *, td_disk_id_t *);
+ int td_validate_parent(td_image_t *, td_image_t *);
+ int td_commit(td_image_t *, const char *);
++int td_query_commit_job(td_image_t *, td_query_t *);
+ 
+ void td_queue_write(td_image_t *, td_request_t);
+ void td_queue_read(td_image_t *, td_request_t);
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 4fda1c26..611881c3 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1093,6 +1093,22 @@ tapdisk_vbd_commit(td_vbd_t *vbd, const char *name)
+ 	return err;
+ }
+ 
++int
++tapdisk_vbd_query_commit_job(td_vbd_t *vbd, td_query_t *query)
++{
++	int err;
++
++	if (log) {
++		INFO("query commit job.\n");
++	}
++
++	err = td_query_commit_job(tapdisk_vbd_first_image(vbd), query);
++
++	INFO("query commit job (%d)\n", err);
++
++	return err;
++}
++
+ static int
+ tapdisk_vbd_request_ttl(td_vbd_request_t *vreq,
+ 			const struct timeval *now)
+diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
+index 6a49a9af..268a5327 100644
+--- a/drivers/tapdisk-vbd.h
++++ b/drivers/tapdisk-vbd.h
+@@ -229,6 +229,7 @@ void tapdisk_vbd_kick(td_vbd_t *);
+ void tapdisk_vbd_check_state(td_vbd_t *);
+ void tapdisk_vbd_free(td_vbd_t *);
+ int tapdisk_vbd_commit(td_vbd_t *, const char *);
++int tapdisk_vbd_query_commit_job(td_vbd_t *, td_query_t *);
+ 
+ void tapdisk_vbd_complete_td_request(td_request_t, int);
+ int add_extent(tapdisk_extents_t *, td_request_t *);
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index 8bc16546..db814668 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -134,6 +134,7 @@ typedef struct td_image_handle       td_image_t;
+ typedef struct td_sector_count       td_sector_count_t;
+ typedef struct td_vbd_request        td_vbd_request_t;
+ typedef struct td_vbd_handle         td_vbd_t;
++typedef struct td_query              td_query_t;
+ 
+ /* 
+  * Prototype of the callback to activate as requests complete.
+@@ -209,6 +210,12 @@ struct td_vbd_encryption
+ 	uint8_t                    *encryption_key;
+ };
+ 
++struct td_query {
++        uint64_t                    current_progress;
++        uint64_t                    total_progress;
++        const char                  *status;
++};
++
+ /* 
+  * Structure describing the interface to a virtual disk implementation.
+  * See note at the top of this file describing this interface.
+@@ -227,6 +234,7 @@ struct tap_disk {
+ 	void (*td_debug)             (td_driver_t *);
+ 	void (*td_stats)             (td_driver_t *, td_stats_t *);
+ 	int (*td_commit)             (td_driver_t *, const char *);
++	int (*td_query_commit_job)   (td_driver_t *, td_query_t *);
+ 
+     /**
+      * Callback to produce RRD output.
+diff --git a/include/tap-ctl.h b/include/tap-ctl.h
+index 1c403d8b..76ad885e 100644
+--- a/include/tap-ctl.h
++++ b/include/tap-ctl.h
+@@ -147,6 +147,7 @@ int tap_ctl_blk_major(void);
+  * Commit a VBD.
+  */
+ int tap_ctl_commit(const int id, const int minor, const char *params);
++int tap_ctl_query_commit_job(const int id, const int minor);
+ 
+ /**
+  * Instructs a tapdisk to connect to the shared ring.
+diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
+index 664e2e54..0d637ae5 100644
+--- a/include/tapdisk-message.h
++++ b/include/tapdisk-message.h
+@@ -66,6 +66,7 @@ typedef struct tapdisk_message_response  tapdisk_message_response_t;
+ typedef struct tapdisk_message_minors    tapdisk_message_minors_t;
+ typedef struct tapdisk_message_list      tapdisk_message_list_t;
+ typedef struct tapdisk_message_stat      tapdisk_message_stat_t;
++typedef struct tapdisk_message_query     tapdisk_message_query_t;
+ 
+ struct tapdisk_message_params {
+ 	tapdisk_message_flag_t           flags;
+@@ -111,6 +112,12 @@ struct tapdisk_message_stat {
+ 	size_t                           length;
+ };
+ 
++struct tapdisk_message_query {
++	uint64_t                         current_progress;
++	uint64_t                         total_progress;
++	char                             status[TAPDISK_MESSAGE_STRING_LENGTH];
++};
++
+ /**
+  * Tapdisk message containing all the necessary information required for the
+  * tapdisk to connect to a guest's blkfront.
+@@ -198,7 +205,8 @@ struct tapdisk_message {
+ 		tapdisk_message_list_t     list;
+ 		tapdisk_message_stat_t     info;
+ 		tapdisk_message_blkif_t    blkif;
+-        tapdisk_message_resume_t   resume;
++		tapdisk_message_resume_t   resume;
++		tapdisk_message_query_t    query;
+ 	} u;
+ };
+ 
+@@ -235,6 +243,8 @@ enum tapdisk_message_id {
+ 	TAPDISK_MESSAGE_EXIT,
+ 	TAPDISK_MESSAGE_COMMIT,
+ 	TAPDISK_MESSAGE_COMMIT_RSP,
++	TAPDISK_MESSAGE_QUERY_COMMIT_JOB,
++	TAPDISK_MESSAGE_QUERY_COMMIT_JOB_RSP,
+ 	TAPDISK_MESSAGE_MAX /* This value must be the last. */
+ };
+ 
+@@ -335,6 +345,12 @@ tapdisk_message_name(enum tapdisk_message_id id)
+ 	case TAPDISK_MESSAGE_COMMIT_RSP:
+ 		return "commit response";
+ 
++	case TAPDISK_MESSAGE_QUERY_COMMIT_JOB:
++		return "query commit job";
++
++	case TAPDISK_MESSAGE_QUERY_COMMIT_JOB_RSP:
++		return "query commit job response";
++
+ 	default:
+ 		return "unknown";
+ 	}

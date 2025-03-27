@@ -1,0 +1,23 @@
+From 785eca40c0d3e182026d03558468f1517cb17bb2 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 20 Jan 2025 14:45:35 +0100
+Subject: [PATCH] tapdisk: doc final param in __tapdisk_xenblkif_request_cb
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/td-req.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index e1ce9fd7..178985f3 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -591,7 +591,7 @@ out:
+  * @param vreq the completed request
+  * @param error status of the request
+  * @param token token previously associated with this request
+- * @param final TODO ?
++ * @param final controls whether the other end should be notified
+  */
+ static inline void
+ __tapdisk_xenblkif_request_cb(struct td_vbd_request * const vreq,

@@ -1,0 +1,22 @@
+From 10f2b83f83b98a5dd16d64aae894d7fa3861bfc5 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Thu, 16 Jan 2025 14:09:07 +0100
+Subject: [PATCH] tapdisk: remove useless code
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/tapdisk-server.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/tapdisk-server.c b/drivers/tapdisk-server.c
+index 27a42198..a165d2f2 100644
+--- a/drivers/tapdisk-server.c
++++ b/drivers/tapdisk-server.c
+@@ -788,7 +788,6 @@ tapdisk_server_complete(void)
+ 	server.rw_backend = get_libaio_backend();
+ 	server.ro_backend = get_libaio_backend();
+ 
+-	server.rw_backend = get_libaio_backend();
+ 	err = tapdisk_server_init_aio();
+ 	if (err)
+ 		goto fail;

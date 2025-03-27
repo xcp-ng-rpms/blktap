@@ -1,0 +1,22 @@
+From 1a9b585ff55bdd85adb085a6b91f334bb3bb5158 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Thu, 16 Jan 2025 14:09:54 +0100
+Subject: [PATCH] blktap.spec: add qcow2 dependencies
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ mk/blktap.spec.in | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/mk/blktap.spec.in b/mk/blktap.spec.in
+index 2da6fe2c..14fea3c0 100644
+--- a/mk/blktap.spec.in
++++ b/mk/blktap.spec.in
+@@ -11,6 +11,7 @@ BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
+ Obsoletes: xen-blktap
+ BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autogen, autoconf, automake, libtool, libuuid-devel
+ BuildRequires: xen-devel, kernel-headers, xen-dom0-libs-devel, zlib-devel, xen-libs-devel, libcmocka-devel, lcov, git
++BuildRequires: glib2, glib2-devel, gnutls, gnutls-devel, libzstd, libzstd-devel
+ BuildRequires: openssl-devel >= 1.1.1
+ Requires(post): systemd
+ Requires(preun): systemd

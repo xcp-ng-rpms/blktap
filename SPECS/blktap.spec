@@ -4,7 +4,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.4
-Release: 1%{?xsrel}.1%{?dist}
+Release: 1%{?xsrel}.1.0.qcow2.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -18,6 +18,7 @@ BuildRequires: xs-openssl-devel >= 1.1.1
 BuildRequires: devtoolset-11-gcc
 BuildRequires: devtoolset-11-binutils
 BuildRequires: devtoolset-11-liblsan-devel
+BuildRequires: glib2, glib2-devel, gnutls, gnutls-devel, libzstd, libzstd-devel
 %{?_cov_buildrequires}
 Requires(post): systemd
 Requires(post): /sbin/ldconfig
@@ -30,10 +31,40 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
+# git format-patch v3.55.4..v3.55.4-qcow2 --no-signature --no-numbered
 # Required by XOSTOR. Upstream PR: https://github.com/xapi-project/blktap/pull/378
 Patch1001: 0001-Add-an-option-to-never-resolve-parent-path-when-vhd-.patch
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1002: 0002-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+Patch1003: 0003-Fix-string-copy-errors-safe_strncpy.patch
+Patch1004: 0004-tapdisk-remove-useless-code.patch
+Patch1005: 0005-blktap-libaio-fix-a-typo.patch
+Patch1006: 0006-tapdisk-doc-final-param-in-__tapdisk_xenblkif_reques.patch
+Patch1007: 0007-tapdisk-use-defined-abstraction.patch
+Patch1008: 0008-blkif-Avoid-use-after-free-on-BLKIF_OP_WRITE_BARRIER.patch
+Patch1009: 0009-tapdisk-vbd-remove-double-assignment-of-error-variab.patch
+Patch1010: 0010-tapdisk-replace-flag-number-by-its-name.patch
+Patch1011: 0011-tapdisk-set-generic-TAPDISK_MESSAGE_MAX-limit-inside.patch
+Patch1012: 0012-libqcow2-manage-qcow2-sources.patch
+Patch1013: 0013-libqcow2-import-vanilla-sources-from-qemu-9.1.1.patch
+Patch1014: 0014-libqcow2-build-qcow2-library-for-tapdisk.patch
+Patch1015: 0015-libqcow2-fix-support-for-old-components-gcc-glibc-gl.patch
+Patch1016: 0016-tapdisk-protect-td_vbd_t-structure.patch
+Patch1017: 0017-tapdisk-protect-td_blktap_t-structure.patch
+Patch1018: 0018-tapdisk-protect-td_xenblkif-structure.patch
+Patch1019: 0019-libqcow2-prepare-proper-cleanup-of-libqcow2-on-close.patch
+Patch1020: 0020-qcow2-driver-support-qcow2-images-in-tapdisk.patch
+Patch1021: 0021-blktap.spec-add-qcow2-dependencies.patch
+Patch1022: 0022-tapdisk-support-new-commit-command.patch
+Patch1023: 0023-qcow2-support-commit-command.patch
+Patch1024: 0024-tapdisk-support-new-query-command.patch
+Patch1025: 0025-qcow2-support-query-command.patch
+Patch1026: 0026-tests-dummy-driver.patch
+Patch1027: 0027-blkif-the-memory-barrier-is-mandatory-to-see-the-que.patch
+Patch1028: 0028-tapdisk-support-new-cancel-command.patch
+Patch1029: 0029-qcow2-support-cancel-command.patch
+Patch1030: 0030-libqcow2-abort-commit-without-crash.patch
+
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -74,9 +105,10 @@ sh autogen.sh
 %{?_cov_wrap} make %{?coverage:GCOV=true}
 
 %check
+source /opt/rh/devtoolset-11/enable
 make clean
 make check GCOV=true || (find mockatests -name \*.log -print -exec cat {} \; && false)
-./collect-test-results.sh %{buildroot}/testresults
+#./collect-test-results.sh %{buildroot}/testresults
 
 %install
 rm -rf %{buildroot}
@@ -104,6 +136,7 @@ cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-inc
 %{_bindir}/vhd-index
 %{_bindir}/tapback
 %{_bindir}/cpumond
+%{_bindir}/qemu-img
 %{_sbindir}/cbt-util
 %{_sbindir}/lvm-util
 %{_sbindir}/tap-ctl
@@ -147,19 +180,8 @@ fi
 
 # The posttrans invocation of ldconfig is needed because older
 # versions of blktap did not have ldconfig in their postun script.
-%posttrans -p /sbin/ldconfig
-
-%{?_cov_results_package}
-
-%package testresults
-Group:    System/Hypervisor
-Summary:  test results for blktap package
-
-%description testresults
-The package contains the build time test results for the blktap package
-
-%files testresults
-/testresults
+%posttrans
+/sbin/ldconfig
 
 %package -n vhd-util-standalone
 Group:   System/Hypervisor
@@ -176,6 +198,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Mar 27 2025 Damien Thenot <damien.thenot@vates.tech> - 3.55.4-1.1.0.qcow2.1
+- Add QCOW2 support
+
 * Tue Mar 04 2025 Samuel Verschelde <stormi-xcp@ylix.fr> - 3.55.4-1.1
 - Sync with 3.55.4-1
 - *** Upstream changelog ***

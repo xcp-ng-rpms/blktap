@@ -1,7 +1,7 @@
-From e371dd87ad668e156309992bc83b96ad34fb4d38 Mon Sep 17 00:00:00 2001
+From 60fa5bd9af416beb8c75e0488b511cee39119b1f Mon Sep 17 00:00:00 2001
 From: Ronan Abhamon <ronan.abhamon@vates.fr>
 Date: Thu, 16 Mar 2023 15:55:07 +0100
-Subject: [PATCH 1/2] Add an option to never resolve parent path when vhd-util
+Subject: [PATCH] Add an option to never resolve parent path when vhd-util
  query is called
 
 Signed-off-by: Ronan Abhamon <ronan.abhamon@vates.fr>
@@ -12,7 +12,7 @@ Signed-off-by: Ronan Abhamon <ronan.abhamon@vates.fr>
  3 files changed, 41 insertions(+), 17 deletions(-)
 
 diff --git a/include/libvhd.h b/include/libvhd.h
-index 7365918..3932547 100644
+index 73659183..3932547e 100644
 --- a/include/libvhd.h
 +++ b/include/libvhd.h
 @@ -341,6 +341,7 @@ int vhd_initialize_header_parent_name(vhd_context_t *, const char *);
@@ -24,7 +24,7 @@ index 7365918..3932547 100644
  
  int vhd_parent_locator_read(vhd_context_t *, vhd_parent_locator_t *, char **);
 diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
-index 73be3ee..830e95a 100644
+index 73be3eec..830e95ae 100644
 --- a/vhd/lib/libvhd.c
 +++ b/vhd/lib/libvhd.c
 @@ -1782,8 +1782,8 @@ out:
@@ -70,7 +70,7 @@ index 73be3ee..830e95a 100644
   * Overrides the parent with the supplied one.
   *
 diff --git a/vhd/lib/vhd-util-query.c b/vhd/lib/vhd-util-query.c
-index 9aa131e..0cd0416 100644
+index 9aa131e0..0cd04166 100644
 --- a/vhd/lib/vhd-util-query.c
 +++ b/vhd/lib/vhd-util-query.c
 @@ -46,25 +46,26 @@ vhd_util_query(int argc, char **argv)

@@ -1,0 +1,31 @@
+From e4c73f432afcc4a1d6af4112b7d5138328ee1f4e Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 20 Jan 2025 14:48:57 +0100
+Subject: [PATCH] tapdisk-vbd: remove double assignment of error variable
+
+fail label already set vreq->error with err, so remove the
+first assignment in both paths that lead to fail label.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/tapdisk-vbd.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 628df4c6..5a73d1c5 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1526,13 +1526,11 @@ tapdisk_vbd_issue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ 
+ 	err = tapdisk_vbd_check_queue(vbd);
+ 	if (err) {
+-		vreq->error = err;
+ 		goto fail;
+ 	}
+ 
+ 	err = tapdisk_image_check_request(image, vreq);
+ 	if (err) {
+-		vreq->error = err;
+ 		goto fail;
+ 	}
+ 
