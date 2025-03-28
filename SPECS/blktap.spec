@@ -1,14 +1,18 @@
-%global package_speccommit 266dddc02a877617a4c52a36d4dd86ef515c45ec
-%global package_srccommit v3.55.4
+%global package_speccommit e1853b343f35f18ca9d9baee8ca22a8e3378176f
+%global usver 3.55.5
+%global xsver 2
+%global xsrel %{xsver}%{?xscount}%{?xshash}
+%global package_srccommit v3.55.5
 
 Summary: blktap user space utilities
 Name: blktap
-Version: 3.55.4
-Release: 1%{?xsrel}%{?dist}
+Version: 3.55.5
+Release: %{?xsrel}%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
-Source0: blktap-3.55.4.tar.gz
+Source0: blktap-3.55.5.tar.gz
+Patch0: ca-404370__enable_nbd_client_only_after_completing_handshake.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -170,6 +174,12 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Tue Feb 11 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-2
+- CA-404370: enable NBD client only after completing handshake
+
+* Mon Jan 06 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-1
+- Add an option to never resolve parent path when vhd-util query is called
+
 * Tue Dec 03 2024 Mark Syms <mark.syms@cloud.com> - 3.55.4-1
 - CA-392151 lcache.c uses wrong buffer size definition
 - CA-403297: when storing read-through do not mirror
