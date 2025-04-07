@@ -34,11 +34,8 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
-# FIXME: drop unneeded patch
-# Required by XOSTOR. Upstream PR: https://github.com/xapi-project/blktap/pull/378
-Patch1001: 0001-Add-an-option-to-never-resolve-parent-path-when-vhd-.patch
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
-Patch1002: 0002-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
