@@ -34,11 +34,8 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
-# FIXME: drop unneeded patch
-# Required by XOSTOR. Upstream PR: https://github.com/xapi-project/blktap/pull/378
-Patch1001: 0001-Add-an-option-to-never-resolve-parent-path-when-vhd-.patch
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
-Patch1002: 0002-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -183,7 +180,8 @@ without requiring other libraries
 %changelog
 * Fri Mar 28 2025 Samuel Verschelde <stormi-xcp@ylix.fr> - 3.55.5-2.1
 - Sync with 3.55.5-2
-- TODO : mention dropped patch and remaining patch renamed
+- Drop patch "Add an option to never resolve parent path when vhd-util query is
+called" already included in upstream v3.55.5
 - *** Upstream changelog ***
   * Tue Feb 11 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-2
   - CA-404370: enable NBD client only after completing handshake
