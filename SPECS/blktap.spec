@@ -1,14 +1,18 @@
-%global package_speccommit 266dddc02a877617a4c52a36d4dd86ef515c45ec
-%global package_srccommit v3.55.4
+%global package_speccommit e1853b343f35f18ca9d9baee8ca22a8e3378176f
+%global usver 3.55.5
+%global xsver 2
+%global xsrel %{xsver}%{?xscount}%{?xshash}
+%global package_srccommit v3.55.5
 
 Summary: blktap user space utilities
 Name: blktap
-Version: 3.55.4
-Release: 1%{?xsrel}.1%{?dist}
+Version: 3.55.5
+Release: %{?xsrel}.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
-Source0: blktap-3.55.4.tar.gz
+Source0: blktap-3.55.5.tar.gz
+Patch0: ca-404370__enable_nbd_client_only_after_completing_handshake.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -30,10 +34,8 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
-# Required by XOSTOR. Upstream PR: https://github.com/xapi-project/blktap/pull/378
-Patch1001: 0001-Add-an-option-to-never-resolve-parent-path-when-vhd-.patch
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
-Patch1002: 0002-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -176,6 +178,16 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Mar 28 2025 Samuel Verschelde <stormi-xcp@ylix.fr> - 3.55.5-2.1
+- Sync with 3.55.5-2
+- Drop patch "Add an option to never resolve parent path when vhd-util query is
+called" already included in upstream v3.55.5
+- *** Upstream changelog ***
+  * Tue Feb 11 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-2
+  - CA-404370: enable NBD client only after completing handshake
+  * Mon Jan 06 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-1
+  - Add an option to never resolve parent path when vhd-util query is called
+
 * Tue Mar 04 2025 Samuel Verschelde <stormi-xcp@ylix.fr> - 3.55.4-1.1
 - Sync with 3.55.4-1
 - *** Upstream changelog ***
