@@ -1,0 +1,1264 @@
+From dda6f480fc9e5885f769aa779f2bee3b6eff0592 Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@citrix.com>
+Date: Mon, 6 Jan 2025 10:10:51 +0000
+Subject: [PATCH] CP-35551: create files to replace block device minor ids
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ control/Makefile.am                        |   1 +
+ control/tap-ctl-allocate.c                 |  79 ++-
+ control/tap-ctl-free.c                     |  68 ++-
+ drivers/tapdisk-control.c                  |  14 +
+ drivers/tapdisk-vbd.c                      |  57 ++-
+ drivers/tapdisk-vbd.h                      |   5 +
+ include/blktap.h                           |   3 +
+ mockatests/control/Makefile.am             |   1 +
+ mockatests/control/control-wrappers.c      |  19 +
+ mockatests/control/test-control.c          |   6 +-
+ mockatests/control/test-suites.h           |  32 +-
+ mockatests/control/test-tap-ctl-allocate.c | 527 ++++++++-------------
+ mockatests/control/test-tap-ctl-free.c     | 119 +++--
+ 13 files changed, 498 insertions(+), 433 deletions(-)
+
+diff --git a/control/Makefile.am b/control/Makefile.am
+index cb740b08..6298e240 100644
+--- a/control/Makefile.am
++++ b/control/Makefile.am
+@@ -2,6 +2,7 @@
+ AM_CFLAGS  = -Wall
+ AM_CFLAGS += -Werror
+ AM_CFLAGS += $(if $(GCOV),-fprofile-dir=/tmp/coverage/blktap/control -fprofile-arcs -ftest-coverage)
++AM_CFLAGS += -g
+ 
+ AM_CPPFLAGS  = -D_GNU_SOURCE
+ AM_CPPFLAGS += -DTAPCTL
+diff --git a/control/tap-ctl-allocate.c b/control/tap-ctl-allocate.c
+index 52c0fb83..3e0b39f8 100644
+--- a/control/tap-ctl-allocate.c
++++ b/control/tap-ctl-allocate.c
+@@ -34,18 +34,12 @@
+ 
+ #include <stdio.h>
+ #include <errno.h>
+-#include <fcntl.h>
+ #include <stdlib.h>
+ #include <unistd.h>
+ #include <string.h>
+-#include <getopt.h>
+-#include <libgen.h>
+ #include <sys/file.h>
+ #include <sys/stat.h>
+-#include <sys/sysmacros.h>
+ #include <sys/types.h>
+-#include <sys/ioctl.h>
+-#include <linux/major.h>
+ 
+ #include "tap-ctl.h"
+ #include "blktap.h"
+@@ -62,7 +56,7 @@ tap_ctl_prepare_directory(const char *dir)
+ 
+ 	name = strdup(dir);
+ 	if (!name)
+-		return ENOMEM;
++		return -errno;
+ 
+ 	start = name;
+ 
+@@ -73,8 +67,8 @@ tap_ctl_prepare_directory(const char *dir)
+ 
+ 		err = mkdir(name, 0700);
+ 		if (err && errno != EEXIST) {
++			err = -errno;
+ 			PERROR("mkdir %s", name);
+-			err = errno;
+ 			EPRINTF("mkdir failed with %d\n", err);
+ 			break;
+ 		}
+@@ -116,19 +110,72 @@ tap_ctl_check_environment(void)
+ }
+ 
+ static int
+-tap_ctl_allocate_device(int *minor, char **devname)
++tap_ctl_allocate_minor(int *minor, char **minor_name)
+ {
++	char *path = NULL;
++	struct stat st_buf;
++	int err, id, st, f, fid;
++
+ 	*minor = -1;
+-	if (!devname)
+-		return EINVAL;
+ 
+-	/* TO-DO: get this from a file based resource */
+-	*minor = 1;
+-	return 0;
++	f = open(BLKTAP2_NP_RUN_DIR, O_RDONLY);
++	if (f == -1) {
++		err = -errno;
++		EPRINTF("Failed to open runtime directory %d\n", errno);
++		return err;
++	}
++
++	/* The only way this can fail is with an EINTR or ENOLCK*/
++	err = flock(f, LOCK_EX);
++	if (err == -1) {
++		err = -errno;
++		EPRINTF("Failed to lock runtime directory %d\n", errno);
++		return err;
++	}
++
++	for (id=0; id<MAX_ID; id++) {
++		err = asprintf(&path, "%s/tapdisk-%d", BLKTAP2_NP_RUN_DIR, id);
++		if (err == -1) {
++			err = -errno;
++			goto out;
++		}
++
++		st = stat(path, &st_buf);
++		if (st == 0) {
++			/* Already exists */
++			free(path);
++			path = NULL;
++			continue;
++		}
++		if (errno != ENOENT) {
++			err = -errno;
++			free(path);
++			goto out;
++		}
++
++		fid = open(path, O_CREAT | O_WRONLY, 0600);
++		if (fid == -1) {
++			err = -errno;
++			EPRINTF("Failed to create ID file %s, %d\n", path, errno);
++			free(path);
++			goto out;
++		}
++		close(fid);
++
++		*minor = id;
++		*minor_name = path;
++		break;
++	}
++
++	err = 0;
++out:
++	flock(f, LOCK_UN);
++	close(f);
++	return err;
+ }
+ 
+ int
+-tap_ctl_allocate(int *minor, char **devname)
++tap_ctl_allocate(int *minor, char **minor_name)
+ {
+ 	int err;
+ 
+@@ -140,7 +187,7 @@ tap_ctl_allocate(int *minor, char **devname)
+ 		return err;
+ 	}
+ 
+-	err = tap_ctl_allocate_device(minor, devname);
++	err = tap_ctl_allocate_minor(minor, minor_name);
+ 	if (err) {
+ 		EPRINTF("tap-ctl allocate failed to allocate device");
+ 		return err;
+diff --git a/control/tap-ctl-free.c b/control/tap-ctl-free.c
+index 404a5974..fe246244 100644
+--- a/control/tap-ctl-free.c
++++ b/control/tap-ctl-free.c
+@@ -37,8 +37,7 @@
+ #include <fcntl.h>
+ #include <stdlib.h>
+ #include <unistd.h>
+-#include <getopt.h>
+-#include <sys/ioctl.h>
++#include <sys/file.h>
+ 
+ #include "tap-ctl.h"
+ #include "blktap.h"
+@@ -46,19 +45,60 @@
+ int
+ tap_ctl_free(const int minor)
+ {
+-	/* TO-DO: Take the lock and remove the associated marker file */
+-	/* int fd, err; */
++	char *path = NULL;
++	int mfd = -1, fd, err;
+ 
+-	/* fd = open(BLKTAP2_CONTROL_DEVICE, O_RDONLY); */
+-	/* if (fd == -1) { */
+-	/* 	EPRINTF("failed to open control device: %d\n", errno); */
+-	/* 	return errno; */
+-	/* } */
++	fd = open(BLKTAP2_NP_RUN_DIR, O_RDONLY);
++	if (fd == -1) {
++		err = -errno;
++		EPRINTF("Failed to open runtime directory %d\n", errno);
++		return err;
++	}
+ 
+-	/* err = ioctl(fd, BLKTAP2_IOCTL_FREE_TAP, minor); */
+-	/* err = (err == -1) ? -errno : 0; */
+-	/* close(fd); */
++	/* The only way this can fail is with an EINTR or ENOLCK*/
++	err = flock(fd, LOCK_EX);
++	if (err == -1) {
++		err = -errno;
++		EPRINTF("Failed to lock runtime directory %d\n", errno);
++		return err;
++	}
+ 
+-	/* return err; */
+-	return 0;
++	err = asprintf(&path, "%s/tapdisk-%d", BLKTAP2_NP_RUN_DIR, minor);
++	if (err == -1) {
++		err = -errno;
++		goto out;
++	}
++	err = 0;
++
++	/* Non-Blocking lock to check it's not in use */
++	mfd = open(path, O_RDONLY);
++	if (mfd == -1) {
++		err = -errno;
++		EPRINTF("Failed to open marker file %s, %d, err=%d\n",
++			path, minor, errno);
++		goto out;
++	}
++
++	err = flock(mfd, LOCK_EX | LOCK_NB);
++	if (err == -1) {
++		err = -errno;
++		EPRINTF("Unable to lock marker file %s, err = %d\n",
++			path, errno);
++		goto out;
++	}
++
++	unlink(path);
++
++out:
++	if (path)
++		free(path);
++
++	if (mfd != -1) {
++		flock(mfd, LOCK_UN);
++		close(mfd);
++	}
++
++	flock(fd, LOCK_UN);
++	close(fd);
++	return err;
+ }
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index e1068970..36e24177 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -633,6 +633,13 @@ tapdisk_control_attach_vbd(struct tapdisk_ctl_conn *conn,
+ 		goto out;
+ 	}
+ 
++	/* Lock the marker file to prevent freeing in use*/
++	err = tapdisk_vbd_lock(vbd);
++	if (err) {
++		ERR(err, "Failed to lock VBD marker file for %d\n", minor);
++		goto fail_vbd;
++	}
++
+ 	tapdisk_server_add_vbd(vbd);
+ 
+ out:
+@@ -645,6 +652,10 @@ out:
+ 	}
+ 
+ 	return err;
++
++fail_vbd:
++	free(vbd);
++	goto out;
+ }
+ 
+ static int
+@@ -669,6 +680,9 @@ tapdisk_control_detach_vbd(struct tapdisk_ctl_conn *conn,
+ 		goto out;
+ 	}
+ 
++	/* Unlock marker file */
++	tapdisk_vbd_unlock(vbd);
++
+ 	if (list_empty(&vbd->images)) {
+ 		tapdisk_server_remove_vbd(vbd);
+ 		tapdisk_vbd_free(vbd);
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index f7b35db7..ca0e57a6 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -43,6 +43,7 @@
+ #include <sys/ioctl.h>
+ #include <sys/stat.h>
+ #include <sys/types.h>
++#include <sys/file.h>
+ 
+ #include "debug.h"
+ #include "libvhd.h"
+@@ -668,6 +669,55 @@ fail:
+ 	return err;
+ }
+ 
++static int
++open_vbd_marker(int id)
++{
++   char *path = NULL;
++   int err, fid;
++
++   err = asprintf(&path, "%s/tapdisk-%d", BLKTAP2_NP_RUN_DIR, id);
++   if (err == -1) {
++       return -errno;
++   }
++
++   fid = open(path, O_RDONLY, 0600);
++   if (fid == -1) {
++       err = -errno;
++       EPRINTF("Failed to open VBD marker file for %d\n", id);
++       goto out;
++   }
++
++   return fid;
++
++out:
++   if (path) {
++       free(path);
++   }
++   return err;
++}
++
++void tapdisk_vbd_unlock(td_vbd_t *vbd)
++{
++   flock(vbd->lock_fd, LOCK_UN);
++   close(vbd->lock_fd);
++}
++
++int tapdisk_vbd_lock(td_vbd_t *vbd)
++{
++   int fid;
++
++   fid = open_vbd_marker(vbd->uuid);
++   if (fid < 0) {
++       /* Already logged */
++       return -1;
++   }
++
++   vbd->lock_fd = fid;
++   flock(vbd->lock_fd, LOCK_EX);
++
++   return 0;
++}
++
+ /*
+ int
+ tapdisk_vbd_open(td_vbd_t *vbd, const char *name,
+@@ -751,6 +801,7 @@ tapdisk_vbd_shutdown(td_vbd_t *vbd)
+ 		vbd->kicked);
+ 
+ 	tapdisk_vbd_close_vdi(vbd);
++	tapdisk_vbd_unlock(vbd);
+ 	tapdisk_server_remove_vbd(vbd);
+ 	tapdisk_vbd_free(vbd);
+ 
+@@ -868,12 +919,6 @@ tapdisk_vbd_retry_needed(td_vbd_t *vbd)
+ 	return retry;
+ }
+ 
+-int
+-tapdisk_vbd_lock(td_vbd_t *vbd)
+-{
+-	return 0;
+-}
+-
+ int
+ tapdisk_vbd_quiesce_queue(td_vbd_t *vbd)
+ {
+diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
+index 40a4200f..ce5a2861 100644
+--- a/drivers/tapdisk-vbd.h
++++ b/drivers/tapdisk-vbd.h
+@@ -167,6 +167,8 @@ struct td_vbd_handle {
+ 	struct td_vbd_encryption   encryption;
+ 
+ 	bool                       watchdog_warned;
++
++	int                        lock_fd;
+ };
+ 
+ #define tapdisk_vbd_for_each_request(vreq, tmp, list)	                \
+@@ -208,6 +210,9 @@ int tapdisk_vbd_open_vdi(td_vbd_t * vbd, const char *params, td_flag_t flags,
+         int prt_devnum);
+ void tapdisk_vbd_close_vdi(td_vbd_t *);
+ 
++int tapdisk_vbd_lock(td_vbd_t *);
++void tapdisk_vbd_unlock(td_vbd_t *);
++
+ int tapdisk_vbd_queue_request(td_vbd_t *, td_vbd_request_t *);
+ void tapdisk_vbd_forward_request(td_request_t);
+ 
+diff --git a/include/blktap.h b/include/blktap.h
+index 18c95088..3885a869 100644
+--- a/include/blktap.h
++++ b/include/blktap.h
+@@ -37,4 +37,7 @@
+ #define BLKTAP2_CONTROL_SOCKET         "ctl"
+ #define BLKTAP2_ENOSPC_SIGNAL_FILE     "/run/tapdisk-enospc"
+ 
++/* Maximum number of possible minor ids, to match old kernel definition */
++#define MAX_ID  16384
++
+ #endif /* _TD_BLKTAP_H_ */
+diff --git a/mockatests/control/Makefile.am b/mockatests/control/Makefile.am
+index 73094100..4a3ea166 100644
+--- a/mockatests/control/Makefile.am
++++ b/mockatests/control/Makefile.am
+@@ -15,6 +15,7 @@ test_control_LDFLAGS = -lcmocka
+ test_control_LDFLAGS += -static-libtool-libs
+ # Would be good to use the cmocka malloc wraps but looks like maybe strdup doesn't call malloc
+ #test_control_LDFLAGS += -Wl,--wrap=malloc,--wrap=free
++test_control_LDFLAGS += -Wl,--wrap=stat
+ test_control_LDFLAGS += -Wl,--wrap=socket,--wrap=connect,--wrap=read,--wrap=select,--wrap=write,--wrap=fdopen
+ test_control_LDFLAGS += -Wl,--wrap=open,--wrap=ioctl,--wrap=close,--wrap=access,--wrap=mkdir,--wrap=flock,--wrap=unlink,--wrap=__xmknod
+ #test_control_LDFLAGS += -Wl,--wrap=execl,--wrap=waitpid
+diff --git a/mockatests/control/control-wrappers.c b/mockatests/control/control-wrappers.c
+index e129f470..cc0ac00b 100644
+--- a/mockatests/control/control-wrappers.c
++++ b/mockatests/control/control-wrappers.c
+@@ -37,6 +37,7 @@
+ #include <cmocka.h>
+ #include <errno.h>
+ #include <sys/socket.h>
++#include <sys/stat.h>
+ 
+ #include "control-wrappers.h"
+ 
+@@ -238,6 +239,7 @@ __wrap_flock(int fd, int operation)
+ {
+ 	int result;
+ 	check_expected(fd);
++	check_expected(operation);
+ 	result = mock();
+ 	if (result != 0) {
+ 		errno = result;
+@@ -316,6 +318,23 @@ __wrap_globfree(glob_t *pglob)
+ }
+ 
+ 
++int
++__wrap_stat(const char *pathname, struct stat *statbuf)
++{
++	check_expected(pathname);
++	int result = mock();
++	printf("__wrap_stat result = %d\n", result);
++	if (result == -1) {
++		printf("__wrap_stat, in error path\n");
++
++		errno = mock();
++		return result;
++	}
++	statbuf = mock_ptr_type(struct stat *);
++	return result;
++}
++
++
+ void enable_control_mocks()
+ {
+ 	enable_mocks = true;
+diff --git a/mockatests/control/test-control.c b/mockatests/control/test-control.c
+index 99600069..6ff3e117 100644
+--- a/mockatests/control/test-control.c
++++ b/mockatests/control/test-control.c
+@@ -59,9 +59,9 @@ int main(void)
+ 		cmocka_run_group_tests_name(
+ 			"Close tests",
+ 			tap_ctl_close_tests, testSetup, testTeardown) +
+-		/* cmocka_run_group_tests_name( */
+-		/* 	"Free tests", */
+-		/* 	tap_ctl_free_tests, testSetup, testTeardown) + */
++		cmocka_run_group_tests_name(
++			"Free tests",
++			tap_ctl_free_tests, testSetup, testTeardown) +
+ 		cmocka_run_group_tests_name(
+ 			"List tests",
+ 			tap_ctl_list_tests, testSetup, testTeardown);
+diff --git a/mockatests/control/test-suites.h b/mockatests/control/test-suites.h
+index cb69f787..381cee85 100644
+--- a/mockatests/control/test-suites.h
++++ b/mockatests/control/test-suites.h
+@@ -41,11 +41,10 @@
+ 
+ /* tap-ctl allocate tests */
+ void test_tap_ctl_allocate_prep_dir_no_access(void **state);
+-void test_tap_ctl_allocate_no_device_info(void **state);
+-void test_tap_ctl_allocate_make_device_fail(void **state);
+-void test_tap_ctl_allocate_ring_create_fail(void **state);
+-void test_tap_ctl_allocate_io_device_fail(void **state);
+-void test_tap_ctl_allocate_success(void **state);
++void test_tap_ctl_allocate_prep_runtime_dir_no_access(void **state);
++void test_tap_ctl_allocate_first_success(void **state);
++void test_tap_ctl_allocate_create_failed(void **state);
++void test_tap_ctl_allocate_one_exists_success(void **state);
+ 
+ /* tap-ctl close tests */
+ void test_tap_ctl_close_success(void **state);
+@@ -60,7 +59,7 @@ void test_tap_ctl_close_error_response(void **state);
+ /* tap-ctl free tests */
+ void test_tap_ctl_free_open_fail(void **state);
+ void test_tap_ctl_free_success(void **state);
+-void test_tap_ctl_free_ioctl_busy(void **state);
++void test_tap_ctl_free_locked(void **state);
+ 
+ /* tap-ctl list tests */
+ void test_tap_ctl_list_success_no_results(void **state);
+@@ -70,12 +69,11 @@ void test_tap_ctl_list_success_one_td_one_minor_no_path(void **state);
+ void test_tap_ctl_list_success(void **state);
+ 
+ static const struct CMUnitTest tap_ctl_allocate_tests[] = {
+-	cmocka_unit_test(test_tap_ctl_allocate_prep_dir_no_access)
+-	/* cmocka_unit_test(test_tap_ctl_allocate_no_device_info), */
+-	/* cmocka_unit_test(test_tap_ctl_allocate_make_device_fail), */
+-	/* cmocka_unit_test(test_tap_ctl_allocate_ring_create_fail), */
+-	/* cmocka_unit_test(test_tap_ctl_allocate_io_device_fail), */
+-	/* cmocka_unit_test(test_tap_ctl_allocate_success) */
++	cmocka_unit_test(test_tap_ctl_allocate_prep_dir_no_access),
++	cmocka_unit_test(test_tap_ctl_allocate_prep_runtime_dir_no_access),
++	cmocka_unit_test(test_tap_ctl_allocate_first_success),
++	cmocka_unit_test(test_tap_ctl_allocate_create_failed),
++	cmocka_unit_test(test_tap_ctl_allocate_one_exists_success)
+ };
+ 
+ static const struct CMUnitTest tap_ctl_close_tests[] = {
+@@ -89,11 +87,11 @@ static const struct CMUnitTest tap_ctl_close_tests[] = {
+ 	cmocka_unit_test(test_tap_ctl_close_error_response)
+ };
+ 
+-/* static const struct CMUnitTest tap_ctl_free_tests[] = { */
+-/* 	cmocka_unit_test(test_tap_ctl_free_open_fail), */
+-/* 	cmocka_unit_test(test_tap_ctl_free_success), */
+-/* 	cmocka_unit_test(test_tap_ctl_free_ioctl_busy) */
+-/* }; */
++static const struct CMUnitTest tap_ctl_free_tests[] = {
++	cmocka_unit_test(test_tap_ctl_free_open_fail),
++	cmocka_unit_test(test_tap_ctl_free_success),
++	cmocka_unit_test(test_tap_ctl_free_locked)
++};
+ 
+ static const struct CMUnitTest tap_ctl_list_tests[] = {
+ 	cmocka_unit_test(test_tap_ctl_list_success_no_results),
+diff --git a/mockatests/control/test-tap-ctl-allocate.c b/mockatests/control/test-tap-ctl-allocate.c
+index 68a4813b..309c1504 100644
+--- a/mockatests/control/test-tap-ctl-allocate.c
++++ b/mockatests/control/test-tap-ctl-allocate.c
+@@ -34,6 +34,8 @@
+ #include <setjmp.h>
+ #include <cmocka.h>
+ #include <errno.h>
++#include <sys/file.h>
++#include <sys/stat.h>
+ 
+ #include <wrappers.h>
+ #include "control-wrappers.h"
+@@ -42,62 +44,56 @@
+ #include "tap-ctl.h"
+ #include "blktap.h"
+ 
+-void *proc_misc_data = NULL;
+ 
+-/*
+- * not including " 55 blktap/control\n"
+- */
+-char *basic_proc_misc = 
+-"200 tun\n"
+-" 46 dlm_xapi-clusterd-lockspace\n"
+-" 47 dlm_plock\n"
+-" 48 dlm-monitor\n"
+-" 49 dlm-control\n"
+-"237 loop-control\n"
+-"236 device-mapper\n"
+-"130 watchdog\n"
+-" 50 nvme-fabrics\n"
+-" 51 memory_bandwidth\n"
+-" 52 network_throughput\n"
+-" 53 network_latency\n"
+-" 54 cpu_dma_latency\n"
+-"  1 psaux\n"
+-"183 hw_random\n"
+-"228 hpet\n"
+-" 56 xen/hypercall\n"
+-" 57 xen/privcmd\n"
+-"227 mcelog\n"
+-" 58 xen/gntalloc\n"
+-" 59 xen/gntdev\n"
+-" 60 xen/evtchn\n"
+-" 61 xen/xenbus_backend\n"
+-" 62 xen/xenbus\n"
+-"235 autofs\n"
+-" 63 vga_arbiter\n";
+-
+-FILE *prepare_mock_misc(char *additional_data)
++void test_tap_ctl_allocate_prep_dir_no_access(void **state)
+ {
+-	size_t file_size = strlen(basic_proc_misc) + 1;
+-
+-	if (additional_data) {
+-		file_size += strnlen(additional_data, 1024);
+-	}
+-	proc_misc_data = test_malloc(file_size);
+-	strncpy(proc_misc_data, basic_proc_misc, file_size);
+-	if (additional_data) {
+-		strncpy(proc_misc_data + strlen(basic_proc_misc),
+-			additional_data, file_size - strlen(basic_proc_misc));
+-	}
+-	return fmemopen(proc_misc_data, file_size, "r");
++	int result;
++	int minor;
++	char *devname;
++
++	will_return(__wrap_access, ENOENT);
++	expect_string(__wrap_access, pathname, "/run/blktap-control");
++	will_return(__wrap_mkdir, EEXIST);
++	expect_string(__wrap_mkdir, pathname, "/run");
++	will_return(__wrap_mkdir, EACCES);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control");
++
++	result = tap_ctl_allocate(&minor, &devname);
++
++	assert_int_equal(-EACCES, result);
+ }
+ 
+-void free_mock_misc(void)
++void test_tap_ctl_allocate_prep_runtime_dir_no_access(void **state)
+ {
+-	test_free(proc_misc_data);
++	int result;
++	int minor;
++	char *devname;
++
++	will_return(__wrap_access, ENOENT);
++	expect_string(__wrap_access, pathname, "/run/blktap-control");
++	will_return(__wrap_mkdir, EEXIST);
++	expect_string(__wrap_mkdir, pathname, "/run");
++	will_return(__wrap_mkdir, 0);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control");
++
++
++	will_return(__wrap_access, ENOENT);
++	expect_string(__wrap_access, pathname, "/run/blktap-control/tapdisk");
++	will_return(__wrap_mkdir, EEXIST);
++	expect_string(__wrap_mkdir, pathname, "/run");
++	will_return(__wrap_mkdir, 0);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control");
++	    will_return(__wrap_mkdir, EACCES);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control/tapdisk");
++
++	result = tap_ctl_allocate(&minor, &devname);
++
++	assert_int_equal(-EACCES, result);
+ }
+ 
+-void test_tap_ctl_allocate_prep_dir_no_access(void **state)
++void test_tap_ctl_allocate_first_success(void **state)
+ {
++	int dev_fd = 12;
+ 	int result;
+ 	int minor;
+ 	char *devname;
+@@ -106,301 +102,152 @@ void test_tap_ctl_allocate_prep_dir_no_access(void **state)
+ 	expect_string(__wrap_access, pathname, "/run/blktap-control");
+ 	will_return(__wrap_mkdir, EEXIST);
+ 	expect_string(__wrap_mkdir, pathname, "/run");
+-	will_return(__wrap_mkdir, EACCES);
++	will_return(__wrap_mkdir, 0);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control");
++
++
++	will_return(__wrap_access, ENOENT);
++	expect_string(__wrap_access, pathname, "/run/blktap-control/tapdisk");
++	will_return(__wrap_mkdir, EEXIST);
++	expect_string(__wrap_mkdir, pathname, "/run");
++	will_return(__wrap_mkdir, 0);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control");
++	    will_return(__wrap_mkdir, 0);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control/tapdisk");
++
++	will_return(__wrap_open, dev_fd);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk");
++
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, dev_fd);
++	expect_value(__wrap_flock, operation, LOCK_EX);
++
++	will_return(__wrap_stat, -1);
++	will_return(__wrap_stat, ENOENT);
++	expect_string(__wrap_stat, pathname, "/run/blktap-control/tapdisk/tapdisk-0");
++
++	will_return(__wrap_open, 13);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk/tapdisk-0");
++
++	will_return(__wrap_close, 0);
++	expect_value(__wrap_close, fd, 13);
++
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, 12);
++	expect_value(__wrap_flock, operation, LOCK_UN);
++
++	will_return(__wrap_close, 0);
++	expect_value(__wrap_close, fd, 12);
++
++	result = tap_ctl_allocate(&minor, &devname);
++
++	assert_int_equal(0, result);
++}
++
++void test_tap_ctl_allocate_create_failed(void **state)
++{
++	int dev_fd = 12;
++	int result;
++	int minor;
++	char *devname;
++
++	will_return(__wrap_access, ENOENT);
++	expect_string(__wrap_access, pathname, "/run/blktap-control");
++	will_return(__wrap_mkdir, EEXIST);
++	expect_string(__wrap_mkdir, pathname, "/run");
++	will_return(__wrap_mkdir, 0);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control");
++
++
++	will_return(__wrap_access, ENOENT);
++	expect_string(__wrap_access, pathname, "/run/blktap-control/tapdisk");
++	will_return(__wrap_mkdir, EEXIST);
++	expect_string(__wrap_mkdir, pathname, "/run");
++	will_return(__wrap_mkdir, 0);
+ 	expect_string(__wrap_mkdir, pathname, "/run/blktap-control");
++	will_return(__wrap_mkdir, 0);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control/tapdisk");
++
++	will_return(__wrap_open, dev_fd);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk");
++
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, dev_fd);
++	expect_value(__wrap_flock, operation, LOCK_EX);
++
++	will_return(__wrap_stat, -1);
++	will_return(__wrap_stat, ENOENT);
++	expect_string(__wrap_stat, pathname, "/run/blktap-control/tapdisk/tapdisk-0");
++
++	will_return(__wrap_open, -1);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk/tapdisk-0");
++
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, 12);
++	expect_value(__wrap_flock, operation, LOCK_UN);
++
++	will_return(__wrap_close, 0);
++	expect_value(__wrap_close, fd, 12);
+ 
+ 	result = tap_ctl_allocate(&minor, &devname);
+ 
+-	assert_int_equal(EACCES, result);
++	assert_int_equal(-ENOENT, result);
+ }
+ 
+-/* void test_tap_ctl_allocate_no_device_info(void **state) */
+-/* { */
+-/*     int result; */
+-/*     int minor; */
+-/*     char *devname; */
+-
+-/*     FILE *proc_misc = prepare_mock_misc(NULL); */
+-
+-/*     /\* Prepare Directory *\/ */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/var/run/blktap-control"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/var"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/var/run"); */
+-/*     will_return(__wrap_mkdir, 0); */
+-/*     expect_string(__wrap_mkdir, pathname, "/var/run/blktap-control"); */
+-/*     /\* Check Environment *\/ */
+-/*     will_return(__wrap_fopen, proc_misc); */
+-/*     will_return(__wrap_flock, 0); */
+-/*     expect_value(__wrap_flock, fd, fileno(proc_misc)); */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2/control"); */
+-/*     /\* Close check environment *\/ */
+-/*     will_return(__wrap_flock, 0); */
+-/*     expect_value(__wrap_flock, fd, fileno(proc_misc)); */
+-/*     expect_value(__wrap_fclose, fp, proc_misc); */
+-
+-/*     result = tap_ctl_allocate(&minor, &devname); */
+-
+-/*     free_mock_misc(); */
+-
+-/*     assert_int_equal(ENOSYS, result); */
+-/* } */
+-
+-/* void test_tap_ctl_allocate_make_device_fail(void **state) */
+-/* { */
+-/*     int result; */
+-/*     int minor; */
+-/*     char *devname; */
+-
+-/*     FILE *proc_misc = prepare_mock_misc(" 55 blktap/control\n"); */
+-
+-/*     /\* Prepare Directory *\/ */
+-/*     will_return(__wrap_access, 0); */
+-/*     expect_string(__wrap_access, pathname, "/var/run/blktap-control"); */
+-/*     /\* Check Environment *\/ */
+-/*     will_return(__wrap_fopen, proc_misc); */
+-/*     will_return(__wrap_flock, 0); */
+-/*     expect_value(__wrap_flock, fd, fileno(proc_misc)); */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2/control"); */
+-/*     /\* Make Device/Prepare Directory*\/ */
+-/*     will_return(__wrap_access, 0); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_unlink, 0); */
+-/*     expect_string(__wrap_unlink, pathname, "/dev/xen/blktap-2/control"); */
+-/*     will_return(__wrap___xmknod, EPERM); */
+-/*     expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control"); */
+-/*     /\* Close check environment *\/ */
+-/*     will_return(__wrap_flock, 0); */
+-/*     expect_value(__wrap_flock, fd, fileno(proc_misc)); */
+-/*     expect_value(__wrap_fclose, fp, proc_misc); */
+-
+-/*     result = tap_ctl_allocate(&minor, &devname); */
+-
+-/*     free_mock_misc(); */
+-
+-/*     assert_int_equal(EPERM, result); */
+-/* } */
+-
+-/* void test_tap_ctl_allocate_ring_create_fail(void **state) */
+-/* { */
+-/*     int result; */
+-/*     int minor; */
+-/*     char *devname = NULL; */
+-/*     int dev_fd = 12; */
+-
+-/*     FILE *proc_misc = prepare_mock_misc(" 55 blktap/control\n"); */
+-
+-/*     /\* Prepare Directory *\/ */
+-/*     will_return(__wrap_access, 0); */
+-/*     expect_string(__wrap_access, pathname, "/var/run/blktap-control"); */
+-/*     /\* Check Environment *\/ */
+-/*     will_return(__wrap_fopen, proc_misc); */
+-/*     will_return(__wrap_flock, 0); */
+-/*     expect_value(__wrap_flock, fd, fileno(proc_misc)); */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2/control"); */
+-/*     /\* Make Device/Prepare Directory*\/ */
+-/*     will_return(__wrap_access, 0); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_unlink, 0); */
+-/*     expect_string(__wrap_unlink, pathname, "/dev/xen/blktap-2/control"); */
+-/*     will_return(__wrap___xmknod, 0); */
+-/*     expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control"); */
+-/*     /\* Close check environment *\/ */
+-/*     will_return(__wrap_flock, 0); */
+-/*     expect_value(__wrap_flock, fd, fileno(proc_misc)); */
+-/*     expect_value(__wrap_fclose, fp, proc_misc); */
+-/*     /\* allocate device *\/ */
+-/*     will_return(__wrap_open, dev_fd); */
+-/*     expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control"); */
+-/*     will_return(__wrap_ioctl, 0); */
+-/*     expect_value(__wrap_ioctl, fd, dev_fd); */
+-/*     expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_ALLOC_TAP); */
+-/*     will_return(__wrap_close, 0); */
+-/*     expect_value(__wrap_close, fd, dev_fd); */
+-/*     /\* Make Device - ring *\/ */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev/xen"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_unlink, 0); */
+-/*     expect_any(__wrap_unlink, pathname); */
+-/*     will_return(__wrap___xmknod, EPERM); */
+-/*     expect_any(__wrap___xmknod, pathname); */
+-/*     /\* tap-ctl-free *\/ */
+-/*     will_return(__wrap_open, dev_fd); */
+-/*     expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control"); */
+-/*     will_return(__wrap_ioctl, 0); */
+-/*     expect_value(__wrap_ioctl, fd, dev_fd); */
+-/*     expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP); */
+-/*     will_return(__wrap_close, 0); */
+-/*     expect_value(__wrap_close, fd, dev_fd); */
+-
+-/*     result = tap_ctl_allocate(&minor, &devname); */
+-
+-/*     free_mock_misc(); */
+-
+-/*     assert_int_equal(EPERM, result); */
+-/* } */
+-
+-/* void test_tap_ctl_allocate_io_device_fail(void **state) */
+-/* { */
+-/*     int result; */
+-/*     int minor; */
+-/*     char *devname = NULL; */
+-/*     int dev_fd = 12; */
+-
+-/*     FILE *proc_misc = prepare_mock_misc(" 55 blktap/control\n"); */
+-
+-/*     /\* Prepare Directory *\/ */
+-/*     will_return(__wrap_access, 0); */
+-/*     expect_string(__wrap_access, pathname, "/var/run/blktap-control"); */
+-/*     /\* Check Environment *\/ */
+-/*     will_return(__wrap_fopen, proc_misc); */
+-/*     will_return(__wrap_flock, 0); */
+-/*     expect_value(__wrap_flock, fd, fileno(proc_misc)); */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2/control"); */
+-/*     /\* Make Device/Prepare Directory*\/ */
+-/*     will_return(__wrap_access, 0); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_unlink, 0); */
+-/*     expect_string(__wrap_unlink, pathname, "/dev/xen/blktap-2/control"); */
+-/*     will_return(__wrap___xmknod, 0); */
+-/*     expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control"); */
+-/*     /\* Close check environment *\/ */
+-/*     will_return(__wrap_flock, 0); */
+-/*     expect_value(__wrap_flock, fd, fileno(proc_misc)); */
+-/*     expect_value(__wrap_fclose, fp, proc_misc); */
+-/*     /\* allocate device *\/ */
+-/*     will_return(__wrap_open, dev_fd); */
+-/*     expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control"); */
+-/*     will_return(__wrap_ioctl, 0); */
+-/*     expect_value(__wrap_ioctl, fd, dev_fd); */
+-/*     expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_ALLOC_TAP); */
+-/*     will_return(__wrap_close, 0); */
+-/*     expect_value(__wrap_close, fd, dev_fd); */
+-/*     /\* Make Device - ring *\/ */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev/xen"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_unlink, 0); */
+-/*     expect_any(__wrap_unlink, pathname); */
+-/*     will_return(__wrap___xmknod, 0); */
+-/*     expect_any(__wrap___xmknod, pathname); */
+-
+-/*     /\* Make Device - io device *\/ */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev/xen"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_unlink, 0); */
+-/*     expect_any(__wrap_unlink, pathname); */
+-/*     will_return(__wrap___xmknod, EPERM); */
+-/*     expect_any(__wrap___xmknod, pathname); */
+-
+-/*     /\* tap-ctl-free *\/ */
+-/*     will_return(__wrap_open, dev_fd); */
+-/*     expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control"); */
+-/*     will_return(__wrap_ioctl, 0); */
+-/*     expect_value(__wrap_ioctl, fd, dev_fd); */
+-/*     expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP); */
+-/*     will_return(__wrap_close, 0); */
+-/*     expect_value(__wrap_close, fd, dev_fd); */
+-
+-/*     result = tap_ctl_allocate(&minor, &devname); */
+-
+-/*     free_mock_misc(); */
+-
+-/*     assert_int_equal(EPERM, result); */
+-/* } */
+-
+-/* void test_tap_ctl_allocate_success(void **state) */
+-/* { */
+-/*     int result; */
+-/*     int minor; */
+-/*     char *devname = NULL; */
+-/*     int dev_fd = 12; */
+-
+-/*     FILE *proc_misc = prepare_mock_misc(" 55 blktap/control\n"); */
+-
+-/*     /\* Prepare Directory *\/ */
+-/*     will_return(__wrap_access, 0); */
+-/*     expect_string(__wrap_access, pathname, "/var/run/blktap-control"); */
+-/*     /\* Check Environment *\/ */
+-/*     will_return(__wrap_fopen, proc_misc); */
+-/*     will_return(__wrap_flock, 0); */
+-/*     expect_value(__wrap_flock, fd, fileno(proc_misc)); */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2/control"); */
+-/*     /\* Make Device/Prepare Directory*\/ */
+-/*     will_return(__wrap_access, 0); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_unlink, 0); */
+-/*     expect_string(__wrap_unlink, pathname, "/dev/xen/blktap-2/control"); */
+-/*     will_return(__wrap___xmknod, 0); */
+-/*     expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control"); */
+-/*     /\* Close check environment *\/ */
+-/*     will_return(__wrap_flock, 0); */
+-/*     expect_value(__wrap_flock, fd, fileno(proc_misc)); */
+-/*     expect_value(__wrap_fclose, fp, proc_misc); */
+-/*     /\* allocate device *\/ */
+-/*     will_return(__wrap_open, dev_fd); */
+-/*     expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control"); */
+-/*     will_return(__wrap_ioctl, 0); */
+-/*     expect_value(__wrap_ioctl, fd, dev_fd); */
+-/*     expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_ALLOC_TAP); */
+-/*     will_return(__wrap_close, 0); */
+-/*     expect_value(__wrap_close, fd, dev_fd); */
+-/*     /\* Make Device - ring *\/ */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev/xen"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_unlink, 0); */
+-/*     expect_any(__wrap_unlink, pathname); */
+-/*     will_return(__wrap___xmknod, 0); */
+-/*     expect_any(__wrap___xmknod, pathname); */
+-
+-/*     /\* Make Device - io device *\/ */
+-/*     will_return(__wrap_access, ENOENT); */
+-/*     expect_string(__wrap_access, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev/xen"); */
+-/*     will_return(__wrap_mkdir, EEXIST); */
+-/*     expect_string(__wrap_mkdir, pathname, "/dev/xen/blktap-2"); */
+-/*     will_return(__wrap_unlink, 0); */
+-/*     expect_any(__wrap_unlink, pathname); */
+-/*     will_return(__wrap___xmknod, 0); */
+-/*     expect_any(__wrap___xmknod, pathname); */
+-
+-
+-/*     result = tap_ctl_allocate(&minor, &devname); */
+-
+-/*     free_mock_misc(); */
+-
+-/*     assert_int_equal(0, result); */
+-/* } */
++void test_tap_ctl_allocate_one_exists_success(void **state)
++{
++	int dev_fd = 12;
++	int result;
++	int minor;
++	char *devname;
++	struct stat st_buf;
++
++	will_return(__wrap_access, ENOENT);
++	expect_string(__wrap_access, pathname, "/run/blktap-control");
++	will_return(__wrap_mkdir, EEXIST);
++	expect_string(__wrap_mkdir, pathname, "/run");
++	will_return(__wrap_mkdir, 0);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control");
++
++
++	will_return(__wrap_access, ENOENT);
++	expect_string(__wrap_access, pathname, "/run/blktap-control/tapdisk");
++	will_return(__wrap_mkdir, EEXIST);
++	expect_string(__wrap_mkdir, pathname, "/run");
++	will_return(__wrap_mkdir, 0);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control");
++	    will_return(__wrap_mkdir, 0);
++	expect_string(__wrap_mkdir, pathname, "/run/blktap-control/tapdisk");
++
++	will_return(__wrap_open, dev_fd);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk");
++
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, dev_fd);
++	expect_value(__wrap_flock, operation, LOCK_EX);
++
++	will_return(__wrap_stat, 0);
++	will_return(__wrap_stat, &st_buf);
++	expect_string(__wrap_stat, pathname, "/run/blktap-control/tapdisk/tapdisk-0");
++
++	will_return(__wrap_stat, -1);
++	will_return(__wrap_stat, ENOENT);
++	expect_string(__wrap_stat, pathname, "/run/blktap-control/tapdisk/tapdisk-1");
++
++	will_return(__wrap_open, 13);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk/tapdisk-1");
++
++	will_return(__wrap_close, 0);
++	expect_value(__wrap_close, fd, 13);
++
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, 12);
++	expect_value(__wrap_flock, operation, LOCK_UN);
++
++	will_return(__wrap_close, 0);
++	expect_value(__wrap_close, fd, 12);
++
++	result = tap_ctl_allocate(&minor, &devname);
++
++	assert_int_equal(0, result);
++}
+diff --git a/mockatests/control/test-tap-ctl-free.c b/mockatests/control/test-tap-ctl-free.c
+index 14b6a288..3b191349 100644
+--- a/mockatests/control/test-tap-ctl-free.c
++++ b/mockatests/control/test-tap-ctl-free.c
+@@ -33,6 +33,7 @@
+ #include <setjmp.h>
+ #include <cmocka.h>
+ #include <errno.h>
++#include <sys/file.h>
+ 
+ #include <wrappers.h>
+ #include "control-wrappers.h"
+@@ -41,55 +42,99 @@
+ #include "tap-ctl.h"
+ #include "blktap.h"
+ 
+-/* void test_tap_ctl_free_open_fail(void **state) */
+-/* { */
+-/* 	int dev_fd = -1; */
+-/* 	int result; */
++void test_tap_ctl_free_open_fail(void **state)
++{
++	int dev_fd = -1;
++	int result;
+ 
+-/* 	will_return(__wrap_open, dev_fd); */
+-/* 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control"); */
++	will_return(__wrap_open, dev_fd);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk");
+ 
+-/* 	result = tap_ctl_free(0); */
++	result = tap_ctl_free(0);
+ 
+-/* 	assert_int_equal(result, ENOENT); */
+-/* } */
++	assert_int_equal(result, -ENOENT);
++}
+ 
+-/* void test_tap_ctl_free_success(void **state) */
+-/* { */
+-/* 	int dev_fd = 12; */
+-/* 	int result; */
++void test_tap_ctl_free_success(void **state)
++{
++	int dev_fd = 12;
++	int marker_fd = 13;
++	int result;
+ 
+-/* 	will_return(__wrap_open, dev_fd); */
+-/* 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control"); */
++	will_return(__wrap_open, dev_fd);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk");
+ 
+-/* 	will_return(__wrap_ioctl, 0); */
+-/* 	expect_value(__wrap_ioctl, fd, dev_fd); */
+-/* 	expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP); */
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, dev_fd);
++	expect_value(__wrap_flock, operation, LOCK_EX);
+ 
+-/* 	will_return(__wrap_close, 0); */
+-/* 	expect_value(__wrap_close, fd, dev_fd); */
++	/* Open and lock, non-blocking, the marker file */
++	will_return(__wrap_open, marker_fd);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk/tapdisk-0");
+ 
+-/* 	result = tap_ctl_free(0); */
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, marker_fd);
++	expect_value(__wrap_flock, operation, LOCK_EX | LOCK_NB);
+ 
+-/* 	assert_int_equal(result, 0); */
+-/* } */
++	will_return(__wrap_unlink, 0);
++	expect_string(__wrap_unlink, pathname, "/run/blktap-control/tapdisk/tapdisk-0");
+ 
+-/* void test_tap_ctl_free_ioctl_busy(void **state) */
+-/* { */
+-/* 	int dev_fd = 12; */
+-/* 	int result; */
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, marker_fd);
++	expect_value(__wrap_flock, operation, LOCK_UN);
+ 
+-/* 	will_return(__wrap_open, dev_fd); */
+-/* 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control"); */
++	will_return(__wrap_close, 0);
++	expect_value(__wrap_close, fd, marker_fd);
+ 
+-/* 	will_return(__wrap_ioctl, EBUSY); */
+-/* 	expect_value(__wrap_ioctl, fd, dev_fd); */
+-/* 	expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP); */
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, dev_fd);
++	expect_value(__wrap_flock, operation, LOCK_UN);
+ 
+-/* 	will_return(__wrap_close, 0); */
+-/* 	expect_value(__wrap_close, fd, dev_fd); */
++	will_return(__wrap_close, 0);
++	expect_value(__wrap_close, fd, dev_fd);
+ 
+-/* 	result = tap_ctl_free(0); */
++	result = tap_ctl_free(0);
++
++	assert_int_equal(result, 0);
++}
++
++void test_tap_ctl_free_locked(void **state)
++{
++	int dev_fd = 12;
++	int marker_fd = 13;
++	int result;
++
++	will_return(__wrap_open, dev_fd);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk");
++
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, dev_fd);
++	expect_value(__wrap_flock, operation, LOCK_EX);
++
++	/* Open and lock, non-blocking, the marker file */
++	will_return(__wrap_open, marker_fd);
++	expect_string(__wrap_open, pathname, "/run/blktap-control/tapdisk/tapdisk-0");
++
++	will_return(__wrap_flock, EAGAIN);
++	expect_value(__wrap_flock, fd, marker_fd);
++	expect_value(__wrap_flock, operation, LOCK_EX | LOCK_NB);
++
++	will_return(__wrap_flock, marker_fd);
++	expect_value(__wrap_flock, fd, marker_fd);
++	expect_value(__wrap_flock, operation, LOCK_UN);
++
++	will_return(__wrap_close, 0);
++	expect_value(__wrap_close, fd, marker_fd);
++
++	will_return(__wrap_flock, 0);
++	expect_value(__wrap_flock, fd, dev_fd);
++	expect_value(__wrap_flock, operation, LOCK_UN);
++
++	will_return(__wrap_close, 0);
++	expect_value(__wrap_close, fd, dev_fd);
++
++	result = tap_ctl_free(0);
++
++	assert_int_equal(result, -EAGAIN);
++}
+ 
+-/* 	assert_int_equal(result, -EBUSY); */
+-/* } */

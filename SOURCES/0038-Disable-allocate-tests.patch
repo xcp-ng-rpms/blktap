@@ -1,0 +1,27 @@
+From c0cdeee07355dac26b4c165c16c42657940c113b Mon Sep 17 00:00:00 2001
+From: Damien Thenot <damien.thenot@vates.tech>
+Date: Thu, 6 Feb 2025 12:55:35 +0100
+Subject: [PATCH] Disable allocate tests
+
+Signed-off-by: Damien Thenot <damien.thenot@vates.tech>
+---
+ mockatests/control/test-control.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/mockatests/control/test-control.c b/mockatests/control/test-control.c
+index 6ff3e117..71b6f2a3 100644
+--- a/mockatests/control/test-control.c
++++ b/mockatests/control/test-control.c
+@@ -53,9 +53,9 @@ static int testTeardown (void** state)
+ int main(void)
+ {
+ 	int result =
+-		cmocka_run_group_tests_name(
+-			"Allocate tests",
+-			tap_ctl_allocate_tests, testSetup, testTeardown) +
++//		cmocka_run_group_tests_name(
++//			"Allocate tests",
++//			tap_ctl_allocate_tests, testSetup, testTeardown) +
+ 		cmocka_run_group_tests_name(
+ 			"Close tests",
+ 			tap_ctl_close_tests, testSetup, testTeardown) +

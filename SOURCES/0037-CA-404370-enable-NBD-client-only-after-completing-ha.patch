@@ -1,6 +1,7 @@
-CA-404370: enable NBD client only after completing handshake
-
+From bec410a02dbdc14146016a46b57278743df65790 Mon Sep 17 00:00:00 2001
 From: Mark Syms <mark.syms@cloud.com>
+Date: Tue, 7 Jan 2025 13:51:23 +0000
+Subject: [PATCH] CA-404370: enable NBD client only after completing handshake
 
 Previously the client was being enabled as part of
 `tapdisk_nbdserver_newclient_fd_new_fixed` after calling
@@ -16,9 +17,12 @@ This was causing quicktest to fail after blktap2 was removed and NBD
 is used for all control domain access to the I/O datapath.
 
 Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ drivers/tapdisk-nbdserver.c | 22 +++++++++++++---------
+ 1 file changed, 13 insertions(+), 9 deletions(-)
 
 diff --git a/drivers/tapdisk-nbdserver.c b/drivers/tapdisk-nbdserver.c
-index 2c332c2..63ab4d5 100644
+index 2c332c28..63ab4d52 100644
 --- a/drivers/tapdisk-nbdserver.c
 +++ b/drivers/tapdisk-nbdserver.c
 @@ -1029,6 +1029,7 @@ void

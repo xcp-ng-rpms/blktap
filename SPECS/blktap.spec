@@ -7,12 +7,11 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.1.0.qcow2.1%{?dist}
+Release: %{?xsrel}.1.0.noblktap.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
 Source0: blktap-3.55.5.tar.gz
-Patch0: ca-404370__enable_nbd_client_only_after_completing_handshake.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -69,6 +68,12 @@ Patch1029: 0029-qcow2-support-cancel-command.patch
 Patch1030: 0030-libqcow2-fix-abort-commit-without-crash.patch
 Patch1031: 0031-tapdisk-check-if-RD-macros-are-defined-in-ring.h-sin.patch
 Patch1032: 0032-qemu-img-add-NBD-support.patch
+Patch1033: 0033-CP-35551-stop-tapback-failing-to-start-without-blkta.patch
+Patch1034: 0034-CP-35551-stop-tap-ctl-list-looking-for-sysfs-minors.patch
+Patch1035: 0035-CP-35551-remove-blktap-device-handling.patch
+Patch1036: 0036-CP-35551-create-files-to-replace-block-device-minor-.patch
+Patch1037: 0037-CA-404370-enable-NBD-client-only-after-completing-ha.patch
+Patch1038: 0038-Disable-allocate-tests.patch
 
 
 %description
