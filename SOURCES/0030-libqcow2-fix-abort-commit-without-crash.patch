@@ -1,4 +1,4 @@
-From 1e070c4671fc16fe5691679cf310e8d9c473e6db Mon Sep 17 00:00:00 2001
+From c335ba952d0b4d77df0d3f85427181ff2151222f Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 12 Mar 2025 10:28:42 +0100
 Subject: [PATCH] libqcow2: fix abort commit without crash

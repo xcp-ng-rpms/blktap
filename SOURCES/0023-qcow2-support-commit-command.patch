@@ -1,4 +1,4 @@
-From dc4f3acae7ed8b92adf916ae1e99f7befd619eff Mon Sep 17 00:00:00 2001
+From 48879ff36b1dfee58a108119004e73190e5d9bea Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 10 Feb 2025 18:54:25 +0100
 Subject: [PATCH] qcow2: support commit command
@@ -9,7 +9,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 100 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index 70e09644..af7d50b4 100644
+index 70e09644..89164800 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -60,6 +60,8 @@
@@ -132,9 +132,9 @@ index 70e09644..af7d50b4 100644
 +    QSIMPLEQ_INSERT_TAIL(&s->inflight, req, list);
 +    pthread_mutex_unlock(&s->lock);
 +
++    pthread_mutex_lock(&s->commit_lock);
 +    qemu_bh_schedule(s->bh);
 +
-+    pthread_mutex_lock(&s->commit_lock);
 +    pthread_cond_wait(&s->commit_cond, &s->commit_lock);
 +    err = req->error;
 +    pthread_mutex_unlock(&s->commit_lock);

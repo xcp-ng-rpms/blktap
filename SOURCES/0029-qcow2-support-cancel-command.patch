@@ -1,4 +1,4 @@
-From 8fd8dc1c8d11c6f016652ad639203add962b4eef Mon Sep 17 00:00:00 2001
+From ca08498c9ac79fa2d8204913a46d67bc9faf1c85 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 5 Mar 2025 18:22:56 +0100
 Subject: [PATCH] qcow2: support cancel command
@@ -9,7 +9,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 91 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index aba9c3a8..c76bd0a7 100644
+index 043804ef..25f280e8 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -100,6 +100,7 @@ enum qcow2_ops {
@@ -101,9 +101,9 @@ index aba9c3a8..c76bd0a7 100644
 +    QSIMPLEQ_INSERT_TAIL(&s->inflight, req, list);
 +    pthread_mutex_unlock(&s->lock);
 +
++    pthread_mutex_lock(&s->commit_lock);
 +    qemu_bh_schedule(s->bh);
 +
-+    pthread_mutex_lock(&s->commit_lock);
 +    pthread_cond_wait(&s->commit_cond, &s->commit_lock);
 +    err = req->error;
 +    pthread_mutex_unlock(&s->commit_lock);

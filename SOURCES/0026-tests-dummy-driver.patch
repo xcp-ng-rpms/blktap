@@ -1,4 +1,4 @@
-From 7a64865b1bd670ecddb65e1245482db0d37439dc Mon Sep 17 00:00:00 2001
+From 5dcf037ee583bd90d9df254ae8dabb6a63e3e3ae Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 18 Feb 2025 18:16:19 +0100
 Subject: [PATCH] tests: dummy driver

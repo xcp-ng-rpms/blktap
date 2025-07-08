@@ -1,4 +1,4 @@
-From f5a730991e1eb9485030f2b0ae97e17fabc3ee55 Mon Sep 17 00:00:00 2001
+From 4a0bee45d2b2ab0dc8abc1ae00b6a5c8dd66dcd0 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 5 Mar 2025 18:09:16 +0100
 Subject: [PATCH] tapdisk: support new cancel command

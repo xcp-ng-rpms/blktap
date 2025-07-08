@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.1.0.qcow2.1%{?dist}
+Release: %{?xsrel}.1.1.qcow2.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -203,6 +203,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Tue Jul 08 2025 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-2.1.1.qcow2.1
+- Qcow2: fix a race condition between commit/abort/close commands.
+
 * Thu Mar 29 2025 Damien Thenot <damien.thenot@vates.tech> - 3.55.5-2.1.0.qcow2.1
 - Add QCOW2 support
 

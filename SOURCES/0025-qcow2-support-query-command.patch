@@ -1,4 +1,4 @@
-From 7e9961eca20da23fdad82429e38dd55d44589e88 Mon Sep 17 00:00:00 2001
+From 64e20399fbad73e6cc45a9703d03af83ac279ff8 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 13 Feb 2025 08:56:22 +0100
 Subject: [PATCH] qcow2: support query command
@@ -9,7 +9,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 105 insertions(+)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index af7d50b4..aba9c3a8 100644
+index 89164800..043804ef 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -61,6 +61,7 @@
@@ -69,9 +69,9 @@ index af7d50b4..aba9c3a8 100644
 +    QSIMPLEQ_INSERT_TAIL(&s->inflight, req, list);
 +    pthread_mutex_unlock(&s->lock);
 +
++    pthread_mutex_lock(&s->commit_lock);
 +    qemu_bh_schedule(s->bh);
 +
-+    pthread_mutex_lock(&s->commit_lock);
 +    pthread_cond_wait(&s->commit_cond, &s->commit_lock);
 +
 +    if (query) {

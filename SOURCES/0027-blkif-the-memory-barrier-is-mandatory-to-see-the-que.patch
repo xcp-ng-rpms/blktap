@@ -1,4 +1,4 @@
-From 6566141219c699c827f7f5e7be70e94e710bb830 Mon Sep 17 00:00:00 2001
+From c97ba7e257545c42d9a967d19c2012145d3b8bc1 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 27 Feb 2025 17:41:36 +0100
 Subject: [PATCH] blkif: the memory barrier is mandatory to see the queued

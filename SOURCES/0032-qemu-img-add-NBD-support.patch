@@ -1,4 +1,4 @@
-From fc051357330c29da88b9e068d009e76e1a332420 Mon Sep 17 00:00:00 2001
+From 231f9ca0e67f57800f195e902eff79d719c9c73e Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 22 Apr 2025 16:43:01 +0200
 Subject: [PATCH] qemu-img: add NBD support
