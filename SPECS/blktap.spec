@@ -1,6 +1,6 @@
-%global package_speccommit e1853b343f35f18ca9d9baee8ca22a8e3378176f
+%global package_speccommit 13524843cce557fb6a3412a7f11bcffbfd9595a2
 %global usver 3.55.5
-%global xsver 2
+%global xsver 3
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
@@ -18,7 +18,7 @@ BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
 BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autogen, autoconf, automake, libtool, libuuid-devel
 BuildRequires: kernel-headers, xen-libs-devel, zlib-devel, libcmocka-devel, lcov, git
-BuildRequires: xs-openssl-devel >= 1.1.1
+BuildRequires: openssl-devel >= 3.0.9
 BuildRequires: devtoolset-11-gcc
 BuildRequires: devtoolset-11-binutils
 BuildRequires: devtoolset-11-liblsan-devel
@@ -66,9 +66,9 @@ source /opt/rh/devtoolset-11/enable
 echo -n %{version} > VERSION
 sh autogen.sh
 # The following can be used for leak tracing
-#%%configure LDFLAGS="$LDFLAGS -Wl,-rpath=/lib64/citrix -lrt -static-liblsan" CFLAGS="$CFLAGS  -Wno-stringop-truncation -fsanitize=leak -ggdb -fno-omit-frame-pointer"
-#%%configure LDFLAGS="$LDFLAGS -Wl,-rpath=/lib64/citrix" CFLAGS="$CFLAGS -Wno-stringop-truncation -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
-%configure LDFLAGS="$LDFLAGS -Wl,-rpath=/lib64/citrix" CFLAGS="$CFLAGS -Wno-stringop-truncation"
+#%%configure LDFLAGS="$LDFLAGS -lrt -static-liblsan" CFLAGS="$CFLAGS  -Wno-stringop-truncation -fsanitize=leak -ggdb -fno-omit-frame-pointer"
+#%%configure CFLAGS="$CFLAGS -Wno-stringop-truncation -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
+%configure CFLAGS="$CFLAGS -Wno-stringop-truncation"
 %{?_cov_wrap} make %{?coverage:GCOV=true}
 
 %check
@@ -174,6 +174,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Feb 21 2025 Deli Zhang <deli.zhang@cloud.com> - 3.55.5-3
+- CP-50273: Move CCM dependency to OpenSSL 3
+
 * Tue Feb 11 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-2
 - CA-404370: enable NBD client only after completing handshake
 
