@@ -1,6 +1,6 @@
-%global package_speccommit 13524843cce557fb6a3412a7f11bcffbfd9595a2
+%global package_speccommit b2b1f8f158f3c539282a729b6527cf5f17d0861e
 %global usver 3.55.5
-%global xsver 3
+%global xsver 4
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
@@ -13,6 +13,7 @@ Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
 Source0: blktap-3.55.5.tar.gz
 Patch0: ca-404370__enable_nbd_client_only_after_completing_handshake.patch
+Patch1: cp_54256_log_eopnotsupp
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -174,6 +175,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Mon Apr 07 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-4
+- CP-54256: log when reporting EOPNOTSUPP
+
 * Fri Feb 21 2025 Deli Zhang <deli.zhang@cloud.com> - 3.55.5-3
 - CP-50273: Move CCM dependency to OpenSSL 3
 
