@@ -35,6 +35,8 @@ Provides: blktap(nbd) = 2.0
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 
+Conflicts: sm < 4.0.0
+
 %description
 Blktap creates kernel block devices which realize I/O requests to
 processes implementing virtual hard disk images entirely in user
