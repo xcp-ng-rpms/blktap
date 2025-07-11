@@ -1,19 +1,17 @@
 %global package_speccommit b2b1f8f158f3c539282a729b6527cf5f17d0861e
-%global usver 3.55.5
-%global xsver 4
+%global usver 4.0.3
+%global xsver 0
 %global xsrel %{xsver}%{?xscount}%{?xshash}
-%global package_srccommit v3.55.5
+%global package_srccommit v4.0.3
 
 Summary: blktap user space utilities
 Name: blktap
-Version: 3.55.5
-Release: %{?xsrel}.2%{?dist}
+Version: 4.0.3
+Release: %{?xsrel}.0.ydi.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
-Source0: blktap-3.55.5.tar.gz
-Patch0: ca-404370__enable_nbd_client_only_after_completing_handshake.patch
-Patch1: cp_54256_log_eopnotsupp
+Source0: blktap-%{version}.tar.gz
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -177,6 +175,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Jul 11 2025 Yann Dirson <yann.dirson@vates.tech> - 4.0.3-0.0.ydi.1
+- New upstream
+
 * Fri Jul 11 2025 Yann Dirson <yann.dirson@vates.tech> - 3.55.5-4.0.ydi.1
 - Rebase on 3.55.5-4
 - use standard toolchain
