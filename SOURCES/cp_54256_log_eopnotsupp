@@ -1,0 +1,65 @@
+From 4935013b85bad9672247510e4d6816b199b16b2c Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@cloud.com>
+Date: Fri, 4 Apr 2025 10:13:21 +0100
+Subject: [PATCH] CP-54256: log errors when reporting EOPNOTSUP
+
+In cases where a request cannot be dispatched because a driver doesn't
+implement the target function log the error before returing the error
+code.
+
+Additionally log the image name when processing a failure in
+td_complete_request.
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+---
+ drivers/tapdisk-interface.c | 3 +++
+ drivers/tapdisk-vbd.c       | 3 ++-
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
+index facb6d0..2cdd128 100644
+--- a/drivers/tapdisk-interface.c
++++ b/drivers/tapdisk-interface.c
+@@ -183,6 +183,7 @@ td_queue_write(td_image_t *image, td_request_t treq)
+ 	}
+ 
+ 	if (!driver->ops->td_queue_write) {
++		EPRINTF("Driver %s does not support write", driver->name);
+ 		err = -EOPNOTSUPP;
+ 		goto fail;
+ 	}
+@@ -217,6 +218,7 @@ td_queue_read(td_image_t *image, td_request_t treq)
+ 	}
+ 
+ 	if (!driver->ops->td_queue_read) {
++		EPRINTF("Driver %s does not support read", driver->name);
+ 		err = -EOPNOTSUPP;
+ 		goto fail;
+ 	}
+@@ -251,6 +253,7 @@ td_queue_block_status(td_image_t *image, td_request_t *treq)
+ 	}
+ 
+ 	if (!driver->ops->td_queue_block_status) {
++		EPRINTF("Driver %s does not support block status", driver->name);
+ 		err = -EOPNOTSUPP;
+ 		goto fail;
+ 	}
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 628df4c..8438570 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1255,9 +1255,10 @@ __tapdisk_vbd_complete_td_request(td_vbd_t *vbd, td_vbd_request_t *vreq,
+ 			if (!vreq->error &&
+ 			    err != vreq->prev_error)
+ 				tlog_drv_error(image->driver, err,
+-					       "req %s: %s 0x%04x secs @ 0x%08"PRIx64" - %s",
++					       "req %s: %s %s 0x%04x secs @ 0x%08"PRIx64" - %s",
+ 					       vreq->name,
+ 					       op_strings[treq.op],
++						   image->name,
+ 					       treq.secs, treq.sec, strerror(abs(err)));
+ 			vbd->errors++;
+ 		}
+-- 
+2.49.0
+
