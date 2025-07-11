@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 4.0.3
-Release: %{?xsrel}.0.ydi.1%{?dist}
+Release: %{?xsrel}.0.ydi.2%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -90,10 +90,6 @@ rm -f %{buildroot}%{_libdir}/*.la
 ## Remove static libraries; they should not be used by other packages
 rm -f %{buildroot}%{_libdir}/*.a
 
-%triggerin -- mdadm
-echo 'KERNEL=="td[a-z]*", GOTO="md_end"' > /etc/udev/rules.d/65-md-incremental.rules
-cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-incremental.rules
-
 %files
 %defattr(-,root,root,-)
 %docdir /usr/share/doc/%{name}
@@ -140,9 +136,6 @@ cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-inc
 /sbin/ldconfig
 %systemd_postun tapback.service
 %systemd_postun cpumond.service
-if [ $1 -eq 0 ]; then
-    rm -f %{_sysconfdir}/udev/rules.d/65-md-incremental.rules
-fi
 
 # The posttrans invocation of ldconfig is needed because older
 # versions of blktap did not have ldconfig in their postun script.
@@ -175,9 +168,10 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
-* Fri Jul 11 2025 Yann Dirson <yann.dirson@vates.tech> - 4.0.3-0.0.ydi.1
+* Fri Jul 11 2025 Yann Dirson <yann.dirson@vates.tech> - 4.0.3-0.0.ydi.2
 - New upstream
 - TEMP HACK do not run checks
+- Stop messing 65-md-incremental.rules which does not exist any more
 
 * Fri Jul 11 2025 Yann Dirson <yann.dirson@vates.tech> - 3.55.5-4.0.ydi.1
 - Rebase on 3.55.5-4
