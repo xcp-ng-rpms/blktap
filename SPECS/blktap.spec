@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.2%{?dist}
+Release: %{?xsrel}.3%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -36,6 +36,8 @@ Provides: blktap(nbd) = 2.0
 # XCP-ng patches
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+Patch1002: 0002-CP-308382-fix-sign-conversion-in-coalesce.patch
+Patch1003: 0003-Fix-coalesced-size-conversion-in-vhd-util-coalesce.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -178,7 +180,12 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
-* Fri Jul  4 2025 Yann Dirson <yann.dirson@vates.tech> - 3.55.5-2.2
+* Thu Jul 31 2025 Ronan Abhamon <ronan.abhamon@vates.tech> - 3.55.5-2.3
+- Fix a bad integer conversion that interrupts valid coalesce calls on large VDIs
+- Add 0002-CP-308382-fix-sign-conversion-in-coalesce.patch
+- Add 0003-Fix-coalesced-size-conversion-in-vhd-util-coalesce.patch
+
+* Fri Jul 04 2025 Yann Dirson <yann.dirson@vates.tech> - 3.55.5-2.2
 - Drop useless autogen build-dep
 
 * Fri Mar 28 2025 Samuel Verschelde <stormi-xcp@ylix.fr> - 3.55.5-2.1
