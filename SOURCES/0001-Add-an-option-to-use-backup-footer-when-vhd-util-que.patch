@@ -1,4 +1,4 @@
-From e3482730d74c78c8827becbdc5b4eb14593a1582 Mon Sep 17 00:00:00 2001
+From c9237c52ffdf876c2d2e1a12b8c4a0cff68eafee Mon Sep 17 00:00:00 2001
 From: Ronan Abhamon <ronan.abhamon@vates.tech>
 Date: Wed, 18 Dec 2024 16:55:26 +0100
 Subject: [PATCH] Add an option to use backup footer when vhd-util query is
@@ -9,11 +9,11 @@ on vhd-util.
 
 Signed-off-by: Ronan Abhamon <ronan.abhamon@vates.tech>
 ---
- vhd/lib/vhd-util-query.c | 36 ++++++++++++++++++++----------------
- 1 file changed, 20 insertions(+), 16 deletions(-)
+ vhd/lib/vhd-util-query.c | 38 +++++++++++++++++++++-----------------
+ 1 file changed, 21 insertions(+), 17 deletions(-)
 
 diff --git a/vhd/lib/vhd-util-query.c b/vhd/lib/vhd-util-query.c
-index 0cd0416..13bd563 100644
+index 0cd0416..3aca668 100644
 --- a/vhd/lib/vhd-util-query.c
 +++ b/vhd/lib/vhd-util-query.c
 @@ -43,29 +43,29 @@
@@ -80,6 +80,15 @@ index 0cd0416..13bd563 100644
  	if (err) {
  		printf("error opening %s: %d\n", name, err);
  		return err;
+@@ -207,7 +210,7 @@ vhd_util_query(int argc, char **argv)
+ 		max_size = vhd.header.max_bat_size << (VHD_BLOCK_SHIFT - 20);
+ 		printf("%"PRIu64"\n", max_size);
+ 	}
+-		
++
+ 	vhd_close(&vhd);
+ 	return err;
+ 
 @@ -218,6 +221,7 @@ usage:
  	       "[-S print max virtual size (MB) for fast resize] "
  	       "[-a print allocated block count] "
