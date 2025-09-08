@@ -1,6 +1,6 @@
-%global package_speccommit b2b1f8f158f3c539282a729b6527cf5f17d0861e
+%global package_speccommit af72a3a53e2e66973dc542c79c50e5aed630b65c
 %global usver 3.55.5
-%global xsver 4
+%global xsver 6
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
@@ -14,6 +14,9 @@ URL: https://github.com/xapi-project/blktap
 Source0: blktap-3.55.5.tar.gz
 Patch0: ca-404370__enable_nbd_client_only_after_completing_handshake.patch
 Patch1: cp_54256_log_eopnotsupp
+Patch2: ca-408175__distinguish_logging_for_long_nbd_operations.patch
+Patch3: CP-308382_fix_sign_conversion_in_coalesce
+Patch4: fix_coalesced_size_conversion_in_vhd-util-coalesce.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -175,6 +178,13 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Jul 31 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-6
+- Fix coalesced size conversion in vhd-util-coalesce (CP-308382)
+
+* Mon Jun 23 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-5
+- Backport fix for CA-408175
+- CP-308382: fix sign conversion in coalesce
+
 * Mon Apr 07 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-4
 - CP-54256: log when reporting EOPNOTSUPP
 
