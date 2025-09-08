@@ -1,7 +1,6 @@
-From c5cd0420af4382551648be30f710cd75ba8ecc6f Mon Sep 17 00:00:00 2001
+Fix coalesced size conversion in vhd-util-coalesce
+
 From: Ronan Abhamon <ronan.abhamon@vates.tech>
-Date: Wed, 30 Jul 2025 15:14:24 +0200
-Subject: [PATCH] Fix coalesced size conversion in vhd-util-coalesce
 
 If coalesced_size exceeds the max size of an int32,
 it will be incorrectly converted from int64 to int32
@@ -9,9 +8,6 @@ and result in a negative value during assignment of
 the return from vhd_util_coalesce_onto.
 
 Signed-off-by: Ronan Abhamon <ronan.abhamon@vates.tech>
----
- vhd/lib/vhd-util-coalesce.c | 11 ++++++-----
- 1 file changed, 6 insertions(+), 5 deletions(-)
 
 diff --git a/vhd/lib/vhd-util-coalesce.c b/vhd/lib/vhd-util-coalesce.c
 index d3a85d6..8bcfb79 100644

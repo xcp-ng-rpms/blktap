@@ -1,18 +1,22 @@
-%global package_speccommit e1853b343f35f18ca9d9baee8ca22a8e3378176f
+%global package_speccommit af72a3a53e2e66973dc542c79c50e5aed630b65c
 %global usver 3.55.5
-%global xsver 2
+%global xsver 6
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.3%{?dist}
+Release: %{?xsrel}.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
 Source0: blktap-3.55.5.tar.gz
 Patch0: ca-404370__enable_nbd_client_only_after_completing_handshake.patch
+Patch1: cp_54256_log_eopnotsupp
+Patch2: ca-408175__distinguish_logging_for_long_nbd_operations.patch
+Patch3: CP-308382_fix_sign_conversion_in_coalesce
+Patch4: fix_coalesced_size_conversion_in_vhd-util-coalesce.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -36,8 +40,6 @@ Provides: blktap(nbd) = 2.0
 # XCP-ng patches
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
-Patch1002: 0002-CP-308382-fix-sign-conversion-in-coalesce.patch
-Patch1003: 0003-Fix-coalesced-size-conversion-in-vhd-util-coalesce.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -72,9 +74,9 @@ source /opt/rh/devtoolset-11/enable
 echo -n %{version} > VERSION
 sh autogen.sh
 # The following can be used for leak tracing
-#%%configure LDFLAGS="$LDFLAGS -Wl,-rpath=/lib64/citrix -lrt -static-liblsan" CFLAGS="$CFLAGS  -Wno-stringop-truncation -fsanitize=leak -ggdb -fno-omit-frame-pointer"
-#%%configure LDFLAGS="$LDFLAGS -Wl,-rpath=/lib64/citrix" CFLAGS="$CFLAGS -Wno-stringop-truncation -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
-%configure LDFLAGS="$LDFLAGS -Wl,-rpath=/lib64/citrix" CFLAGS="$CFLAGS -Wno-stringop-truncation"
+#%%configure LDFLAGS="$LDFLAGS -lrt -static-liblsan" CFLAGS="$CFLAGS  -Wno-stringop-truncation -fsanitize=leak -ggdb -fno-omit-frame-pointer"
+#%%configure CFLAGS="$CFLAGS -Wno-stringop-truncation -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
+%configure CFLAGS="$CFLAGS -Wno-stringop-truncation"
 %{?_cov_wrap} make %{?coverage:GCOV=true}
 
 %check
@@ -180,6 +182,22 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Mon Sep 08 2025 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-6.1
+- Sync with 3.55.5-6
+- Revert openssl 3 dependency from XS specfile (no change compared to previous XCP-ng release)
+- Drop patch 0002-CP-308382-fix-sign-conversion-in-coalesce.patch, upstream now
+- Drop patch 0003-Fix-coalesced-size-conversion-in-vhd-util-coalesce.patch, upstream now
+- *** Upstream changelog ***
+  * Thu Jul 31 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-6
+  - Fix coalesced size conversion in vhd-util-coalesce (CP-308382)
+  * Mon Jun 23 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-5
+  - Backport fix for CA-408175
+  - CP-308382: fix sign conversion in coalesce
+  * Mon Apr 07 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-4
+  - CP-54256: log when reporting EOPNOTSUPP
+  * Fri Feb 21 2025 Deli Zhang <deli.zhang@cloud.com> - 3.55.5-3
+  - CP-50273: Move CCM dependency to OpenSSL 3
+
 * Thu Jul 31 2025 Ronan Abhamon <ronan.abhamon@vates.tech> - 3.55.5-2.3
 - Fix a bad integer conversion that interrupts valid coalesce calls on large VDIs
 - Add 0002-CP-308382-fix-sign-conversion-in-coalesce.patch
