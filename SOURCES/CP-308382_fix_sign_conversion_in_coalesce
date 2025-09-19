@@ -1,4 +1,4 @@
-From 44a1f8e88edf6fc09b2ba44f0902638c2f3ee7f5 Mon Sep 17 00:00:00 2001
+From f4ec626158a4803d4042f1161d39ffe1ca8a630a Mon Sep 17 00:00:00 2001
 From: Mark Syms <mark.syms@cloud.com>
 Date: Tue, 17 Jun 2025 17:03:08 +0100
 Subject: [PATCH] CP-308382: fix sign conversion in coalesce
@@ -70,3 +70,6 @@ index 41132c2..d3a85d6 100644
  		if (err < 0)
  			goto out;
  
+-- 
+2.49.0
+
