@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 4.0.3
-Release: %{?xsrel}.0.ydi.2%{?dist}
+Release: %{?xsrel}.0.ydi.3%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -32,6 +32,8 @@ Provides: blktap(nbd) = 2.0
 # XCP-ng patches
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+# Required for build on ARM
+Patch1002: 0001-Use-libc-API-for-xattr.patch
 
 Conflicts: sm < 4.0.0
 
@@ -168,10 +170,11 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
-* Fri Jul 11 2025 Yann Dirson <yann.dirson@vates.tech> - 4.0.3-0.0.ydi.2
+* Fri Jul 11 2025 Yann Dirson <yann.dirson@vates.tech> - 4.0.3-0.0.ydi.3
 - New upstream
 - TEMP HACK do not run checks
 - Stop messing 65-md-incremental.rules which does not exist any more
+- Patch for ARM: Use libc API for xattr
 
 * Fri Jul 11 2025 Yann Dirson <yann.dirson@vates.tech> - 3.55.5-4.0.ydi.1
 - Rebase on 3.55.5-4
