@@ -34,6 +34,7 @@ Provides: blktap(nbd) = 2.0
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 # Required for build on ARM
 Patch1002: 0001-Use-libc-API-for-xattr.patch
+Patch1003: 0001-Use-memory-barriers-defined-by-xen-barrier.h.patch
 
 Conflicts: sm < 4.0.0
 
@@ -174,7 +175,9 @@ without requiring other libraries
 - New upstream
 - TEMP HACK do not run checks
 - Stop messing 65-md-incremental.rules which does not exist any more
-- Patch for ARM: Use libc API for xattr
+- Patches for ARM:
+  - Use libc API for xattr
+  - Use xen header for memory barriers
 
 * Fri Jul 11 2025 Yann Dirson <yann.dirson@vates.tech> - 3.55.5-4.0.ydi.1
 - Rebase on 3.55.5-4
