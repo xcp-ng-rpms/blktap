@@ -17,6 +17,7 @@ BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
 BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autoconf, automake, libtool, libuuid-devel
 BuildRequires: kernel-headers, xen-libs-devel, zlib-devel, libcmocka-devel, lcov, git
+BuildRequires: xen-dom0-libs-devel
 BuildRequires: openssl-devel >= 3.0.9
 %{?_cov_buildrequires}
 Requires(post): systemd
@@ -34,7 +35,7 @@ Provides: blktap(nbd) = 2.0
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 # Required for build on ARM
 Patch1002: 0001-Use-libc-API-for-xattr.patch
-Patch1003: 0001-Use-memory-barriers-defined-by-xen-barrier.h.patch
+Patch1003: 0001-Use-memory-barriers-defined-by-xen-headers.patch
 
 Conflicts: sm < 4.0.0
 
@@ -177,7 +178,7 @@ without requiring other libraries
 - Stop messing 65-md-incremental.rules which does not exist any more
 - Patches for ARM:
   - Use libc API for xattr
-  - Use xen header for memory barriers
+  - Update memory barriers definitions from xen-4.20.0
 
 * Fri Jul 11 2025 Yann Dirson <yann.dirson@vates.tech> - 3.55.5-4.0.ydi.1
 - Rebase on 3.55.5-4
