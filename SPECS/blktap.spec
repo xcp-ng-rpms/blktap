@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.2%{?dist}
+Release: %{?xsrel}.3%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -40,6 +40,9 @@ Provides: blktap(nbd) = 2.0
 # XCP-ng patches
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+
+# Upstream commit: https://github.com/xapi-project/blktap/commit/b132675928ff991aa332d4fba3e95cad9dfb0aad
+Patch1002: 0002-Prevent-segfault-of-vhd-util-scan-on-VHD-with-corrup.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -182,6 +185,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Feb 26 2026 Mathieu Labourier <mathieu.labourier@vates.tech> - 3.55.5.6.3
+- Prevent segfault of vhd-util scan on VHD with corrupt footer
+
 * Fri Feb 13 2026 Philippe Coval <philippe.coval@vates.tech> - 3.55.5-6.2
 - Rebuild with openssl-3
 
