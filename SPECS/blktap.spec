@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.1%{?dist}
+Release: %{?xsrel}.2%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -22,7 +22,7 @@ BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
 BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autoconf, automake, libtool, libuuid-devel
 BuildRequires: kernel-headers, xen-libs-devel, zlib-devel, libcmocka-devel, lcov, git
-BuildRequires: xs-openssl-devel >= 1.1.1
+BuildRequires: openssl-devel >= 3.0.9
 BuildRequires: devtoolset-11-gcc
 BuildRequires: devtoolset-11-binutils
 BuildRequires: devtoolset-11-liblsan-devel
@@ -182,6 +182,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Feb 13 2026 Philippe Coval <philippe.coval@vates.tech> - 3.55.5-6.2
+- Rebuild with openssl-3
+
 * Mon Sep 08 2025 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-6.1
 - Sync with 3.55.5-6
 - Revert openssl 3 dependency from XS specfile (no change compared to previous XCP-ng release)
