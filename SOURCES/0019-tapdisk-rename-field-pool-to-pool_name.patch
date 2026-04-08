@@ -1,0 +1,212 @@
+From e7bebd4424888e750116f32952e6b9c726558482 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Mon, 5 Jan 2026 16:17:57 +0100
+Subject: [PATCH] tapdisk: rename field pool to pool_name
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ control/tap-ctl-xen.c     | 12 ++++++------
+ drivers/tapdisk-control.c | 14 +++++++-------
+ drivers/td-ctx.c          | 22 +++++++++++-----------
+ drivers/td-ctx.h          |  4 ++--
+ drivers/td-stats.c        |  2 +-
+ include/tapdisk-message.h |  4 ++--
+ 6 files changed, 29 insertions(+), 29 deletions(-)
+
+diff --git a/control/tap-ctl-xen.c b/control/tap-ctl-xen.c
+index f09b76ea..14c60ec4 100644
+--- a/control/tap-ctl-xen.c
++++ b/control/tap-ctl-xen.c
+@@ -53,7 +53,7 @@ int
+ tap_ctl_connect_xenblkif(const pid_t pid, const domid_t domid, const int devid, int poll_duration,
+ 		int poll_idle_threshold,
+ 		const grant_ref_t * grefs, const int order, const evtchn_port_t port,
+-		int proto, const char *pool, const int minor)
++		int proto, const char *pool_name, const int minor)
+ {
+     tapdisk_message_t message;
+     int i, err;
+@@ -71,14 +71,14 @@ tap_ctl_connect_xenblkif(const pid_t pid, const domid_t domid, const int devid,
+     message.u.blkif.proto = proto;
+     message.u.blkif.poll_duration = poll_duration;
+     message.u.blkif.poll_idle_threshold = poll_idle_threshold;
+-    if (pool) {
+-        if (unlikely(strlen(pool) > (sizeof(message.u.blkif.pool) - 1))) {
+-            EPRINTF("pool name too long: %s\n", pool);
++    if (pool_name) {
++        if (unlikely(strlen(pool_name) > (sizeof(message.u.blkif.pool_name) - 1))) {
++            EPRINTF("pool name too long: %s\n", pool_name);
+             return -ENAMETOOLONG;
+         }
+-        safe_strncpy(message.u.blkif.pool, pool, sizeof(message.u.blkif.pool));
++        safe_strncpy(message.u.blkif.pool_name, pool_name, sizeof(message.u.blkif.pool_name));
+     } else {
+-        message.u.blkif.pool[0] = 0;
++        message.u.blkif.pool_name[0] = '\0';
+     }
+ 
+     err = tap_ctl_connect_send_and_receive(pid, &message, NULL);
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index 91ffe097..39e7ab0e 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -1201,7 +1201,7 @@ tapdisk_control_xenblkif_connect(
+     tapdisk_message_blkif_t *blkif;
+ 
+     td_vbd_t *vbd = NULL;
+-    const char *pool;
++    const char *pool_name;
+     size_t len;
+     int err;
+ 	int minor = -1;
+@@ -1219,20 +1219,20 @@ tapdisk_control_xenblkif_connect(
+     }
+ 
+     blkif = &request->u.blkif;
+-    len = strnlen(blkif->pool, sizeof(blkif->pool));
++    len = strnlen(blkif->pool_name, sizeof(blkif->pool_name));
+     if (!len)
+-        pool = NULL;
+-    else if (len >= sizeof(blkif->pool)) {
++        pool_name = NULL;
++    else if (len >= sizeof(blkif->pool_name)) {
+         err = -EINVAL;
+ 		goto out;
+     } else
+-        pool = blkif->pool;
++        pool_name = blkif->pool_name;
+ 
+     DPRINTF("connecting VBD %d domid=%d, devid=%d, pool %s, evt %d, poll duration %d, poll idle threshold %d\n",
+-            vbd->uuid, blkif->domid, blkif->devid, pool, blkif->port, blkif->poll_duration, blkif->poll_idle_threshold);
++            vbd->uuid, blkif->domid, blkif->devid, pool_name, blkif->port, blkif->poll_duration, blkif->poll_idle_threshold);
+ 
+     err = tapdisk_xenblkif_connect(blkif->domid, blkif->devid, blkif->gref,
+-            blkif->order, blkif->port, blkif->proto, blkif->poll_duration, blkif->poll_idle_threshold, pool, vbd);
++            blkif->order, blkif->port, blkif->proto, blkif->poll_duration, blkif->poll_idle_threshold, pool_name, vbd);
+ 
+ out:
+ 	response->cookie = request->cookie;
+diff --git a/drivers/td-ctx.c b/drivers/td-ctx.c
+index 8b75dc48..e344a62f 100644
+--- a/drivers/td-ctx.c
++++ b/drivers/td-ctx.c
+@@ -407,13 +407,13 @@ tapdisk_xenio_ctx_ring_event(event_id_t id __attribute__((unused)),
+  * TODO The pool is ignored, we always open the default pool.
+  */
+ static inline int
+-tapdisk_xenio_ctx_open(const char *pool)
++tapdisk_xenio_ctx_open(const char *pool_name)
+ {
+     struct td_xenio_ctx *ctx;
+     int fd, err;
+ 
+     /* zero-length pool names are not allowed */
+-    if (pool && !strlen(pool))
++    if (pool_name && !strlen(pool_name))
+         return -EINVAL;
+ 
+     ctx = calloc(1, sizeof(*ctx));
+@@ -425,8 +425,8 @@ tapdisk_xenio_ctx_open(const char *pool)
+ 
+     ctx->ring_event = -1; /* TODO is there a special value? */
+     ctx->gntdev_fd = -1;
+-    ctx->pool = TD_XENBLKIF_DEFAULT_POOL;
+-	INIT_LIST_HEAD(&ctx->blkifs);
++    ctx->pool_name = TD_XENBLKIF_DEFAULT_POOL;
++    INIT_LIST_HEAD(&ctx->blkifs);
+     list_add(&ctx->entry, &_td_xenio_ctxs);
+ 
+     ctx->gntdev_fd = open("/dev/xen/gntdev", O_NONBLOCK);
+@@ -483,14 +483,14 @@ fail:
+  * against the default pool. Note that NULL is valid pool name value.
+  */
+ static inline int
+-__td_xenio_ctx_match(struct td_xenio_ctx * ctx, const char *pool)
++__td_xenio_ctx_match(struct td_xenio_ctx * ctx, const char *pool_name)
+ {
+-	if (unlikely(!pool)) {
++	if (unlikely(!pool_name)) {
+ 		assert(TD_XENBLKIF_DEFAULT_POOL);
+-		return !strcmp(ctx->pool, TD_XENBLKIF_DEFAULT_POOL);
++		return !strcmp(ctx->pool_name, TD_XENBLKIF_DEFAULT_POOL);
+ 	}
+ 
+-	return !strcmp(ctx->pool, pool);
++	return !strcmp(ctx->pool_name, pool_name);
+ }
+ 
+ #define tapdisk_xenio_find_ctx(_ctx, _cond)	\
+@@ -507,19 +507,19 @@ __td_xenio_ctx_match(struct td_xenio_ctx * ctx, const char *pool)
+ 	} while (0)
+ 
+ int
+-tapdisk_xenio_ctx_get(const char *pool, struct td_xenio_ctx ** _ctx)
++tapdisk_xenio_ctx_get(const char *pool_name, struct td_xenio_ctx ** _ctx)
+ {
+     struct td_xenio_ctx *ctx;
+     int err = 0;
+ 
+     do {
+-        tapdisk_xenio_find_ctx(ctx, __td_xenio_ctx_match(ctx, pool));
++        tapdisk_xenio_find_ctx(ctx, __td_xenio_ctx_match(ctx, pool_name));
+         if (ctx) {
+             *_ctx = ctx;
+             return 0;
+         }
+ 
+-        err = tapdisk_xenio_ctx_open(pool);
++        err = tapdisk_xenio_ctx_open(pool_name);
+     } while (!err);
+ 
+     return err;
+diff --git a/drivers/td-ctx.h b/drivers/td-ctx.h
+index c03912e9..b58edbbe 100644
+--- a/drivers/td-ctx.h
++++ b/drivers/td-ctx.h
+@@ -50,7 +50,7 @@
+  * unnecessary.
+  */
+ struct td_xenio_ctx {
+-    char *pool; /* TODO rename to pool_name */
++    char *pool_name;
+ 
+     /**
+      * Handle to the grant table driver.
+@@ -88,7 +88,7 @@ struct td_xenio_ctx {
+  * @returns 0 on success, -errno on error
+  */
+ int
+-tapdisk_xenio_ctx_get(const char *pool, struct td_xenio_ctx ** _ctx);
++tapdisk_xenio_ctx_get(const char *pool_name, struct td_xenio_ctx ** _ctx);
+ 
+ /**
+  * Releases the pool, only if there is no block interface using it.
+diff --git a/drivers/td-stats.c b/drivers/td-stats.c
+index e75752d8..f8982624 100644
+--- a/drivers/td-stats.c
++++ b/drivers/td-stats.c
+@@ -42,7 +42,7 @@ tapdisk_xenblkif_stats(struct td_xenblkif * blkif, td_stats_t * st)
+     ASSERT(st);
+     ASSERT(blkif->ctx);
+ 
+-    tapdisk_stats_field(st, "pool", "s", blkif->ctx->pool);
++    tapdisk_stats_field(st, "pool", "s", blkif->ctx->pool_name);
+     tapdisk_stats_field(st, "domid", "d", blkif->domid);
+     tapdisk_stats_field(st, "devid", "d", blkif->devid);
+ 
+diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
+index fe1b3066..7c54fb3b 100644
+--- a/include/tapdisk-message.h
++++ b/include/tapdisk-message.h
+@@ -146,9 +146,9 @@ typedef struct tapdisk_message_blkif {
+ 	uint32_t proto;
+ 
+ 	/**
+-	 * TODO Page pool? Can be NULL.
++	 * Page pool name? Can be empty (ie "")
+ 	 */
+-	char pool[TAPDISK_MESSAGE_STRING_LENGTH];
++	char pool_name[TAPDISK_MESSAGE_STRING_LENGTH];
+ 
+ 	/**
+ 	 * The event channel port.

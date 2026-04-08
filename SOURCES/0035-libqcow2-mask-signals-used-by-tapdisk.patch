@@ -1,0 +1,41 @@
+From 74a73e8eaa5262a189a8e85c97dccab4e95a20e8 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Wed, 15 Oct 2025 14:35:21 +0200
+Subject: [PATCH] libqcow2: mask signals used by tapdisk
+
+To avoid conflict and signals stolen by the libqcow2 this patch masks the
+signals used by tapdisk so they are exclusive to it.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ qcow2/lib/util/main-loop.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/qcow2/lib/util/main-loop.c b/qcow2/lib/util/main-loop.c
+index 9b212ff4..82d737fe 100644
+--- a/qcow2/lib/util/main-loop.c
++++ b/qcow2/lib/util/main-loop.c
+@@ -102,6 +102,11 @@ static int qemu_signal_init(Error **errp)
+     sigaddset(&set, SIGIO);
+     sigaddset(&set, SIGALRM);
+     sigaddset(&set, SIGBUS);
++    sigaddset(&set, SIGINT);
++    sigaddset(&set, SIGXFSZ);
++    //sigaddset(&set, SIGUSR1); // SIG_IPI == SIGUSR1
++    sigaddset(&set, SIGUSR2);
++    sigaddset(&set, SIGHUP);
+     /* SIGINT cannot be handled via signalfd, so that ^C can be used
+      * to interrupt QEMU when it is being run under gdb.  SIGHUP and
+      * SIGTERM are also handled asynchronously, even though it is not
+@@ -110,6 +115,11 @@ static int qemu_signal_init(Error **errp)
+     pthread_sigmask(SIG_BLOCK, &set, NULL);
+ 
+     sigdelset(&set, SIG_IPI);
++    sigdelset(&set, SIGBUS);
++    sigdelset(&set, SIGINT);
++    sigdelset(&set, SIGXFSZ);
++    sigdelset(&set, SIGUSR2);
++    sigdelset(&set, SIGHUP);
+     sigfd = qemu_signalfd(&set);
+     if (sigfd == -1) {
+         error_setg_errno(errp, errno, "failed to create signalfd");
