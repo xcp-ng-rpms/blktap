@@ -121,9 +121,8 @@ source /opt/rh/devtoolset-11/enable
 echo -n %{version} > VERSION
 sh autogen.sh
 # The following can be used for leak tracing
-#%%configure LDFLAGS="$LDFLAGS -lrt -static-liblsan" CFLAGS="$CFLAGS  -Wno-stringop-truncation -fsanitize=leak -ggdb -fno-omit-frame-pointer"
-#%%configure CFLAGS="$CFLAGS -Wno-stringop-truncation -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
-%configure CFLAGS="$CFLAGS -Wno-stringop-truncation"
+#%%configure LDFLAGS="$LDFLAGS -lrt -static-liblsan" CFLAGS="$CFLAGS -fsanitize=leak -ggdb -fno-omit-frame-pointer"
+#%%configure CFLAGS="$CFLAGS -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
 %{?_cov_wrap} make %{?coverage:GCOV=true}
 
 %check
