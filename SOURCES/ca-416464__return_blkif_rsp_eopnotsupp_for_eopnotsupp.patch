@@ -1,0 +1,26 @@
+CA-416464: return BLKIF_RSP_EOPNOTSUPP for EOPNOTSUPP
+
+From: Mark Syms <mark.syms@cloud.com>
+
+Returning BLKIF_RSP_ERROR if an operation is not supported does not
+allow the frontend to exercise any discretion on how to handle the
+response and may lead to an operating system crash. As different
+backends may support different feature sets and we might, during a
+migration, switch backends, an in-flight request might be issued (or
+reissued) which is then not supported by this backend.
+
+Signed-off-by: Mark Syms <mark.syms@cloud.com>
+
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 7b168dc..2a3fb05 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -531,6 +531,8 @@ tapdisk_xenblkif_complete_request(struct td_xenblkif * const blkif,
+ 
+ 		if (likely(err == 0))
+ 			_err = BLKIF_RSP_OKAY;
++		else if (err == EOPNOTSUPP)
++			_err = BLKIF_RSP_EOPNOTSUPP;
+ 		else
+ 			_err = BLKIF_RSP_ERROR;
+ 

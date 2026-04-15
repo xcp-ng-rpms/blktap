@@ -1,13 +1,13 @@
-%global package_speccommit af72a3a53e2e66973dc542c79c50e5aed630b65c
+%global package_speccommit 4dac0dd72bca87df4f25fc1e6d2f18713ecc53c1
 %global usver 3.55.5
-%global xsver 6
+%global xsver 7
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.5%{?dist}
+Release: %{?xsrel}.1%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -17,6 +17,7 @@ Patch1: cp_54256_log_eopnotsupp
 Patch2: ca-408175__distinguish_logging_for_long_nbd_operations.patch
 Patch3: CP-308382_fix_sign_conversion_in_coalesce
 Patch4: fix_coalesced_size_conversion_in_vhd-util-coalesce.patch
+Patch5: ca-416464__return_blkif_rsp_eopnotsupp_for_eopnotsupp.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -238,6 +239,12 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Wed Apr 15 2026 Philippe Coval <philippe.coval@vates.tech> - 3.55.5.7.1
+- Sync with 3-55.5.7
+- *** Upstream changelog ***
+  * Thu Aug 28 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-7
+  - CA-416464: return BLKIF_RSP_EOPNOTSUPP for EOPNOTSUPP
+
 * Thu Apr 09 2026 Philippe Coval <philippe.coval@vates.tech> - 3.55.5-6.5
 - Fix scriptlet to use udev rule aligned to mdadm
 
