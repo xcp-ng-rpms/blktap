@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.5%{?dist}
+Release: %{?xsrel}.6.0.eva.0%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -88,6 +88,11 @@ Patch1044: 0044-tapdisk-support-new-cancel-command.patch
 Patch1045: 0045-qcow2-support-cancel-command.patch
 Patch1046: 0046-libqcow2-fix-abort-commit-without-crash.patch
 
+# Generated with : git diff xcp-ng/v3.55.5-qcow2..multi-queue-rpms > multi-queue.patch
+Patch2000: multi-queue.patch
+#Patch2001: no-drivers-tests.patch
+
+
 %description
 Blktap creates kernel block devices which realize I/O requests to
 processes implementing virtual hard disk images entirely in user
@@ -121,8 +126,8 @@ source /opt/rh/devtoolset-11/enable
 echo -n %{version} > VERSION
 sh autogen.sh
 # The following can be used for leak tracing
-#%%configure LDFLAGS="$LDFLAGS -lrt -static-liblsan" CFLAGS="$CFLAGS -fsanitize=leak -ggdb -fno-omit-frame-pointer"
 #%%configure CFLAGS="$CFLAGS -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
+%configure CFLAGS="$CFLAGS -g"
 %{?_cov_wrap} make %{?coverage:GCOV=true}
 
 %check

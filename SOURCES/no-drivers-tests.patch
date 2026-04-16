@@ -1,0 +1,15 @@
+diff --git a/mockatests/drivers/Makefile.am b/mockatests/drivers/Makefile.am
+index 71fe3aa..ab8d18a 100644
+--- a/mockatests/drivers/Makefile.am
++++ b/mockatests/drivers/Makefile.am
+@@ -5,8 +5,8 @@ AM_CFLAGS += -Og -fno-inline-functions -g
+ 
+ AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/drivers -I../include
+ 
+-check_PROGRAMS = test-drivers
+-TESTS = test-drivers
++#check_PROGRAMS = test-drivers
++#TESTS = test-drivers
+ 
+ test_drivers_LDADD = $(top_srcdir)/drivers/libtapdisk.la
+ 
