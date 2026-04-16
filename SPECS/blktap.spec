@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.6.0.eva.0%{?dist}
+Release: %{?xsrel}.6.0.eva.iothread.0%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -90,6 +90,7 @@ Patch1046: 0046-libqcow2-fix-abort-commit-without-crash.patch
 
 # Generated with : git diff xcp-ng/v3.55.5-qcow2..multi-queue-rpms > multi-queue.patch
 Patch2000: multi-queue.patch
+Patch2001: multi-queue-iothread.patch
 #Patch2001: no-drivers-tests.patch
 
 
