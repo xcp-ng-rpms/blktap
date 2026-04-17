@@ -1,5 +1,36 @@
+diff --git a/control/tap-ctl-info.c b/control/tap-ctl-info.c
+index a6768d2..0af459e 100644
+--- a/control/tap-ctl-info.c
++++ b/control/tap-ctl-info.c
+@@ -36,7 +36,8 @@
+ #include "tap-ctl.h"
+ 
+ int tap_ctl_info(pid_t pid, unsigned long long *sectors,
+-		unsigned int *sector_size, unsigned int *info, const int minor)
++		unsigned int *sector_size, unsigned int *info, unsigned int *max_queues,
++		const int minor)
+ {
+     tapdisk_message_t message;
+     int err;
+@@ -47,7 +48,7 @@ int tap_ctl_info(pid_t pid, unsigned long long *sectors,
+ 
+     memset(&message, 0, sizeof(message));
+     message.type = TAPDISK_MESSAGE_DISK_INFO;
+-	message.cookie = minor;
++    message.cookie = minor;
+ 
+     err = tap_ctl_connect_send_and_receive(pid, &message, NULL);
+     if (err) {
+@@ -60,6 +61,7 @@ int tap_ctl_info(pid_t pid, unsigned long long *sectors,
+         *sectors = message.u.image.sectors;
+         *sector_size = message.u.image.sector_size;
+         *info = message.u.image.info;
++        *max_queues = message.u.image.max_queues;
+         return 0;
+     } else if (TAPDISK_MESSAGE_ERROR == message.type) {
+        return -message.u.response.error;
 diff --git a/drivers/block-aio.c b/drivers/block-aio.c
-index bcd7567..5cb07e0 100644
+index bcd7567..98ca97e 100644
 --- a/drivers/block-aio.c
 +++ b/drivers/block-aio.c
 @@ -167,14 +167,14 @@ void tdaio_complete(void *arg, struct tiocb *tiocb, int err)
@@ -82,6 +113,15 @@ index bcd7567..5cb07e0 100644
  		      size, offset, tdaio_complete, aio);
  	td_queue_tiocb(driver, &aio->tiocb);
  
+@@ -283,7 +281,7 @@ void tdaio_stats(td_driver_t *driver, td_stats_t *st)
+ 
+ struct tap_disk tapdisk_aio = {
+ 	.disk_type          = "tapdisk_aio",
+-	.flags              = 0,
++	.flags              = TD_DRIVER_MULTIQUEUE,
+ 	.private_data_size  = sizeof(struct tdaio_state),
+ 	.td_open            = tdaio_open,
+ 	.td_close           = tdaio_close,
 diff --git a/drivers/block-cache.c b/drivers/block-cache.c
 index 5391169..34dc422 100644
 --- a/drivers/block-cache.c
@@ -924,7 +964,7 @@ index 0441feb..5b5baae 100644
  
  static int
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index b550aa2..44c0953 100644
+index b550aa2..e3ac06c 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -55,13 +55,17 @@
@@ -1747,10 +1787,34 @@ index b550aa2..44c0953 100644
  	pthread_mutex_unlock(&s->lock);
  
  	return n_pending;
+@@ -1203,7 +1423,7 @@ qcow2_pending(td_driver_t *driver)
+ 
+ struct tap_disk tapdisk_qcow = {
+ 	.disk_type          = "tapdisk_qcow2",
+-	.flags              = TD_DRIVER_THREADED,
++	.flags              = TD_DRIVER_THREADED | TD_DRIVER_MULTIQUEUE,
+ 	.private_data_size  = sizeof(struct qcow2_state),
+ 	.td_open            = _qcow2_open,
+ 	.td_close           = _qcow2_close,
 diff --git a/drivers/block-ram.c b/drivers/block-ram.c
-index 4e80eee..4130c94 100644
+index 4e80eee..3866804 100644
 --- a/drivers/block-ram.c
 +++ b/drivers/block-ram.c
+@@ -47,10 +47,10 @@
+ #include "tapdisk-driver.h"
+ #include "tapdisk-interface.h"
+ 
+-void *img;
+-long int   disksector_size;
+-long int   disksize;
+-long int   diskinfo;
++static void *img;
++static long int   disksector_size;
++static long int   disksize;
++static long int   diskinfo;
+ static int connections = 0;
+ 
+ struct tdram_state {
 @@ -213,24 +213,24 @@ done:
  	return ret;
  }
@@ -2195,6 +2259,28 @@ index abed76c..434c767 100644
  	}
  }
  
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index c6e9d46..d7fbf6a 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -852,6 +852,8 @@ out:
+ 		response->u.image.sectors = vbd->disk_info.size;
+ 		response->u.image.sector_size = vbd->disk_info.sector_size;
+ 		response->u.image.info = vbd->disk_info.info;
++		response->u.image.max_queues =
++			td_flag_test(vbd->driver_flags, TD_DRIVER_MULTIQUEUE) ? BLKIF_MAX_QUEUES : 1;
+ 		response->type = TAPDISK_MESSAGE_OPEN_RSP;
+ 	}
+ 	return err;
+@@ -1324,6 +1326,8 @@ out:
+ 		image->sectors = vbd->disk_info.size;
+ 		image->sector_size = vbd->disk_info.sector_size;
+ 		image->info = vbd->disk_info.info;
++		image->max_queues =
++			td_flag_test(vbd->driver_flags, TD_DRIVER_MULTIQUEUE) ? BLKIF_MAX_QUEUES : 1;
+ 	}
+ 	return err;
+ }
 diff --git a/drivers/tapdisk-image.c b/drivers/tapdisk-image.c
 index 13d4172..e41ee02 100644
 --- a/drivers/tapdisk-image.c
@@ -2253,9 +2339,18 @@ index dad72d4..520faec 100644
  void tapdisk_image_stats(td_image_t *, td_stats_t *);
  
 diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
-index 8a19485..9bd8b03 100644
+index 8a19485..3d73fdc 100644
 --- a/drivers/tapdisk-interface.c
 +++ b/drivers/tapdisk-interface.c
+@@ -69,7 +69,7 @@ td_load(td_image_t *image)
+ 	return 0;
+ }
+ 
+-int
++static int
+ __td_open(td_image_t *image, struct td_vbd_encryption *encryption, td_disk_info_t *info)
+ {
+ 	int err;
 @@ -168,7 +168,7 @@ td_validate_parent(td_image_t *image, td_image_t *parent)
  }
  
@@ -2343,10 +2438,18 @@ index 8a19485..9bd8b03 100644
  
  void
 diff --git a/drivers/tapdisk-interface.h b/drivers/tapdisk-interface.h
-index eb7761d..b9b60ad 100644
+index eb7761d..c1df797 100644
 --- a/drivers/tapdisk-interface.h
 +++ b/drivers/tapdisk-interface.h
-@@ -46,11 +46,11 @@ int td_commit(td_image_t *, const char *);
+@@ -37,7 +37,6 @@
+ #include "tapdisk-driver.h"
+ 
+ int td_open(td_image_t *, struct td_vbd_encryption *);
+-int __td_open(td_image_t *, struct td_vbd_encryption *, td_disk_info_t *);
+ int td_load(td_image_t *);
+ int td_close(td_image_t *);
+ int td_get_parent_id(td_image_t *, td_disk_id_t *);
+@@ -46,11 +45,11 @@ int td_commit(td_image_t *, const char *);
  int td_query_commit_job(td_image_t *, td_query_t *);
  int td_cancel_commit_job(td_image_t *, bool);
  
@@ -2671,10 +2774,18 @@ index b1d2b14..62d9318 100644
  /**
   * Tells whether the VBD contains at least one dead ring.
 diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
-index 7396056..ffd4b45 100644
+index 7396056..7320ef0 100644
 --- a/drivers/tapdisk.h
 +++ b/drivers/tapdisk.h
-@@ -152,7 +152,7 @@ typedef struct td_query              td_query_t;
+@@ -117,6 +117,7 @@ enum TD_OPS{
+ #define TD_CREATE_MULTITYPE          0x00002
+ 
+ #define TD_DRIVER_THREADED           0x00001
++#define TD_DRIVER_MULTIQUEUE         0x00002
+ 
+ #define td_flag_set(word, flag)      ((word) |= (flag))
+ #define td_flag_clear(word, flag)    ((word) &= ~(flag))
+@@ -152,7 +153,7 @@ typedef struct td_query              td_query_t;
  /* 
   * Prototype of the callback to activate as requests complete.
   */
@@ -2683,7 +2794,7 @@ index 7396056..ffd4b45 100644
  typedef void (*td_vreq_callback_t)(td_vbd_request_t*, int, void*, int);
  
  struct td_disk_id {
-@@ -173,7 +173,7 @@ struct td_iovec {
+@@ -173,7 +174,7 @@ struct td_iovec {
  };
  
  struct td_vbd_request {
@@ -2692,7 +2803,7 @@ index 7396056..ffd4b45 100644
  	td_sector_t                 sec;
  
  #ifdef HAVE_LTTNG
-@@ -204,7 +204,7 @@ struct td_vbd_request {
+@@ -204,7 +205,7 @@ struct td_vbd_request {
  };
  
  struct td_request {
@@ -2701,7 +2812,7 @@ index 7396056..ffd4b45 100644
  	void                        *buf;
  
  	int                          status;
-@@ -245,9 +245,9 @@ struct tap_disk {
+@@ -245,9 +246,9 @@ struct tap_disk {
  	int (*td_close)              (td_driver_t *);
  	int (*td_get_parent_id)      (td_driver_t *, td_disk_id_t *);
  	int (*td_validate_parent)    (td_driver_t *, td_driver_t *, td_flag_t);
@@ -4703,6 +4814,31 @@ index 0000000..2102a90
 +bool qemu_in_iothread(void);
 +
 +#endif /* IOTHREAD_H */
+diff --git a/include/tap-ctl.h b/include/tap-ctl.h
+index 12635cf..72f8c7f 100644
+--- a/include/tap-ctl.h
++++ b/include/tap-ctl.h
+@@ -199,7 +199,7 @@ int tap_ctl_disconnect_xenblkif(const pid_t pid, const domid_t domid,
+  *
+  */
+ int tap_ctl_info(pid_t pid, unsigned long long *sectors, unsigned int
+-		*sector_size, unsigned int *info, const int minor);
++		*sector_size, unsigned int *info, unsigned int *max_queues, const int minor);
+ 
+ /**
+  * Parses a type:/path/to/file string, storing the type and path to the output
+diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
+index 8b536aa..2043578 100644
+--- a/include/tapdisk-message.h
++++ b/include/tapdisk-message.h
+@@ -87,6 +87,7 @@ struct tapdisk_message_image {
+ 	uint64_t                         sectors;
+ 	uint32_t                         sector_size;
+ 	uint32_t                         info;
++	uint32_t                         max_queues;
+ 	bool                             discard;
+ 	uint32_t                         discard_granularity;
+ };
 diff --git a/mockatests/drivers/test-tapdisk-vbd.c b/mockatests/drivers/test-tapdisk-vbd.c
 index 03bdecd..ec009ec 100644
 --- a/mockatests/drivers/test-tapdisk-vbd.c
@@ -9614,3 +9750,82 @@ index e97003a..9a525ed 100644
  qemu-progress.c
  #build:qcow2
  qemu-img-cmds.h
+diff --git a/tapback/backend.c b/tapback/backend.c
+index c67b879..cc13991 100644
+--- a/tapback/backend.c
++++ b/tapback/backend.c
+@@ -338,6 +338,7 @@ physical_device_path_changed(vbd_t *device) {
+ 	 */
+ 	if ((err = tap_ctl_info(device->tap->pid, &device->sectors,
+ 					&device->sector_size, &device->info,
++					&device->max_queues,
+ 					device->minor))) {
+ 		WARN(device, "error retrieving disk characteristics: %s\n",
+ 		     strerror(-err));
+@@ -495,13 +496,23 @@ physical_device_changed(vbd_t *device) {
+      * get the VBD parameters from the tapdisk
+      */
+     if ((err = tap_ctl_info(device->tap->pid, &device->sectors,
+-                    &device->sector_size, &info,
++                    &device->sector_size, &info,  // TODO: why not device->info
++                    &device->max_queues,
+                     device->minor))) {
+         WARN(device, "error retrieving disk characteristics: %s\n",
+                 strerror(-err));
+         goto out;
+     }
+ 
++    /* Enable multi-queue */
++    if (device->max_queues > 1) {
++	if ((err = tapback_device_printf(device, XBT_NULL, "multi-queue-max-queues", true, "%d",
++					 device->max_queues))) {
++	    WARN(device, "failed to write multi-queue-max-queues: %s\n", strerror(-err));
++	    goto out;
++	}
++    }
++
+ 	err = tapback_device_printf(device, XBT_NULL, "kthread-pid", false, "%d",
+ 		device->tap->pid);
+ 	if (unlikely(err)) {
+diff --git a/tapback/frontend.c b/tapback/frontend.c
+index e669c14..41f7ca5 100644
+--- a/tapback/frontend.c
++++ b/tapback/frontend.c
+@@ -352,9 +352,9 @@ connect_frontend(vbd_t *device) {
+          */
+ 
+         /*
+-		 * Write the number of sectors, sector size, info, and barrier support
+-		 * to the back-end path in XenStore so that the front-end creates a VBD
+-		 * with the appropriate characteristics.
++         * Write the number of sectors, sector size, info, and barrier support
++         * to the back-end path in XenStore so that the front-end creates a VBD
++         * with the appropriate characteristics.
+          */
+         if ((err = tapback_device_printf(device, xst, "feature-barrier", true,
+                         "%d", device->backend->barrier ? 1 : 0))) {
+@@ -381,7 +381,7 @@ connect_frontend(vbd_t *device) {
+             break;
+         }
+ 
+-		abort_transaction = false;
++        abort_transaction = false;
+         if (!xs_transaction_end(device->backend->xs, xst, 0)) {
+             err = -errno;
+             ASSERT(err);
+diff --git a/tapback/tapback.h b/tapback/tapback.h
+index 9bde55d..c96fe1c 100644
+--- a/tapback/tapback.h
++++ b/tapback/tapback.h
+@@ -290,6 +290,11 @@ typedef struct vbd {
+      */
+     unsigned int info;
+ 
++    /**
++     * Max number of queues supported by the driver
++     */
++    unsigned int max_queues;
++
+     int major;
+ 	int minor;
+ 
