@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.6.0.eva.iothread.1%{?dist}
+Release: %{?xsrel}.6.0.eva.iothread.2%{?dist}
 License: BSD
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
