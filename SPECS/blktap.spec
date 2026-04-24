@@ -7,8 +7,8 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.5%{?dist}
-License: BSD
+Release: %{?xsrel}.6%{?dist}
+License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
 Source0: blktap-3.55.5.tar.gz
@@ -238,6 +238,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Apr 24 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-6.6
+- Add GPLv2 to the RPM license list as libqcow2 use this license
+
 * Thu Apr 09 2026 Philippe Coval <philippe.coval@vates.tech> - 3.55.5-6.5
 - Fix scriptlet to use udev rule aligned to mdadm
 
