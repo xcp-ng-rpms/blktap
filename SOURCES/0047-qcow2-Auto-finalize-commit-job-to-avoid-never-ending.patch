@@ -1,0 +1,60 @@
+From 2118e999404c8bfadf7a04ae5a529dd2d8419130 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 14 Apr 2026 09:40:11 +0200
+Subject: [PATCH] qcow2: Auto finalize commit job to avoid never ending job
+
+With this patch the qemu code is responsible for the finalize operation
+that make the state transition from ready to pending. The query command
+is still responsible of dismiss the job to conclue it.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/block-qcow2.c      | 5 +++--
+ qcow2/lib/util/main-loop.c | 4 ++--
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index eb9f77b1..437c69f4 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -971,7 +971,7 @@ do_commit(struct qcow2_state *s, struct qcow2_request *req)
+ 
+ 	qmp_block_commit(COMMIT_JOB_ID, node, base_node, NULL, top_node, NULL, NULL,
+ 		false, false, false, 0, false, BLOCKDEV_ON_ERROR_REPORT,
+-		NULL, false, false, true, false, &local_err);
++		NULL, true, true, true, false, &local_err);
+ 
+ 	if (local_err) {
+ 		DPRINTF("qcow2_commit: error: %s\n", error_get_pretty(local_err));
+@@ -1132,7 +1132,8 @@ do_cancel_commit_job(struct qcow2_state *s, struct qcow2_request *req)
+ 		goto signal;
+ 	}
+ 
+-	if (bjob->job.status == JOB_STATUS_RUNNING) {
++	if (bjob->job.status == JOB_STATUS_RUNNING ||
++                bjob->job.status == JOB_STATUS_READY) {
+ 		if (req->sync == false) {
+ 			job_cancel_locked(&bjob->job, false);
+ 		} else {
+diff --git a/qcow2/lib/util/main-loop.c b/qcow2/lib/util/main-loop.c
+index 82d737fe..740a8164 100644
+--- a/qcow2/lib/util/main-loop.c
++++ b/qcow2/lib/util/main-loop.c
+@@ -210,12 +210,12 @@ int qemu_deinit_main_loop(void)
+ 
+     src = iohandler_get_g_source();
+     g_source_unref(src);
+-    g_source_remove(g_source_get_id(src));
++    g_source_destroy(src);
+     g_source_unref(src);
+ 
+     src = aio_get_g_source(qemu_aio_context);
+     g_source_unref(src);
+-    g_source_remove(g_source_get_id(src));
++    g_source_destroy(src);
+     g_source_unref(src);
+ 
+     g_array_free(gpollfds, TRUE);
+-- 
+2.53.0
+
