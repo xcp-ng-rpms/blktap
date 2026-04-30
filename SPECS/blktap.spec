@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.6%{?dist}
+Release: %{?xsrel}.7%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -87,6 +87,7 @@ Patch1043: 0043-qcow2-support-query-command.patch
 Patch1044: 0044-tapdisk-support-new-cancel-command.patch
 Patch1045: 0045-qcow2-support-cancel-command.patch
 Patch1046: 0046-libqcow2-fix-abort-commit-without-crash.patch
+Patch1047: 0047-qcow2-Auto-finalize-commit-job-to-avoid-never-ending.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -238,6 +239,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Apr 30 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-6.7
+- Fix tapdisk crash and prevent infinite coalesce
+
 * Fri Apr 24 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-6.6
 - Add GPLv2 to the RPM license list as libqcow2 use this license
 
