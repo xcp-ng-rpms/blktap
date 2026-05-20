@@ -1,6 +1,6 @@
-%global package_speccommit 4dac0dd72bca87df4f25fc1e6d2f18713ecc53c1
+%global package_speccommit 284310adc02e3a383ece9d885a11231c1cc56374
 %global usver 3.55.5
-%global xsver 7
+%global xsver 9
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
@@ -18,6 +18,7 @@ Patch2: ca-408175__distinguish_logging_for_long_nbd_operations.patch
 Patch3: CP-308382_fix_sign_conversion_in_coalesce
 Patch4: fix_coalesced_size_conversion_in_vhd-util-coalesce.patch
 Patch5: ca-416464__return_blkif_rsp_eopnotsupp_for_eopnotsupp.patch
+Patch6: prevent_segfault_of_vhd-util_scan_on_vhd_with_corrupt_footer.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -93,10 +94,6 @@ cd ../ && find -name "*.gcno" | grep -v '.libs/' | xargs -d "\n" tar -cvjSf %{bu
 rm -f %{buildroot}%{_libdir}/*.la
 ## Remove static libraries; they should not be used by other packages
 rm -f %{buildroot}%{_libdir}/*.a
-
-%triggerin -- mdadm
-echo 'KERNEL=="td[a-z]*", GOTO="md_end"' > /etc/udev/rules.d/65-md-incremental.rules
-cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-incremental.rules
 
 %files
 %defattr(-,root,root,-)
@@ -179,6 +176,12 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Apr 09 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-9
+- Remove old, obsolete, udev rule override.
+
+* Wed Jan 28 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-8
+- Prevent segfault of vhd-util scan on VHD with corrupt footer
+
 * Thu Aug 28 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-7
 - CA-416464: return BLKIF_RSP_EOPNOTSUPP for EOPNOTSUPP
 
