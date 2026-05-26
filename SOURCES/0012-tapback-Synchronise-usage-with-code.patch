@@ -1,0 +1,42 @@
+From 49eb6fc28cb80f7e1f14fb1add074a36b7457476 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Sat, 15 Mar 2025 12:25:11 +0100
+Subject: [PATCH] tapback: Synchronise usage with code
+
+No functional change expected.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ tapback/tapback.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/tapback/tapback.c b/tapback/tapback.c
+index fe04d177..71dc72f4 100644
+--- a/tapback/tapback.c
++++ b/tapback/tapback.c
+@@ -510,10 +510,12 @@ usage(FILE * const stream, const char * const prog)
+     fprintf(stream,
+             "usage: %s\n"
+             "\t[-d|--debug]\n"
+-			"\t[-h|--help]\n"
++            "\t[-h|--help]\n"
+             "\t[-v|--verbose]\n"
+-			"\t[-b]--nobarrier]\n"
+-            "\t[-n|--name]\n", prog);
++            "\t[-p|--pidfile PIDfile]\n"
++            "\t[-x|--domain domainID]\n"
++            "\t[-b|--nobarrier]\n"
++            "\t[-n|--name backend_name (default: vbd3)]\n", prog);
+ }
+ 
+ extern char *optarg;
+@@ -612,8 +614,7 @@ int main(int argc, char **argv)
+             {"name", 0, NULL, 'n'},
+             {"pidfile", 0, NULL, 'p'},
+             {"domain", 0, NULL, 'x'},
+-			{"nobarrier", 0, NULL, 'b'},
+-
++            {"nobarrier", 0, NULL, 'b'},
+         };
+         int c;
+ 

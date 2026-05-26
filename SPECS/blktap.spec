@@ -8,7 +8,7 @@ Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
 Release: %{?xsrel}.1%{?dist}
-License: BSD
+License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
 Source0: blktap-3.55.5.tar.gz
@@ -28,6 +28,7 @@ BuildRequires: openssl-devel >= 3.0.9
 BuildRequires: devtoolset-11-gcc
 BuildRequires: devtoolset-11-binutils
 BuildRequires: devtoolset-11-liblsan-devel
+BuildRequires: glib2-devel, gnutls-devel, libzstd-devel
 %{?_cov_buildrequires}
 Requires(post): systemd
 Requires(post): /sbin/ldconfig
@@ -40,8 +41,54 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
+# git format-patch XS-v3.55.5-1..v3.55.5-qcow2 --no-signature --no-numbered
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+Patch1002: 0002-tapdisk-deduplicate-double-assignment-code.patch
+Patch1003: 0003-blktap-fix-a-typo-in-libaio-backend.h-header.patch
+Patch1004: 0004-tapdisk-document-final-param-in-__tapdisk_xenblkif_r.patch
+Patch1005: 0005-tapdisk-use-tapdisk_vbd_for_each_blkif-abstraction.patch
+Patch1006: 0006-blkif-Avoid-use-after-free-on-BLKIF_OP_WRITE_BARRIER.patch
+Patch1007: 0007-tapdisk-vbd-remove-double-assignment-of-error-variab.patch
+Patch1008: 0008-tapdisk-replace-flag-number-by-its-name.patch
+Patch1009: 0009-tapdisk-set-generic-TAPDISK_MESSAGE_MAX-limit-inside.patch
+Patch1010: 0010-tapdisk-remove-unused-file-tapdisk-diff.c.patch
+Patch1011: 0011-blkif-add-a-comment-on-memory-barrier-usage.patch
+Patch1012: 0012-tapback-Synchronise-usage-with-code.patch
+Patch1013: 0013-tap-ctl-fix-comments-of-tap_ctl_info-function.patch
+Patch1014: 0014-tapdisk-fix-hardcoded-array-size-with-a-macro.patch
+Patch1015: 0015-tapdisk-Replace-structure-name-in-sizeof.patch
+Patch1016: 0016-tapdisk-check-if-RD-macros-are-defined-in-ring.h-sin.patch
+Patch1017: 0017-tapdisk-Fix-a-typo-in-util.h-header.patch
+Patch1018: 0018-tapdisk-rename-field-pool-to-pool_name.patch
+Patch1019: 0019-td-req-remove-unused-field-gref.patch
+Patch1020: 0020-td-req-rename-tapreq-as-req.patch
+Patch1021: 0021-td-req-remove-old-code.patch
+Patch1022: 0022-td-req-fix-typo-in-a-comment.patch
+Patch1023: 0023-libqcow2-manage-libqcow2-sources-import.patch
+Patch1024: 0024-libqcow2-import-vanilla-sources-from-qemu-9.1.1.patch
+Patch1025: 0025-libqcow2-build-qcow2-library-for-tapdisk.patch
+Patch1026: 0026-libqcow2-fix-support-for-old-components-gcc-glibc-gl.patch
+Patch1027: 0027-tapdisk-protect-td_vbd_t-structure.patch
+Patch1028: 0028-tapdisk-protect-td_blktap_t-structure.patch
+Patch1029: 0029-tapdisk-protect-td_xenblkif-structure.patch
+Patch1030: 0030-tapdisk-protect-scheduler-structure.patch
+Patch1031: 0031-mocka-fix-scheduler-tests-according-mutex-protection.patch
+Patch1032: 0032-tapdisk-protect-td_nbdserver-structures.patch
+Patch1033: 0033-libqcow2-prepare-proper-cleanup-of-libqcow2-on-close.patch
+Patch1034: 0034-libqcow2-mask-signals-used-by-tapdisk.patch
+Patch1035: 0035-tapdisk-replace-signals-handling-by-signalfd.patch
+Patch1036: 0036-qcow2-driver-support-qcow2-images-in-tapdisk.patch
+Patch1037: 0037-vbd-wake-up-scheduler-to-force-check-ring.patch
+Patch1038: 0038-blktap.spec-add-qcow2-dependencies.patch
+Patch1039: 0039-tapdisk-support-new-commit-command.patch
+Patch1040: 0040-qcow2-support-commit-command.patch
+Patch1041: 0041-tapdisk-support-new-query-command.patch
+Patch1042: 0042-qcow2-support-query-command.patch
+Patch1043: 0043-tapdisk-support-new-cancel-command.patch
+Patch1044: 0044-qcow2-support-cancel-command.patch
+Patch1045: 0045-libqcow2-fix-abort-commit-without-crash.patch
+Patch1046: 0046-qcow2-Auto-finalize-commit-job-to-avoid-never-ending.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -82,9 +129,10 @@ sh autogen.sh
 %{?_cov_wrap} make %{?coverage:GCOV=true}
 
 %check
+source /opt/rh/devtoolset-11/enable
 make clean
 make check GCOV=true || (find mockatests -name \*.log -print -exec cat {} \; && false)
-./collect-test-results.sh %{buildroot}/testresults
+#./collect-test-results.sh %{buildroot}/testresults
 
 %install
 rm -rf %{buildroot}
@@ -108,6 +156,7 @@ rm -f %{buildroot}%{_libdir}/*.a
 %{_bindir}/vhd-index
 %{_bindir}/tapback
 %{_bindir}/cpumond
+%{_bindir}/qemu-img
 %{_sbindir}/cbt-util
 %{_sbindir}/lvm-util
 %{_sbindir}/tap-ctl
@@ -151,19 +200,8 @@ fi
 
 # The posttrans invocation of ldconfig is needed because older
 # versions of blktap did not have ldconfig in their postun script.
-%posttrans -p /sbin/ldconfig
-
-%{?_cov_results_package}
-
-%package testresults
-Group:    System/Hypervisor
-Summary:  test results for blktap package
-
-%description testresults
-The package contains the build time test results for the blktap package
-
-%files testresults
-/testresults
+%posttrans
+/sbin/ldconfig
 
 %package -n vhd-util-standalone
 Group:   System/Hypervisor
@@ -190,6 +228,21 @@ without requiring other libraries
   - Prevent segfault of vhd-util scan on VHD with corrupt footer
   * Thu Aug 28 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-7
   - CA-416464: return BLKIF_RSP_EOPNOTSUPP for EOPNOTSUPP
+
+* Thu Apr 30 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-6.7
+- Fix tapdisk crash and prevent infinite coalesce
+
+* Fri Apr 24 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-6.6
+- Add GPLv2 to the RPM license list as libqcow2 use this license
+
+* Thu Apr 09 2026 Philippe Coval <philippe.coval@vates.tech> - 3.55.5-6.5
+- Fix scriptlet to use udev rule aligned to mdadm
+
+* Tue Apr 07 2026 Damien Thenot <damien.thenot@vates.tech> - 3.55.5-6.4
+- Release of QCOW2 support
+
+* Thu Feb 26 2026 Mathieu Labourier <mathieu.labourier@vates.tech> - 3.55.5.6.3
+- Prevent segfault of vhd-util scan on VHD with corrupt footer
 
 * Fri Feb 13 2026 Philippe Coval <philippe.coval@vates.tech> - 3.55.5-6.2
 - Rebuild with openssl-3

@@ -1,4 +1,4 @@
-From c9237c52ffdf876c2d2e1a12b8c4a0cff68eafee Mon Sep 17 00:00:00 2001
+From d8cda8eb7a7404102b10a05e1226129e5c424d0e Mon Sep 17 00:00:00 2001
 From: Ronan Abhamon <ronan.abhamon@vates.tech>
 Date: Wed, 18 Dec 2024 16:55:26 +0100
 Subject: [PATCH] Add an option to use backup footer when vhd-util query is
@@ -13,7 +13,7 @@ Signed-off-by: Ronan Abhamon <ronan.abhamon@vates.tech>
  1 file changed, 21 insertions(+), 17 deletions(-)
 
 diff --git a/vhd/lib/vhd-util-query.c b/vhd/lib/vhd-util-query.c
-index 0cd0416..3aca668 100644
+index 0cd04166..3aca668c 100644
 --- a/vhd/lib/vhd-util-query.c
 +++ b/vhd/lib/vhd-util-query.c
 @@ -43,29 +43,29 @@

@@ -1,0 +1,244 @@
+From 68feaf7278cffcbe4fe9ad338a1118d63c4a23e2 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Thu, 3 Apr 2025 16:06:24 +0200
+Subject: [PATCH] tapdisk: protect scheduler structure
+
+libqcow2 spawns a thread to handle IO requests to qcow2 layer.
+Add a mutex to protect scheduler structure from qcow2 concurrency.
+
+This is the fourth part of the tapdisk threading protection.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/scheduler.c                 | 39 ++++++++++++++++++++++++-----
+ drivers/scheduler.h                 |  2 ++
+ mockatests/drivers/test-scheduler.c |  4 +--
+ 3 files changed, 37 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/scheduler.c b/drivers/scheduler.c
+index c18980eb..4be30570 100644
+--- a/drivers/scheduler.c
++++ b/drivers/scheduler.c
+@@ -227,7 +227,7 @@ scheduler_check_events(scheduler_t *s, int nfds)
+ }
+ 
+ static void
+-scheduler_event_callback(event_t *event, char mode)
++scheduler_event_callback(scheduler_t *s, event_t *event, char mode)
+ {
+ 	if (event->mode & SCHEDULER_POLL_TIMEOUT
+ 			&& !TV_IS_INF(event->timeout)) {
+@@ -236,8 +236,11 @@ scheduler_event_callback(event_t *event, char mode)
+ 		TV_ADD(now, event->timeout, event->deadline);
+ 	}
+ 
+-	if (!event->masked)
++	if (!event->masked) {
++		pthread_mutex_unlock(&s->mutex);
+ 		event->cb(event->id, mode, event->private);
++		pthread_mutex_lock(&s->mutex);
++        }
+ }
+ 
+ static int
+@@ -256,7 +259,7 @@ scheduler_run_events(scheduler_t *s)
+ 		if (pending) {
+ 			event->pending = 0;
+ 			/* NB. must clear before cb */
+-			scheduler_event_callback(event, pending);
++			scheduler_event_callback(s, event, pending);
+ 			n_dispatched++;
+ 		}
+ 	}
+@@ -312,6 +315,7 @@ scheduler_register_event(scheduler_t *s, char mode, int fd,
+ 			 struct timeval timeout, event_cb_t cb, void *private)
+ {
+ 	event_t *event;
++	event_id_t id;
+ 	struct timeval now;
+ 
+ 	if (!cb)
+@@ -324,6 +328,9 @@ scheduler_register_event(scheduler_t *s, char mode, int fd,
+ 	if (!event)
+ 		return -ENOMEM;
+ 
++	pthread_mutex_lock(&s->mutex);
++	id = scheduler_get_event_uuid(s);
++
+ 	gettimeofday(&now, NULL);
+ 
+ 	INIT_LIST_HEAD(&event->next);
+@@ -338,12 +345,13 @@ scheduler_register_event(scheduler_t *s, char mode, int fd,
+ 		TV_ADD(now, timeout, event->deadline);
+ 	event->cb       = cb;
+ 	event->private  = private;
+-	event->id       = scheduler_get_event_uuid(s);
++	event->id       = id;
+ 	event->masked   = 0;
+ 
+ 	list_add_tail(&event->next, &s->events);
++	pthread_mutex_unlock(&s->mutex);
+ 
+-	return event->id;
++	return id;
+ }
+ 
+ void
+@@ -354,11 +362,13 @@ scheduler_unregister_event(scheduler_t *s, event_id_t id)
+ 	if (!id)
+ 		return;
+ 
++	pthread_mutex_lock(&s->mutex);
+ 	scheduler_for_each_event(s, event)
+ 		if (event->id == id) {
+ 			event->dead = 1;
+ 			break;
+ 		}
++	pthread_mutex_unlock(&s->mutex);
+ }
+ 
+ void
+@@ -369,11 +379,13 @@ scheduler_mask_event(scheduler_t *s, event_id_t id, int masked)
+ 	if (!id)
+ 		return;
+ 
++	pthread_mutex_lock(&s->mutex);
+ 	scheduler_for_each_event(s, event)
+ 		if (event->id == id) {
+ 			event->masked = !!masked;
+ 			break;
+ 		}
++	pthread_mutex_unlock(&s->mutex);
+ }
+ 
+ static void
+@@ -391,8 +403,10 @@ scheduler_gc_events(scheduler_t *s)
+ void
+ scheduler_set_max_timeout(scheduler_t *s, struct timeval timeout)
+ {
++	pthread_mutex_lock(&s->mutex);
+ 	if (!TV_IS_INF(timeout))
+ 		s->max_timeout = TV_MIN(s->max_timeout, timeout);
++	pthread_mutex_unlock(&s->mutex);
+ }
+ 
+ int
+@@ -401,6 +415,7 @@ scheduler_wait_for_events(scheduler_t *s)
+ 	int ret;
+ 	struct timeval tv;
+ 
++	pthread_mutex_lock(&s->mutex);
+ 	s->depth++;
+ 	ret = 0;
+ 
+@@ -413,6 +428,7 @@ scheduler_wait_for_events(scheduler_t *s)
+ 	scheduler_prepare_events(s);
+ 
+ 	tv = s->timeout;
++	pthread_mutex_unlock(&s->mutex);
+ 
+ 	DBG("timeout: %ld.%ld, max_timeout: %ld.%ld\n",
+ 	    s->timeout.tv_sec, s->timeout.tv_usec, s->max_timeout.tv_sec, s->max_timeout.tv_usec);
+@@ -426,6 +442,7 @@ scheduler_wait_for_events(scheduler_t *s)
+         }
+     } while (ret == -EINTR);
+ 
++	pthread_mutex_lock(&s->mutex);
+     if (ret < 0) {
+         EPRINTF("select failed: %s\n", strerror(-ret));
+         goto out;
+@@ -444,6 +461,7 @@ scheduler_wait_for_events(scheduler_t *s)
+ 
+ out:
+ 	s->depth--;
++	pthread_mutex_unlock(&s->mutex);
+ 
+ 	return ret;
+ }
+@@ -453,6 +471,9 @@ scheduler_initialize(scheduler_t *s)
+ {
+ 	memset(s, 0, sizeof(scheduler_t));
+ 
++	pthread_mutex_init(&s->mutex, NULL);
++
++	pthread_mutex_lock(&s->mutex);
+ 	s->uuid  = 1;
+ 	s->depth = 0;
+ 	s->uuid_overflow = 0;
+@@ -462,6 +483,7 @@ scheduler_initialize(scheduler_t *s)
+ 	FD_ZERO(&s->except_fds);
+ 
+ 	INIT_LIST_HEAD(&s->events);
++	pthread_mutex_unlock(&s->mutex);
+ }
+ 
+ int
+@@ -474,10 +496,13 @@ scheduler_event_set_timeout(scheduler_t *sched, event_id_t event_id, struct time
+ 	if (!event_id)
+ 		return -EINVAL;
+ 
++	pthread_mutex_lock(&sched->mutex);
+ 	scheduler_for_each_event(sched, event) {
+ 		if (event->id == event_id) {
+-			if (!(event->mode & SCHEDULER_POLL_TIMEOUT))
++			if (!(event->mode & SCHEDULER_POLL_TIMEOUT)) {
++				pthread_mutex_unlock(&sched->mutex);
+ 				return -EINVAL;
++			}
+ 			event->timeout = timeo;
+ 			if (TV_IS_INF(event->timeout))
+ 				event->deadline = TV_INF;
+@@ -486,9 +511,11 @@ scheduler_event_set_timeout(scheduler_t *sched, event_id_t event_id, struct time
+ 				gettimeofday(&now, NULL);
+ 				TV_ADD(now, event->timeout, event->deadline);
+ 			}
++			pthread_mutex_unlock(&sched->mutex);
+ 			return 0;
+ 		}
+ 	}
++	pthread_mutex_unlock(&sched->mutex);
+ 
+ 	return -ENOENT;
+ }
+diff --git a/drivers/scheduler.h b/drivers/scheduler.h
+index e2cae934..507b901a 100644
+--- a/drivers/scheduler.h
++++ b/drivers/scheduler.h
+@@ -33,6 +33,7 @@
+ 
+ #include <sys/select.h>
+ #include <stdint.h>
++#include <pthread.h>
+ 
+ #include "list.h"
+ 
+@@ -50,6 +51,7 @@ typedef struct scheduler {
+ 	fd_set                       except_fds;
+ 
+ 	struct list_head             events;
++	pthread_mutex_t              mutex;
+ 
+ 	event_id_t                   uuid;
+ 	int                          uuid_overflow;
+diff --git a/mockatests/drivers/test-scheduler.c b/mockatests/drivers/test-scheduler.c
+index 428dd732..8ede9693 100644
+--- a/mockatests/drivers/test-scheduler.c
++++ b/mockatests/drivers/test-scheduler.c
+@@ -743,7 +743,7 @@ test_scheduler_callback(void **state)
+   // Update current time to time_now2
+   fake_gettimeofday = (struct timeval){ .tv_sec = time_now2 };
+ 
+-  scheduler_event_callback(event1, test_mode);
++  scheduler_event_callback(&s, event1, test_mode, false);
+ 
+   // Check callback has been called
+   assert_int_equal(event_cb_spy.was_called, 1);
+@@ -776,7 +776,7 @@ test_scheduler_callback_ignores_masked_events(void **state)
+   event1->masked = true;
+ 
+   const int test_mode = 1;
+-  scheduler_event_callback(event1, test_mode);
++  scheduler_event_callback(&s, event1, test_mode, false);
+ 
+   // Check callback has not been called
+   assert_int_equal(event_cb_spy.was_called, 0);
