@@ -1,13 +1,13 @@
-%global package_speccommit af72a3a53e2e66973dc542c79c50e5aed630b65c
+%global package_speccommit 284310adc02e3a383ece9d885a11231c1cc56374
 %global usver 3.55.5
-%global xsver 6
+%global xsver 9
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.7%{?dist}
+Release: %{?xsrel}.1%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -17,6 +17,8 @@ Patch1: cp_54256_log_eopnotsupp
 Patch2: ca-408175__distinguish_logging_for_long_nbd_operations.patch
 Patch3: CP-308382_fix_sign_conversion_in_coalesce
 Patch4: fix_coalesced_size_conversion_in_vhd-util-coalesce.patch
+Patch5: ca-416464__return_blkif_rsp_eopnotsupp_for_eopnotsupp.patch
+Patch6: prevent_segfault_of_vhd-util_scan_on_vhd_with_corrupt_footer.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -40,54 +42,53 @@ Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
 # git format-patch XS-v3.55.5-1..v3.55.5-qcow2 --no-signature --no-numbered
-Patch1001: 0001-Prevent-segfault-of-vhd-util-scan-on-VHD-with-corrup.patch
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
-Patch1002: 0002-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
-Patch1003: 0003-tapdisk-deduplicate-double-assignment-code.patch
-Patch1004: 0004-blktap-fix-a-typo-in-libaio-backend.h-header.patch
-Patch1005: 0005-tapdisk-document-final-param-in-__tapdisk_xenblkif_r.patch
-Patch1006: 0006-tapdisk-use-tapdisk_vbd_for_each_blkif-abstraction.patch
-Patch1007: 0007-blkif-Avoid-use-after-free-on-BLKIF_OP_WRITE_BARRIER.patch
-Patch1008: 0008-tapdisk-vbd-remove-double-assignment-of-error-variab.patch
-Patch1009: 0009-tapdisk-replace-flag-number-by-its-name.patch
-Patch1010: 0010-tapdisk-set-generic-TAPDISK_MESSAGE_MAX-limit-inside.patch
-Patch1011: 0011-tapdisk-remove-unused-file-tapdisk-diff.c.patch
-Patch1012: 0012-blkif-add-a-comment-on-memory-barrier-usage.patch
-Patch1013: 0013-tapback-Synchronise-usage-with-code.patch
-Patch1014: 0014-tap-ctl-fix-comments-of-tap_ctl_info-function.patch
-Patch1015: 0015-tapdisk-fix-hardcoded-array-size-with-a-macro.patch
-Patch1016: 0016-tapdisk-Replace-structure-name-in-sizeof.patch
-Patch1017: 0017-tapdisk-check-if-RD-macros-are-defined-in-ring.h-sin.patch
-Patch1018: 0018-tapdisk-Fix-a-typo-in-util.h-header.patch
-Patch1019: 0019-tapdisk-rename-field-pool-to-pool_name.patch
-Patch1020: 0020-td-req-remove-unused-field-gref.patch
-Patch1021: 0021-td-req-rename-tapreq-as-req.patch
-Patch1022: 0022-td-req-remove-old-code.patch
-Patch1023: 0023-td-req-fix-typo-in-a-comment.patch
-Patch1024: 0024-libqcow2-manage-libqcow2-sources-import.patch
-Patch1025: 0025-libqcow2-import-vanilla-sources-from-qemu-9.1.1.patch
-Patch1026: 0026-libqcow2-build-qcow2-library-for-tapdisk.patch
-Patch1027: 0027-libqcow2-fix-support-for-old-components-gcc-glibc-gl.patch
-Patch1028: 0028-tapdisk-protect-td_vbd_t-structure.patch
-Patch1029: 0029-tapdisk-protect-td_blktap_t-structure.patch
-Patch1030: 0030-tapdisk-protect-td_xenblkif-structure.patch
-Patch1031: 0031-tapdisk-protect-scheduler-structure.patch
-Patch1032: 0032-mocka-fix-scheduler-tests-according-mutex-protection.patch
-Patch1033: 0033-tapdisk-protect-td_nbdserver-structures.patch
-Patch1034: 0034-libqcow2-prepare-proper-cleanup-of-libqcow2-on-close.patch
-Patch1035: 0035-libqcow2-mask-signals-used-by-tapdisk.patch
-Patch1036: 0036-tapdisk-replace-signals-handling-by-signalfd.patch
-Patch1037: 0037-qcow2-driver-support-qcow2-images-in-tapdisk.patch
-Patch1038: 0038-vbd-wake-up-scheduler-to-force-check-ring.patch
-Patch1039: 0039-blktap.spec-add-qcow2-dependencies.patch
-Patch1040: 0040-tapdisk-support-new-commit-command.patch
-Patch1041: 0041-qcow2-support-commit-command.patch
-Patch1042: 0042-tapdisk-support-new-query-command.patch
-Patch1043: 0043-qcow2-support-query-command.patch
-Patch1044: 0044-tapdisk-support-new-cancel-command.patch
-Patch1045: 0045-qcow2-support-cancel-command.patch
-Patch1046: 0046-libqcow2-fix-abort-commit-without-crash.patch
-Patch1047: 0047-qcow2-Auto-finalize-commit-job-to-avoid-never-ending.patch
+Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
+Patch1002: 0002-tapdisk-deduplicate-double-assignment-code.patch
+Patch1003: 0003-blktap-fix-a-typo-in-libaio-backend.h-header.patch
+Patch1004: 0004-tapdisk-document-final-param-in-__tapdisk_xenblkif_r.patch
+Patch1005: 0005-tapdisk-use-tapdisk_vbd_for_each_blkif-abstraction.patch
+Patch1006: 0006-blkif-Avoid-use-after-free-on-BLKIF_OP_WRITE_BARRIER.patch
+Patch1007: 0007-tapdisk-vbd-remove-double-assignment-of-error-variab.patch
+Patch1008: 0008-tapdisk-replace-flag-number-by-its-name.patch
+Patch1009: 0009-tapdisk-set-generic-TAPDISK_MESSAGE_MAX-limit-inside.patch
+Patch1010: 0010-tapdisk-remove-unused-file-tapdisk-diff.c.patch
+Patch1011: 0011-blkif-add-a-comment-on-memory-barrier-usage.patch
+Patch1012: 0012-tapback-Synchronise-usage-with-code.patch
+Patch1013: 0013-tap-ctl-fix-comments-of-tap_ctl_info-function.patch
+Patch1014: 0014-tapdisk-fix-hardcoded-array-size-with-a-macro.patch
+Patch1015: 0015-tapdisk-Replace-structure-name-in-sizeof.patch
+Patch1016: 0016-tapdisk-check-if-RD-macros-are-defined-in-ring.h-sin.patch
+Patch1017: 0017-tapdisk-Fix-a-typo-in-util.h-header.patch
+Patch1018: 0018-tapdisk-rename-field-pool-to-pool_name.patch
+Patch1019: 0019-td-req-remove-unused-field-gref.patch
+Patch1020: 0020-td-req-rename-tapreq-as-req.patch
+Patch1021: 0021-td-req-remove-old-code.patch
+Patch1022: 0022-td-req-fix-typo-in-a-comment.patch
+Patch1023: 0023-libqcow2-manage-libqcow2-sources-import.patch
+Patch1024: 0024-libqcow2-import-vanilla-sources-from-qemu-9.1.1.patch
+Patch1025: 0025-libqcow2-build-qcow2-library-for-tapdisk.patch
+Patch1026: 0026-libqcow2-fix-support-for-old-components-gcc-glibc-gl.patch
+Patch1027: 0027-tapdisk-protect-td_vbd_t-structure.patch
+Patch1028: 0028-tapdisk-protect-td_blktap_t-structure.patch
+Patch1029: 0029-tapdisk-protect-td_xenblkif-structure.patch
+Patch1030: 0030-tapdisk-protect-scheduler-structure.patch
+Patch1031: 0031-mocka-fix-scheduler-tests-according-mutex-protection.patch
+Patch1032: 0032-tapdisk-protect-td_nbdserver-structures.patch
+Patch1033: 0033-libqcow2-prepare-proper-cleanup-of-libqcow2-on-close.patch
+Patch1034: 0034-libqcow2-mask-signals-used-by-tapdisk.patch
+Patch1035: 0035-tapdisk-replace-signals-handling-by-signalfd.patch
+Patch1036: 0036-qcow2-driver-support-qcow2-images-in-tapdisk.patch
+Patch1037: 0037-vbd-wake-up-scheduler-to-force-check-ring.patch
+Patch1038: 0038-blktap.spec-add-qcow2-dependencies.patch
+Patch1039: 0039-tapdisk-support-new-commit-command.patch
+Patch1040: 0040-qcow2-support-commit-command.patch
+Patch1041: 0041-tapdisk-support-new-query-command.patch
+Patch1042: 0042-qcow2-support-query-command.patch
+Patch1043: 0043-tapdisk-support-new-cancel-command.patch
+Patch1044: 0044-qcow2-support-cancel-command.patch
+Patch1045: 0045-libqcow2-fix-abort-commit-without-crash.patch
+Patch1046: 0046-qcow2-Auto-finalize-commit-job-to-avoid-never-ending.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -145,28 +146,6 @@ cd ../ && find -name "*.gcno" | grep -v '.libs/' | xargs -d "\n" tar -cvjSf %{bu
 rm -f %{buildroot}%{_libdir}/*.la
 ## Remove static libraries; they should not be used by other packages
 rm -f %{buildroot}%{_libdir}/*.a
-
-%triggerin -- mdadm <= 4.0
-OLD="65-md-incremental.rules"
-NEW="64-md-raid-assembly.rules"
-SRC="/usr/lib/udev/rules.d/$OLD"
-DST="/etc/udev/rules.d/$OLD"
-echo "# File generated by blktap's RPM trigger from mdadm's $SRC" > "$DST"
-echo 'KERNEL=="td[a-z]*", GOTO="md_end"' >> "$DST"
-cat "$SRC" >> "$DST"
-# Remove file generated by blktap from newer mdadm if present (downgrade)
-rm -f "/etc/udev/rules.d/$NEW"
-
-%triggerin -- mdadm > 4.0
-OLD="65-md-incremental.rules"
-NEW="64-md-raid-assembly.rules"
-SRC="/usr/lib/udev/rules.d/$NEW"
-DST="/etc/udev/rules.d/$NEW"
-echo "# File generated by blktap's RPM trigger from mdadm's $SRC" > "$DST"
-echo 'KERNEL=="td[a-z]*", GOTO="md_inc_end"' >> "$DST"
-cat "$SRC" >> "$DST"
-# Remove file generated by blktap from older mdadm if present (update)
-rm -f "/etc/udev/rules.d/$OLD"
 
 %files
 %defattr(-,root,root,-)
@@ -239,6 +218,17 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Wed May 20 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-9.1
+- Sync with 3.55.5-9
+- Drop patch 0002-Prevent-segfault-of-vhd-util-scan-on-VHD-with-corrup.patch, upstream now
+- *** Upstream changelog ***
+  * Thu Apr 09 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-9
+  - Remove old, obsolete, udev rule override.
+  * Wed Jan 28 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-8
+  - Prevent segfault of vhd-util scan on VHD with corrupt footer
+  * Thu Aug 28 2025 Mark Syms <mark.syms@cloud.com> - 3.55.5-7
+  - CA-416464: return BLKIF_RSP_EOPNOTSUPP for EOPNOTSUPP
+
 * Thu Apr 30 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-6.7
 - Fix tapdisk crash and prevent infinite coalesce
 

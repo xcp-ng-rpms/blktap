@@ -1,7 +1,6 @@
-From c8c799c41f45bee68274332f7426e5525d4cbc4c Mon Sep 17 00:00:00 2001
+Prevent segfault of vhd-util scan on VHD with corrupt footer
+
 From: Mathieu Labourier <mathieu.labourier@vates.tech>
-Date: Thu, 18 Dec 2025 19:41:52 +0100
-Subject: [PATCH] Prevent segfault of vhd-util scan on VHD with corrupt footer
 
 vhd-util scan can crash when ran against a VHD with a corrupt footer.
 
@@ -9,9 +8,6 @@ Happens when the footer reports a VHD type that should have a parent
 (like HD_TYPE_DIFF) while having none, causing the segfault.
 
 Signed-off-by: Mathieu Labourier <mathieu.labourier@vates.tech>
----
- vhd/lib/vhd-util-scan.c | 12 +++++++++++-
- 1 file changed, 11 insertions(+), 1 deletion(-)
 
 diff --git a/vhd/lib/vhd-util-scan.c b/vhd/lib/vhd-util-scan.c
 index eae9d68..17392ab 100644
