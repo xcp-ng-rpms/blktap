@@ -1,0 +1,31 @@
+From 1f52065d1bf7570f9c59db468c38f6f94be087da Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@citrix.com>
+Date: Wed, 12 Nov 2025 15:07:50 +0000
+Subject: [PATCH] CA-420659: don't fail on unknown options in NBD
+
+The NBD protocol specifies that the server should reply with
+NBD_REP_ERR_UNSUP for any option in new-fixed protocol that it does
+not understand. Remove the hard failure and reply correctly.
+
+Signed-off-by: Mark Syms <mark.syms@citrix.com>
+---
+ drivers/tapdisk-nbdserver.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/tapdisk-nbdserver.c b/drivers/tapdisk-nbdserver.c
+index 95ff964..b551edd 100644
+--- a/drivers/tapdisk-nbdserver.c
++++ b/drivers/tapdisk-nbdserver.c
+@@ -688,7 +688,8 @@ receive_newstyle_options(td_nbdserver_client_t *client, int new_fd, bool no_zero
+ 			}
+ 			break;
+ 			default:
+-				goto fail;
++				INFO("Unknown NBD option %u", opt_code);
++				if (send_fixed_option_reply(new_fd, opt_code, NBD_REP_ERR_UNSUP)) goto fail;
+ 		}
+ 	} 
+ 
+-- 
+2.53.0
+

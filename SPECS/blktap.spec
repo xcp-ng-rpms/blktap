@@ -36,6 +36,8 @@ Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 # Required for build on ARM
 Patch1002: 0001-Use-libc-API-for-xattr.patch
 Patch1003: 0001-Use-memory-barriers-defined-by-xen-headers.patch
+# Fix QEMU 10 compatibility: reply NBD_REP_ERR_UNSUP for unknown options instead of failing
+Patch1004: CA-420659-nbd-unknown-options.patch
 
 Conflicts: sm < 4.0.0
 
