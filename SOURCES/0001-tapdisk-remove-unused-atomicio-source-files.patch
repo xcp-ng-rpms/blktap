@@ -1,0 +1,179 @@
+From 7047bc84178f3f4029d81c1a862f5e163e7cfafa Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Mon, 1 Jun 2026 14:55:35 +0200
+Subject: [PATCH] tapdisk: remove unused atomicio source files
+
+atomicio() is still available in VHD.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ LICENSE                    |  2 --
+ drivers/Makefile.am        |  2 --
+ drivers/atomicio.c         | 65 --------------------------------------
+ drivers/atomicio.h         | 33 -------------------
+ drivers/libaio-backend.c   |  1 -
+ drivers/posixaio-backend.c |  1 -
+ 6 files changed, 104 deletions(-)
+ delete mode 100644 drivers/atomicio.c
+ delete mode 100644 drivers/atomicio.h
+
+diff --git a/LICENSE b/LICENSE
+index b2a170f2..17ada67b 100644
+--- a/LICENSE
++++ b/LICENSE
+@@ -37,8 +37,6 @@ The files licensed under other/different licenses are:
+ blktap/
+    |-- autogen.sh
+    |-- drivers/
+-   |      |-- atomicio.c
+-   |      |-- atomicio.h
+    |      |-- aio_getevents.c
+    |
+    |--include/
+diff --git a/drivers/Makefile.am b/drivers/Makefile.am
+index 6b6e0d7c..6cd64dd0 100644
+--- a/drivers/Makefile.am
++++ b/drivers/Makefile.am
+@@ -68,8 +68,6 @@ libtapdisk_la_SOURCES += tapdisk-loglimit.c
+ libtapdisk_la_SOURCES += tapdisk-loglimit.h
+ libtapdisk_la_SOURCES += io-optimize.c
+ libtapdisk_la_SOURCES += io-optimize.h
+-libtapdisk_la_SOURCES += atomicio.c
+-libtapdisk_la_SOURCES += atomicio.h
+ libtapdisk_la_SOURCES += tapdisk-fdreceiver.c
+ libtapdisk_la_SOURCES += tapdisk-fdreceiver.h
+ libtapdisk_la_SOURCES += ../cpumond/cpumond.h
+diff --git a/drivers/atomicio.c b/drivers/atomicio.c
+deleted file mode 100644
+index b390ee32..00000000
+--- a/drivers/atomicio.c
++++ /dev/null
+@@ -1,65 +0,0 @@
+-/*
+- * Copyright (c) 2005 Anil Madhavapeddy. All rights reserved.
+- * Copyright (c) 1995,1999 Theo de Raadt.  All rights reserved.
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+- * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-#ifdef HAVE_CONFIG_H
+-#include "config.h"
+-#endif
+-
+-#include <stdlib.h>
+-#include <errno.h>
+-#include "atomicio.h"
+-
+-/*
+- * ensure all of data on socket comes through. f==read || f==vwrite
+- */
+-size_t
+-atomicio(f, fd, _s, n)
+-	ssize_t (*f) (int, void *, size_t);
+-	int fd;
+-	void *_s;
+-	size_t n;
+-{
+-	char *s = _s;
+-	size_t pos = 0;
+-	ssize_t res;
+-
+-	while (n > pos) {
+-		res = (f) (fd, s + pos, n - pos);
+-		switch (res) {
+-		case -1:
+-			if (errno == EINTR || errno == EAGAIN)
+-				continue;
+-			return 0;
+-		case 0:
+-			errno = EPIPE;
+-			return pos;
+-		default:
+-			pos += (size_t)res;
+-		}
+-	}
+-	return (pos);
+-}
+-
+diff --git a/drivers/atomicio.h b/drivers/atomicio.h
+deleted file mode 100644
+index 7eccf206..00000000
+--- a/drivers/atomicio.h
++++ /dev/null
+@@ -1,33 +0,0 @@
+-/*	$OpenBSD: atomicio.h,v 1.6 2005/05/24 17:32:43 avsm Exp $	*/
+-
+-/*
+- * Copyright (c) 1995,1999 Theo de Raadt.  All rights reserved.
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+- * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-/*
+- * Ensure all of data on socket comes through. f==read || f==vwrite
+- */
+-size_t	atomicio(ssize_t (*)(int, void *, size_t), int, void *, size_t);
+-
+-#define vwrite (ssize_t (*)(int, void *, size_t))write
+diff --git a/drivers/libaio-backend.c b/drivers/libaio-backend.c
+index 8466d997..3358bf58 100644
+--- a/drivers/libaio-backend.c
++++ b/drivers/libaio-backend.c
+@@ -48,7 +48,6 @@
+ #include "tapdisk-utils.h"
+ #include "timeout-math.h"
+ 
+-#include "atomicio.h"
+ #include "aio_getevents.h"
+ 
+ #define WARN(_f, _a...) tlog_write(TLOG_WARN, _f, ##_a)
+diff --git a/drivers/posixaio-backend.c b/drivers/posixaio-backend.c
+index 85e9ec00..796d71c4 100644
+--- a/drivers/posixaio-backend.c
++++ b/drivers/posixaio-backend.c
+@@ -46,7 +46,6 @@
+ #include "timeout-math.h"
+ #include <signal.h>
+ 
+-#include "atomicio.h"
+ #include "aio_getevents.h"
+ #include <sys/signalfd.h>
+ #include "debug.h"

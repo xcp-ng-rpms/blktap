@@ -1,0 +1,67 @@
+From a1a45fd66ad17e4ead5c38da3c28adf68e016acf Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 9 Jun 2026 18:45:01 +0200
+Subject: [PATCH] tapdisk: fix warnings about discard qualifiers
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ control/tap-ctl-list.c     | 2 +-
+ drivers/tapdisk-disktype.c | 3 ++-
+ vhd/lib/vhd-util-check.c   | 2 +-
+ vhd/lib/vhd-util-scan.c    | 3 ++-
+ 4 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/control/tap-ctl-list.c b/control/tap-ctl-list.c
+index 4b8f8a74..2dde2dfe 100644
+--- a/control/tap-ctl-list.c
++++ b/control/tap-ctl-list.c
+@@ -85,7 +85,7 @@ _tap_list_free(tap_list_t *tl)
+ int
+ _parse_params(const char *params, char **type, char **path)
+ {
+-	char *ptr;
++	const char *ptr;
+ 	size_t len;
+ 
+ 	ptr = strchr(params, ':');
+diff --git a/drivers/tapdisk-disktype.c b/drivers/tapdisk-disktype.c
+index 8ab96c4f..5f5f8725 100644
+--- a/drivers/tapdisk-disktype.c
++++ b/drivers/tapdisk-disktype.c
+@@ -225,7 +225,8 @@ tapdisk_disktype_find(const char *name)
+ int
+ tapdisk_disktype_parse_params(const char *params, const char **_path)
+ {
+-	char name[DISK_TYPE_NAME_MAX], *ptr;
++	char name[DISK_TYPE_NAME_MAX];
++	const char *ptr;
+ 	size_t len;
+ 	int type;
+ 
+diff --git a/vhd/lib/vhd-util-check.c b/vhd/lib/vhd-util-check.c
+index 36ea491b..6792d62c 100644
+--- a/vhd/lib/vhd-util-check.c
++++ b/vhd/lib/vhd-util-check.c
+@@ -158,7 +158,7 @@ pct(uint64_t num, uint64_t den)
+ static inline char *
+ name(const char *path)
+ {
+-	char *p = strrchr(path, '/');
++	const char *p = strrchr(path, '/');
+ 	if (p && (p - path) == strlen(path))
+ 		p = strrchr(--p, '/');
+ 	return (char *)(p ? ++p : path);
+diff --git a/vhd/lib/vhd-util-scan.c b/vhd/lib/vhd-util-scan.c
+index 17392ab4..b32a166e 100644
+--- a/vhd/lib/vhd-util-scan.c
++++ b/vhd/lib/vhd-util-scan.c
+@@ -491,7 +491,8 @@ vhd_util_scan_extract_volume_name(char *dst, const char *src, size_t size)
+ 		return -EINVAL;
+ 	}
+ 
+-	char copy[VHD_MAX_NAME_LEN], *name, *s, *c;
++	char copy[VHD_MAX_NAME_LEN], *c;
++	const char *name, *s;
+ 
+ 	name = strrchr(src, '/');
+ 	if (!name)

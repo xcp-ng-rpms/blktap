@@ -8,7 +8,7 @@ Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
 Release: %{?xsrel}%{?dist}
-License: BSD
+License: GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
 Source0: blktap-3.55.5.tar.gz
@@ -19,6 +19,13 @@ Patch3: CP-308382_fix_sign_conversion_in_coalesce
 Patch4: fix_coalesced_size_conversion_in_vhd-util-coalesce.patch
 Patch5: ca-416464__return_blkif_rsp_eopnotsupp_for_eopnotsupp.patch
 Patch6: prevent_segfault_of_vhd-util_scan_on_vhd_with_corrupt_footer.patch
+
+Patch7: 0001-tapdisk-remove-unused-atomicio-source-files.patch
+Patch8: 0002-vhd-replace-atomicio-with-in-tree-io-util-helpers.patch
+Patch9: 0003-tapdisk-replace-list.h-BSD-version-by-GPLv2-from-lin.patch
+Patch10: 0005-aio-rewrite-BSD-code-with-GPLv2-code-from-fio.patch
+Patch11: 0006-build-remove-autogen.sh-file-because-of-GPLv2-licens.patch
+Patch12: 0007-blktap-Change-blktap-license-from-BSD-to-GPLv2.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -70,11 +77,12 @@ source /opt/rh/devtoolset-11/enable
 
 %{?_cov_make_model:%{_cov_make_model misc/coverity/model.c}}
 echo -n %{version} > VERSION
-sh autogen.sh
+autoreconf -fi "$@"
 # The following can be used for leak tracing
-#%%configure LDFLAGS="$LDFLAGS -lrt -static-liblsan" CFLAGS="$CFLAGS  -Wno-stringop-truncation -fsanitize=leak -ggdb -fno-omit-frame-pointer"
-#%%configure CFLAGS="$CFLAGS -Wno-stringop-truncation -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
-%configure CFLAGS="$CFLAGS -Wno-stringop-truncation"
+#%%configure LDFLAGS="$LDFLAGS -std=gnu11 -lrt -static-liblsan" CFLAGS="$CFLAGS  -fsanitize=leak -ggdb -fno-omit-frame-pointer"
+#%%configure CFLAGS="$CFLAGS -std=gnu11 -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
+#scan-build make
+%configure CFLAGS="$CFLAGS -std=gnu11 -Wno-stringop-truncation"
 %{?_cov_wrap} make %{?coverage:GCOV=true}
 
 %check

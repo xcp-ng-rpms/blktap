@@ -1,0 +1,486 @@
+From 63c91a2e6a5a5114ce22db1ace47777e34ef38da Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Mon, 1 Jun 2026 15:50:00 +0200
+Subject: [PATCH] vhd: replace atomicio with in-tree io-util helpers
+
+The journal used atomicio() from atomicio.c/.h, which carry a separate
+OpenBSD license. Replace it with vhd_atomic_io() / vhd_atomic_pio() in
+the new io-util.c, under the same license as the rest of the tree.
+
+vhd_atomic_pio() is the positioned helper moved out of libvhd.c;
+vhd_atomic_io() is the sequential read/write variant.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ LICENSE                  |   7 +--
+ vhd/lib/Makefile.am      |   4 +-
+ vhd/lib/atomicio.c       |  65 ---------------------
+ vhd/lib/atomicio.h       |  33 -----------
+ vhd/lib/io-util.c        | 120 +++++++++++++++++++++++++++++++++++++++
+ vhd/lib/io-util.h        |  48 ++++++++++++++++
+ vhd/lib/libvhd-journal.c |   6 +-
+ vhd/lib/libvhd.c         |  57 +++----------------
+ 8 files changed, 181 insertions(+), 159 deletions(-)
+ delete mode 100644 vhd/lib/atomicio.c
+ delete mode 100644 vhd/lib/atomicio.h
+ create mode 100644 vhd/lib/io-util.c
+ create mode 100644 vhd/lib/io-util.h
+
+diff --git a/LICENSE b/LICENSE
+index 17ada67b..700be390 100644
+--- a/LICENSE
++++ b/LICENSE
+@@ -40,12 +40,7 @@ blktap/
+    |      |-- aio_getevents.c
+    |
+    |--include/
+-   |      |-- list.h 
+-   |
+-   |--vhd/
+-       |--lib/
+-           |-- atomicio.c
+-           |-- atomicio.h
++          |-- list.h
+    
+ 
+ Please refer to the individual source file headers for how a particular
+diff --git a/vhd/lib/Makefile.am b/vhd/lib/Makefile.am
+index 69500739..1cdadbc0 100644
+--- a/vhd/lib/Makefile.am
++++ b/vhd/lib/Makefile.am
+@@ -31,12 +31,12 @@ libvhd_la_SOURCES += vhd-util-snapshot.c
+ libvhd_la_SOURCES += vhd-util-scan.c
+ libvhd_la_SOURCES += vhd-util-check.c
+ libvhd_la_SOURCES += vhd-util-key.c
++libvhd_la_SOURCES += io-util.c
++libvhd_la_SOURCES += io-util.h
+ libvhd_la_SOURCES += relative-path.c
+ libvhd_la_SOURCES += relative-path.h
+ libvhd_la_SOURCES += canonpath.c
+ libvhd_la_SOURCES += canonpath.h
+-libvhd_la_SOURCES += atomicio.c
+-libvhd_la_SOURCES += atomicio.h
+ libvhd_la_SOURCES += xattr.c
+ libvhd_la_SOURCES += xattr.h
+ 
+diff --git a/vhd/lib/atomicio.c b/vhd/lib/atomicio.c
+deleted file mode 100644
+index b390ee32..00000000
+--- a/vhd/lib/atomicio.c
++++ /dev/null
+@@ -1,65 +0,0 @@
+-/*
+- * Copyright (c) 2005 Anil Madhavapeddy. All rights reserved.
+- * Copyright (c) 1995,1999 Theo de Raadt.  All rights reserved.
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+- * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-#ifdef HAVE_CONFIG_H
+-#include "config.h"
+-#endif
+-
+-#include <stdlib.h>
+-#include <errno.h>
+-#include "atomicio.h"
+-
+-/*
+- * ensure all of data on socket comes through. f==read || f==vwrite
+- */
+-size_t
+-atomicio(f, fd, _s, n)
+-	ssize_t (*f) (int, void *, size_t);
+-	int fd;
+-	void *_s;
+-	size_t n;
+-{
+-	char *s = _s;
+-	size_t pos = 0;
+-	ssize_t res;
+-
+-	while (n > pos) {
+-		res = (f) (fd, s + pos, n - pos);
+-		switch (res) {
+-		case -1:
+-			if (errno == EINTR || errno == EAGAIN)
+-				continue;
+-			return 0;
+-		case 0:
+-			errno = EPIPE;
+-			return pos;
+-		default:
+-			pos += (size_t)res;
+-		}
+-	}
+-	return (pos);
+-}
+-
+diff --git a/vhd/lib/atomicio.h b/vhd/lib/atomicio.h
+deleted file mode 100644
+index 7eccf206..00000000
+--- a/vhd/lib/atomicio.h
++++ /dev/null
+@@ -1,33 +0,0 @@
+-/*	$OpenBSD: atomicio.h,v 1.6 2005/05/24 17:32:43 avsm Exp $	*/
+-
+-/*
+- * Copyright (c) 1995,1999 Theo de Raadt.  All rights reserved.
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+- * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- */
+-
+-/*
+- * Ensure all of data on socket comes through. f==read || f==vwrite
+- */
+-size_t	atomicio(ssize_t (*)(int, void *, size_t), int, void *, size_t);
+-
+-#define vwrite (ssize_t (*)(int, void *, size_t))write
+diff --git a/vhd/lib/io-util.c b/vhd/lib/io-util.c
+new file mode 100644
+index 00000000..7e2370a5
+--- /dev/null
++++ b/vhd/lib/io-util.c
+@@ -0,0 +1,120 @@
++/*
++ * Copyright (c) 2016, Citrix Systems, Inc.
++ *
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *  3. Neither the name of the copyright holder nor the names of its
++ *     contributors may be used to endorse or promote products derived from
++ *     this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif
++
++#include <errno.h>
++#include <string.h>
++#include <unistd.h>
++#include <sys/stat.h>
++
++#include "vhd.h"
++#include "io-util.h"
++
++/*
++ * Positioned atomic I/O: repeatedly call the positioned read/write primitive (e.g. pread/pwrite)
++ * until all n bytes at offset off have been transferred, retrying short transfers and
++ * EINTR/EAGAIN. Stops early at EOF.
++ * Returns the number of bytes transferred, or 0/-1 on error (errno set).
++ */
++ssize_t
++vhd_atomic_pio(vhd_pio_t f, int fd, void *_s, size_t n, off_t off)
++{
++	char *s = _s;
++	size_t pos = 0;
++	ssize_t res;
++	struct stat st;
++
++	memset(&st, 0, sizeof(st));
++
++	for (;;) {
++		res = (f) (fd, s + pos, n - pos, off + pos);
++		switch (res) {
++		case -1:
++			if (errno == EINTR || errno == EAGAIN)
++				continue;
++			else
++				return 0;
++			break;
++		case 0:
++			errno = EPIPE;
++			return pos;
++		}
++
++		if (pos + res == n)
++			return n;
++
++		if (!st.st_size)
++			if (fstat(fd, &st) == -1)
++				return -1;
++
++		if (off + pos + res == st.st_size)
++			return pos + res;
++
++		pos += (res & ~(VHD_SECTOR_SIZE - 1));
++	}
++
++	return -1;
++}
++
++/*
++ * Sequential atomic I/O: repeatedly call the read/write primitive f on the file's implicit
++ * offset until all n bytes have been transferred, retrying short transfers and EINTR/EAGAIN.
++ * Returns the number of bytes transferred; 0 on error (errno set), or the partial
++ * count on EOF (errno == EPIPE).
++ */
++size_t
++vhd_atomic_io(vhd_io_t f, int fd, void *_s, size_t n)
++{
++	char *s = _s;
++	size_t pos = 0;
++	ssize_t res;
++
++	while (n > pos) {
++		res = (f) (fd, s + pos, n - pos);
++		switch (res) {
++		case -1:
++			if (errno == EINTR || errno == EAGAIN)
++				continue;
++			else
++				return 0;
++			break;
++		case 0:
++			errno = EPIPE;
++			return pos;
++		default:
++			pos += (size_t)res;
++		}
++	}
++
++	return pos;
++}
+diff --git a/vhd/lib/io-util.h b/vhd/lib/io-util.h
+new file mode 100644
+index 00000000..b920f585
+--- /dev/null
++++ b/vhd/lib/io-util.h
+@@ -0,0 +1,48 @@
++/*
++ * Copyright (c) 2026, Vates SAS
++ *
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *  3. Neither the name of the copyright holder nor the names of its
++ *     contributors may be used to endorse or promote products derived from
++ *     this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef __IO_UTIL_H__
++#define __IO_UTIL_H__
++
++#include <sys/types.h>
++
++/*
++ * Function-pointer types for the io helpers. They match read(2)/pread(2);
++ * write(2)/pwrite(2) take a const void * buffer, so passing them requires an
++ * explicit cast (e.g. (vhd_io_t)write), which is intentional and safe here.
++ */
++typedef ssize_t (*vhd_io_t)(int, void *, size_t);
++typedef ssize_t (*vhd_pio_t)(int, void *, size_t, off_t);
++
++ssize_t vhd_atomic_pio(vhd_pio_t f, int fd, void *buf, size_t n, off_t off);
++
++size_t vhd_atomic_io(vhd_io_t f, int fd, void *buf, size_t n);
++
++#endif /* __IO_UTIL_H__ */
+diff --git a/vhd/lib/libvhd-journal.c b/vhd/lib/libvhd-journal.c
+index 41fbfc88..dd7cba6e 100644
+--- a/vhd/lib/libvhd-journal.c
++++ b/vhd/lib/libvhd-journal.c
+@@ -39,7 +39,7 @@
+ #include <unistd.h>
+ #include <string.h>
+ 
+-#include "atomicio.h"
++#include "io-util.h"
+ #include "libvhd-journal.h"
+ 
+ #define VHD_JOURNAL_ENTRY_TYPE_FOOTER_P  1
+@@ -84,7 +84,7 @@ vhd_journal_read(vhd_journal_t *j, void *buf, size_t size)
+ 
+ 	errno = 0;
+ 
+-	ret = atomicio(read, j->jfd, buf, size);
++	ret = vhd_atomic_io(read, j->jfd, buf, size);
+ 	if (ret != size)
+ 		return (errno ? -errno : -EIO);
+ 
+@@ -98,7 +98,7 @@ vhd_journal_write(vhd_journal_t *j, void *buf, size_t size)
+ 
+ 	errno = 0;
+ 
+-	ret = atomicio(vwrite, j->jfd, buf, size);
++	ret = vhd_atomic_io((vhd_io_t)write, j->jfd, buf, size);
+ 	if (ret != size)
+ 		return (errno ? -errno : -EIO);
+ 
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index 856efd7d..0d18d2bd 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -58,6 +58,7 @@
+ #include "canonpath.h"
+ #include "compiler.h"
+ #include "util.h"
++#include "io-util.h"
+ 
+ /* VHD uses an epoch of 12:00AM, Jan 1, 2000. This is the Unix timestamp for 
+  * the start of the VHD epoch. */
+@@ -2469,57 +2470,13 @@ namedup(char **dup, const char *name)
+ 	return 0;
+ }
+ 
+-#define vwrite (ssize_t (*)(int, void *, size_t))write
+-#define vpwrite (ssize_t (*)(int, void *, size_t, off_t))pwrite
+-
+-static ssize_t
+-vhd_atomic_pio(ssize_t (*f) (int, void *, size_t, off_t),
+-	       int fd, void *_s, size_t n, off_t off)
+-{
+-	char *s = _s;
+-	size_t pos = 0;
+-	ssize_t res;
+-	struct stat st;
+-
+-	memset(&st, 0, sizeof(st));
+-
+-	for (;;) {
+-		res = (f) (fd, s + pos, n - pos, off + pos);
+-		switch (res) {
+-		case -1:
+-			if (errno == EINTR || errno == EAGAIN)
+-				continue;
+-			else
+-				return 0;
+-			break;
+-		case 0:
+-			errno = EPIPE;
+-			return pos;
+-		}
+-
+-		if (pos + res == n)
+-			return n;
+-
+-		if (!st.st_size)
+-			if (fstat(fd, &st) == -1)
+-				return -1;
+-
+-		if (off + pos + res == st.st_size)
+-			return pos + res;
+-
+-		pos += (res & ~(VHD_SECTOR_SIZE - 1));
+-	}
+-
+-	return -1;
+-}
+-
+ static ssize_t
+-vhd_atomic_io(ssize_t (*f) (int, void *, size_t), vhd_context_t *ctx, void *_s, size_t n)
++_vhd_atomic_io(vhd_io_t f, vhd_context_t *ctx, void *_s, size_t n)
+ {
+ 	ssize_t res;
+-	ssize_t (*pf) (int, void *, size_t, off_t);
++	vhd_pio_t pf;
+ 
+-	pf = (f == read ? pread : vpwrite);
++	pf = (f == read ? (vhd_pio_t)pread : (vhd_pio_t)pwrite);
+ 	res = vhd_atomic_pio(pf, ctx->fd, _s, n, ctx->offset);
+ 
+ 	if (res > 0)
+@@ -2558,7 +2515,7 @@ vhd_read(vhd_context_t *ctx, void *buf, size_t size)
+ 
+ 	errno = 0;
+ 
+-	ret = vhd_atomic_io(read, ctx, buf, size);
++	ret = _vhd_atomic_io(read, ctx, buf, size);
+ 	if (ret == size)
+ 		return 0;
+ 
+@@ -2575,7 +2532,7 @@ vhd_write(vhd_context_t *ctx, void *buf, size_t size)
+ 
+ 	errno = 0;
+ 
+-	ret = vhd_atomic_io(vwrite, ctx, buf, size);
++	ret = _vhd_atomic_io((vhd_io_t)write, ctx, buf, size);
+ 	if (ret == size)
+ 		return 0;
+ 
+@@ -2609,7 +2566,7 @@ vhd_pwrite(vhd_context_t *ctx, void *buf, size_t size, off64_t offset)
+ 
+ 	errno = 0;
+ 
+-	ret = vhd_atomic_pio(vpwrite, ctx->fd, buf, size, offset);
++	ret = vhd_atomic_pio((vhd_pio_t)pwrite, ctx->fd, buf, size, offset);
+ 	if (ret == size)
+ 		return 0;
+ 

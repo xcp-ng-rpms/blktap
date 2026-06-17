@@ -1,0 +1,91 @@
+From 4cce8f5c6db3c586afb80adadf94784765cb392c Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 9 Jun 2026 17:22:11 +0200
+Subject: [PATCH] tapdisk: replace list.h BSD version by GPLv2 from linux
+ kernel
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ LICENSE        |  5 +----
+ include/list.h | 50 +++++++++++++-------------------------------------
+ 2 files changed, 14 insertions(+), 41 deletions(-)
+
+diff --git a/LICENSE b/LICENSE
+index 700be390..3069440d 100644
+--- a/LICENSE
++++ b/LICENSE
+@@ -37,10 +37,7 @@ The files licensed under other/different licenses are:
+ blktap/
+    |-- autogen.sh
+    |-- drivers/
+-   |      |-- aio_getevents.c
+-   |
+-   |--include/
+-          |-- list.h
++          |-- aio_getevents.c
+    
+ 
+ Please refer to the individual source file headers for how a particular
+diff --git a/include/list.h b/include/list.h
+index 01923d91..2e3e9065 100644
+--- a/include/list.h
++++ b/include/list.h
+@@ -1,45 +1,21 @@
+-/*  $NetBSD: list.h,v 1.5 2014/08/20 15:26:52 riastradh Exp $   */
+-
+-/*-
+- * Copyright (c) 2013 The NetBSD Foundation, Inc.
+- * All rights reserved.
++/*
++ * This is a subset of linux's list.h intended to be used in user-space.
++ * Copyright (C) Citrix Systems Inc.
+  *
+- * This code is derived from software contributed to The NetBSD Foundation
+- * by Taylor R. Campbell.
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; version 2.1 only
+  *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
+  *
+- * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
+- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+- * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+- * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
+- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+- * POSSIBILITY OF SUCH DAMAGE.
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software Foundation, Inc.,
++ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+  */
+ 
+-/*
+- * Notes on porting:
+- *
+- * - LIST_HEAD(x) means a declaration `struct list_head x =
+- *   LIST_HEAD_INIT(x)' in Linux, but something else in NetBSD.
+- *   Replace by the expansion.
+- *
+- * - The `_rcu' routines here are not actually pserialize(9)-safe.
+- *   They need dependent read memory barriers added.  Please fix this
+- *   if you need to use them with pserialize(9).
+- */
+ 
+ #ifndef _LINUX_LIST_H_
+ #define _LINUX_LIST_H_
