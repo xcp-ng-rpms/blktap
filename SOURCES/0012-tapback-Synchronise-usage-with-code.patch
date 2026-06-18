@@ -1,4 +1,4 @@
-From 49eb6fc28cb80f7e1f14fb1add074a36b7457476 Mon Sep 17 00:00:00 2001
+From a088cdc3040c5c627c6a089384aa007c8865d59b Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Sat, 15 Mar 2025 12:25:11 +0100
 Subject: [PATCH] tapback: Synchronise usage with code

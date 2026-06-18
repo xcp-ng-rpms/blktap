@@ -1,4 +1,4 @@
-From 00e7a92af1a19b9edb80a4e23f63fda677e47c70 Mon Sep 17 00:00:00 2001
+From a6242df1cb58d476b2cd376365ec1d4a7e74062c Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 10 Feb 2025 16:45:05 +0100
 Subject: [PATCH] tapdisk: support new commit command
@@ -36,12 +36,12 @@ index 6ca88ab7..5f954c92 100644
  
 diff --git a/control/tap-ctl-commit.c b/control/tap-ctl-commit.c
 new file mode 100644
-index 00000000..e5d8c1f5
+index 00000000..e3b30853
 --- /dev/null
 +++ b/control/tap-ctl-commit.c
 @@ -0,0 +1,76 @@
 +/*
-+ * Copyright (c) 2016, Citrix Systems, Inc.
++ * Copyright (c) 2025, Vates
 + *
 + * All rights reserved.
 + *
@@ -284,10 +284,10 @@ index 437feb58..076528ea 100644
  void td_queue_write(td_image_t *, td_request_t);
  void td_queue_read(td_image_t *, td_request_t);
 diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
-index 02f0dab0..3cb38bf3 100644
+index a71207a7..98a24db8 100644
 --- a/drivers/tapdisk-vbd.c
 +++ b/drivers/tapdisk-vbd.c
-@@ -1132,6 +1132,22 @@ resume_failed:
+@@ -1133,6 +1133,22 @@ resume_failed:
  	return 0;
  }
  
@@ -311,7 +311,7 @@ index 02f0dab0..3cb38bf3 100644
  tapdisk_vbd_request_ttl(td_vbd_request_t *vreq,
  			const struct timeval *now)
 diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
-index 42239094..aaffb073 100644
+index eb2b1425..909c2549 100644
 --- a/drivers/tapdisk-vbd.h
 +++ b/drivers/tapdisk-vbd.h
 @@ -230,6 +230,7 @@ int tapdisk_vbd_resume(td_vbd_t *, const char *);
@@ -323,7 +323,7 @@ index 42239094..aaffb073 100644
  void tapdisk_vbd_complete_td_request(td_request_t, int);
  int add_extent(tapdisk_extents_t *, td_request_t *);
 diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
-index 59e9ee64..f43b6402 100644
+index 7e96b5d2..482c323e 100644
 --- a/drivers/tapdisk.h
 +++ b/drivers/tapdisk.h
 @@ -228,6 +228,7 @@ struct tap_disk {

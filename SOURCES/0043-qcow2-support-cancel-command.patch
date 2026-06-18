@@ -1,4 +1,4 @@
-From 106e420cdca9ce4f310129ca8ad32c75d6003d0e Mon Sep 17 00:00:00 2001
+From 0a8a3097f67baa716a76ff773b3988ebf6d62586 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 5 Mar 2025 18:22:56 +0100
 Subject: [PATCH] qcow2: support cancel command
@@ -7,11 +7,11 @@ This command will cancel the coalesce job in background.
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
- drivers/block-qcow2.c | 92 ++++++++++++++++++++++++++++++++++++++++++-
- 1 file changed, 91 insertions(+), 1 deletion(-)
+ drivers/block-qcow2.c | 97 ++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 96 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index 37e7c324..eb9f77b1 100644
+index 5c57233e..1dca89dd 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -100,6 +100,7 @@ enum qcow2_ops {
@@ -78,7 +78,7 @@ index 37e7c324..eb9f77b1 100644
  	DBG(TLOG_WARN, "qcow2_close\n");
  
  	pthread_mutex_lock(&s->lock);
-@@ -1061,9 +1083,77 @@ signal:
+@@ -1053,9 +1075,82 @@ signal:
  	pthread_mutex_unlock(&s->commit_lock);
  }
  
@@ -114,6 +114,10 @@ index 37e7c324..eb9f77b1 100644
 +
 +	free_qcow2_request(s, req);
 +
++	/* Already canceled, so this is considered a success */
++	if (err == -ECANCELED)
++		err = 0;
++
 +	return err;
 +}
 +
@@ -131,7 +135,8 @@ index 37e7c324..eb9f77b1 100644
 +		goto signal;
 +	}
 +
-+	if (bjob->job.status == JOB_STATUS_RUNNING) {
++	if (bjob->job.status == JOB_STATUS_RUNNING ||
++		bjob->job.status == JOB_STATUS_READY) {
 +		if (req->sync == false) {
 +			job_cancel_locked(&bjob->job, false);
 +		} else {
@@ -156,7 +161,7 @@ index 37e7c324..eb9f77b1 100644
  	struct qcow2_state *s = (struct qcow2_state *)driver->data;
  
  	DBG(TLOG_WARN, "Qcow2: %s: queued %lu, completed %lu, returned %lu, "
-@@ -1075,7 +1165,6 @@ qcow2_debug(td_driver_t *driver)
+@@ -1067,7 +1162,6 @@ qcow2_debug(td_driver_t *driver)
  		s->writes, (s->writes ? ((float)s->write_size / s->writes) : 0.0),
  		s->schedule, s->kick);
  
@@ -164,7 +169,7 @@ index 37e7c324..eb9f77b1 100644
  	print_latencies(s);
  #endif
  }
-@@ -1093,5 +1182,6 @@ struct tap_disk tapdisk_qcow = {
+@@ -1085,5 +1179,6 @@ struct tap_disk tapdisk_qcow = {
  	.td_validate_parent = qcow2_validate_parent,
  	.td_commit          = qcow2_commit,
  	.td_query_commit_job = qcow2_query_commit_job,

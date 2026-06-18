@@ -1,4 +1,4 @@
-From 630206452cd903deb03b916e6cf77047f4a5e48c Mon Sep 17 00:00:00 2001
+From 844e8cb3a6c61f4ad805982caf3b62470e080b95 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 14 Jan 2025 11:41:26 +0100
 Subject: [PATCH] libqcow2: fix support for old components (gcc, glibc, glib,
@@ -13,11 +13,10 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  include/qemu/config-host.h         | 2 +-
  include/qemu/host-utils.h          | 2 ++
  qcow2/lib/block/file-posix.c       | 2 ++
- qcow2/lib/crypto/hash.c            | 1 +
  qcow2/lib/util/error-report.c      | 2 +-
  qcow2/lib/util/qemu-thread-posix.c | 2 ++
  qcow2/lib/util/thread-pool.c       | 5 +++--
- 8 files changed, 14 insertions(+), 6 deletions(-)
+ 7 files changed, 13 insertions(+), 6 deletions(-)
 
 diff --git a/include/glib-compat.h b/include/glib-compat.h
 index 86be439b..e4a23999 100644
@@ -72,7 +71,7 @@ index 12ae37af..b78a2b21 100644
  /* Host type specific sizes of these routines.  */
  
 diff --git a/qcow2/lib/block/file-posix.c b/qcow2/lib/block/file-posix.c
-index 852f0222..efa8ec2b 100644
+index 3223c75e..0960f25f 100644
 --- a/qcow2/lib/block/file-posix.c
 +++ b/qcow2/lib/block/file-posix.c
 @@ -2008,6 +2008,7 @@ static int handle_aiocb_write_zeroes_unmap(void *opaque)
@@ -91,18 +90,6 @@ index 852f0222..efa8ec2b 100644
  
  /*
   * parse_zone - Fill a zone descriptor
-diff --git a/qcow2/lib/crypto/hash.c b/qcow2/lib/crypto/hash.c
-index a282cf74..ffd74778 100644
---- a/qcow2/lib/crypto/hash.c
-+++ b/qcow2/lib/crypto/hash.c
-@@ -18,6 +18,7 @@
-  *
-  */
- 
-+#include <gnutls/gnutls.h>
- #include <gnutls/crypto.h>
- 
- #include "qemu/osdep.h"
 diff --git a/qcow2/lib/util/error-report.c b/qcow2/lib/util/error-report.c
 index 0554f186..b3936a3c 100644
 --- a/qcow2/lib/util/error-report.c
@@ -117,7 +104,7 @@ index 0554f186..b3936a3c 100644
  
  /*
 diff --git a/qcow2/lib/util/qemu-thread-posix.c b/qcow2/lib/util/qemu-thread-posix.c
-index 8ea29d06..1bb011e3 100644
+index f02bf387..078833c7 100644
 --- a/qcow2/lib/util/qemu-thread-posix.c
 +++ b/qcow2/lib/util/qemu-thread-posix.c
 @@ -534,7 +534,9 @@ static void *qemu_thread_start(void *args)
@@ -131,7 +118,7 @@ index 8ea29d06..1bb011e3 100644
  
      pthread_cleanup_push(qemu_thread_atexit_notify, NULL);
 diff --git a/qcow2/lib/util/thread-pool.c b/qcow2/lib/util/thread-pool.c
-index c0026baa..225db985 100644
+index 27eb777e..baa5adcc 100644
 --- a/qcow2/lib/util/thread-pool.c
 +++ b/qcow2/lib/util/thread-pool.c
 @@ -297,6 +297,7 @@ void thread_pool_submit(ThreadPoolFunc *func, void *arg)

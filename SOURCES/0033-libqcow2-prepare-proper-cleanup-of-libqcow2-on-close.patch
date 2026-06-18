@@ -1,4 +1,4 @@
-From 2e1911694415cf75617256838024de8a96e9169d Mon Sep 17 00:00:00 2001
+From 625aab02193c7af95edc4ba99dfd12d0b0b6b8c1 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 12 Mar 2025 13:46:25 +0100
 Subject: [PATCH] libqcow2: prepare proper cleanup of libqcow2 on close
@@ -9,12 +9,12 @@ clean-up resources to prepare the reopen or unpause.
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
  include/qemu/main-loop.h   |  2 ++
- qcow2/lib/system/cpus.c    |  5 +++++
- qcow2/lib/util/main-loop.c | 45 +++++++++++++++++++++++++++++++++++++-
- 3 files changed, 51 insertions(+), 1 deletion(-)
+ qcow2/lib/system/cpus.c    |  5 ++++
+ qcow2/lib/util/main-loop.c | 49 +++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 55 insertions(+), 1 deletion(-)
 
 diff --git a/include/qemu/main-loop.h b/include/qemu/main-loop.h
-index e0a0be44..9a6f11a8 100644
+index feab3b96..c2983f59 100644
 --- a/include/qemu/main-loop.h
 +++ b/include/qemu/main-loop.h
 @@ -42,6 +42,7 @@ typedef struct MainLoop MainLoop;
@@ -34,7 +34,7 @@ index e0a0be44..9a6f11a8 100644
  /**
   * main_loop_wait: Run one iteration of the main loop.
 diff --git a/qcow2/lib/system/cpus.c b/qcow2/lib/system/cpus.c
-index 81236835..fd3f991c 100644
+index ed2b9ff5..dbf0b3dc 100644
 --- a/qcow2/lib/system/cpus.c
 +++ b/qcow2/lib/system/cpus.c
 @@ -429,6 +429,11 @@ void qemu_init_cpu_loop(void)
@@ -50,7 +50,7 @@ index 81236835..fd3f991c 100644
  void run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data)
  {
 diff --git a/qcow2/lib/util/main-loop.c b/qcow2/lib/util/main-loop.c
-index 817e65a6..9b212ff4 100644
+index 817e65a6..8bde8add 100644
 --- a/qcow2/lib/util/main-loop.c
 +++ b/qcow2/lib/util/main-loop.c
 @@ -39,8 +39,12 @@
@@ -84,12 +84,12 @@ index 817e65a6..9b212ff4 100644
 +
 +    src = iohandler_get_g_source();
 +    g_source_unref(src);
-+    g_source_remove(g_source_get_id(src));
++    g_source_destroy(src);
 +    g_source_unref(src);
 +
 +    src = aio_get_g_source(qemu_aio_context);
 +    g_source_unref(src);
-+    g_source_remove(g_source_get_id(src));
++    g_source_destroy(src);
 +    g_source_unref(src);
 +
 +    g_array_free(gpollfds, TRUE);
@@ -114,13 +114,17 @@ index 817e65a6..9b212ff4 100644
  #if 0
  static void main_loop_update_params(EventLoopBase *base, Error **errp)
  {
-@@ -633,6 +669,13 @@ static void iohandler_init(void)
+@@ -633,6 +669,17 @@ static void iohandler_init(void)
      }
  }
  
 +static void iohandler_deinit(void)
 +{
 +    if (iohandler_ctx) {
++        /*
++         * iohandler_ctx will be freed by the callback aio_ctx_finalize,
++         * but we need to set it to null to reallocate a new one in the future.
++         */
 +        iohandler_ctx = NULL;
 +    }
 +}

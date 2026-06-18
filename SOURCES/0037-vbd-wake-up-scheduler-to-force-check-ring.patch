@@ -1,4 +1,4 @@
-From 260a69aec99546b332596c3fce53301eba95284c Mon Sep 17 00:00:00 2001
+From 638fa45ef2e12170997f50899ce1ebe42662d5f7 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 8 Oct 2025 14:05:35 +0200
 Subject: [PATCH] vbd: wake-up scheduler to force check ring
@@ -13,16 +13,16 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
  drivers/block-qcow2.c    |  4 +--
  drivers/tapdisk-server.c |  2 +-
- drivers/tapdisk-vbd.c    | 68 +++++++++++++++++++++++++++++++++++++++-
+ drivers/tapdisk-vbd.c    | 71 +++++++++++++++++++++++++++++++++++++++-
  drivers/tapdisk-vbd.h    |  6 +++-
  drivers/tapdisk.h        |  2 ++
- 5 files changed, 77 insertions(+), 5 deletions(-)
+ 5 files changed, 80 insertions(+), 5 deletions(-)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index 6fc3cc6a..b8b74a67 100644
+index 99c0e7e2..454c3bf5 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
-@@ -590,7 +590,7 @@ signal_completion(struct qcow2_request *r)
+@@ -588,7 +588,7 @@ signal_completion(struct qcow2_request *r)
  	DBG(TLOG_DBG, "lsec: 0x%08"PRIx64", blk: 0x%04x, "
  		"err: %d\n", r->treq.sec, r->treq.secs, r->error);
  	if (r->error == 0) {
@@ -31,7 +31,7 @@ index 6fc3cc6a..b8b74a67 100644
  		s->kick++;
  	}
  	free_qcow2_request(s, r);
-@@ -869,7 +869,7 @@ qcow2_debug(td_driver_t *driver)
+@@ -856,7 +856,7 @@ qcow2_debug(td_driver_t *driver)
  
  struct tap_disk tapdisk_qcow = {
  	.disk_type          = "tapdisk_qcow2",
@@ -54,7 +54,7 @@ index bf426735..812ecd90 100644
  
  static void
 diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
-index 32131f31..02f0dab0 100644
+index 6e1f95d3..a71207a7 100644
 --- a/drivers/tapdisk-vbd.c
 +++ b/drivers/tapdisk-vbd.c
 @@ -39,10 +39,12 @@
@@ -92,7 +92,7 @@ index 32131f31..02f0dab0 100644
  	pthread_mutex_unlock(&vbd->mutex);
  }
  
-@@ -576,6 +586,23 @@ fail:
+@@ -576,6 +586,24 @@ fail:
  	return err;
  }
  
@@ -106,17 +106,18 @@ index 32131f31..02f0dab0 100644
 +
 +	pthread_mutex_lock(&vbd->mutex);
 +	if (vbd->efd < 0)
-+	    return;
++	    goto unlock;
 +
 +	s = read(vbd->efd, &u, sizeof(uint64_t));
 +	ASSERT(s == sizeof(uint64_t));
++unlock:
 +	pthread_mutex_unlock(&vbd->mutex);
 +}
 +
  int 
  tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_devnum)
  {
-@@ -604,6 +631,26 @@ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_d
+@@ -604,6 +632,26 @@ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_d
  	if (err)
  		goto fail;
  
@@ -143,7 +144,7 @@ index 32131f31..02f0dab0 100644
  	td_flag_clear(vbd->state, TD_VBD_CLOSED);
  	vbd->flags = flags;
  
-@@ -660,6 +707,14 @@ fail:
+@@ -660,6 +708,14 @@ fail:
  		free(vbd->name);
  		vbd->name = tmp;
  	}
@@ -158,7 +159,7 @@ index 32131f31..02f0dab0 100644
  
  	if (!list_empty(&vbd->images))
  		tapdisk_image_close_chain(&vbd->images);
-@@ -1862,10 +1917,11 @@ tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+@@ -1869,10 +1925,11 @@ tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
  }
  
  void
@@ -169,9 +170,9 @@ index 32131f31..02f0dab0 100644
  	td_vbd_request_t *vreq, *prev, *next;
 +	ssize_t s;
  
+ 	pthread_mutex_lock(&vbd->mutex);
  	vbd->kicked++;
- 
-@@ -1900,6 +1956,16 @@ tapdisk_vbd_kick(td_vbd_t *vbd)
+@@ -1907,6 +1964,18 @@ tapdisk_vbd_kick(td_vbd_t *vbd)
  		prev->cb(prev, prev->error, prev->token, 1);
  		vbd->returned++;
  	}
@@ -179,8 +180,10 @@ index 32131f31..02f0dab0 100644
 +	if (scheduler_kick && td_flag_test(vbd->driver_flags, TD_DRIVER_THREADED)) {
 +		static uint64_t token = 1;
 +
-+		if (vbd->efd < 0)
++		if (vbd->efd < 0) {
++		    pthread_mutex_unlock(&vbd->mutex);
 +		    return;
++		}
 +
 +		s = write(vbd->efd, &token, sizeof(uint64_t));
 +		ASSERT(s == sizeof(uint64_t));
@@ -189,7 +192,7 @@ index 32131f31..02f0dab0 100644
  }
  
 diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
-index f3fa0398..42239094 100644
+index f3fa0398..eb2b1425 100644
 --- a/drivers/tapdisk-vbd.h
 +++ b/drivers/tapdisk-vbd.h
 @@ -167,6 +167,10 @@ struct td_vbd_handle {
@@ -198,7 +201,7 @@ index f3fa0398..42239094 100644
  	bool                       watchdog_warned;
 +
 +	td_flag_t                  driver_flags;
-+	int			   efd;
++	int                        efd;
 +	event_id_t                 event;
  };
  
@@ -213,7 +216,7 @@ index f3fa0398..42239094 100644
  void tapdisk_vbd_free(td_vbd_t *);
  
 diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
-index 3163e190..59e9ee64 100644
+index d907d149..7e96b5d2 100644
 --- a/drivers/tapdisk.h
 +++ b/drivers/tapdisk.h
 @@ -115,6 +115,8 @@ enum TD_OPS{

@@ -1,4 +1,4 @@
-From 1281c264539010ecd2c9cf122568855ce91cc52d Mon Sep 17 00:00:00 2001
+From 37450a2c1d3c5b520c3f38ecb709b8e89b128803 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:33 +0100
 Subject: [PATCH] tapdisk: protect td_vbd_t structure
@@ -6,16 +6,20 @@ Subject: [PATCH] tapdisk: protect td_vbd_t structure
 libqcow2 spawns a thread to handle IO requests to qcow2 layer.
 Add a mutex to protect vbd structure from libqcow2 concurrency.
 
+This commit also voids access to request after being issued.
+
 This is the first part of tapdisk threading protection.
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
 ---
- drivers/tapdisk-vbd.c | 115 ++++++++++++++++++++++++++++++++++++++----
+ drivers/tapdisk-vbd.c | 138 ++++++++++++++++++++++++++++++++++++------
  drivers/tapdisk-vbd.h |   2 +
- 2 files changed, 106 insertions(+), 11 deletions(-)
+ drivers/tapdisk.h     |   2 +-
+ 3 files changed, 122 insertions(+), 20 deletions(-)
 
 diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
-index 433375d6..32131f31 100644
+index 433375d6..6e1f95d3 100644
 --- a/drivers/tapdisk-vbd.c
 +++ b/drivers/tapdisk-vbd.c
 @@ -114,6 +114,8 @@ tapdisk_vbd_create(uint16_t uuid)
@@ -361,7 +365,7 @@ index 433375d6..32131f31 100644
  		/*
  		 * if this request failed, but was not completed,
  		 * we'll back off for a while.
-@@ -1662,6 +1727,7 @@ tapdisk_vbd_reissue_failed_requests(td_vbd_t *vbd)
+@@ -1662,20 +1727,22 @@ tapdisk_vbd_reissue_failed_requests(td_vbd_t *vbd)
  		if (err && !tapdisk_vbd_request_completed(vbd, vreq))
  			break;
  	}
@@ -369,15 +373,41 @@ index 433375d6..32131f31 100644
  
  	return 0;
  }
-@@ -1684,17 +1750,23 @@ tapdisk_vbd_issue_new_requests(td_vbd_t *vbd)
+ 
+-static void
+-tapdisk_vbd_count_new_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
++static td_sector_t
++tapdisk_vbd_count_new_request(td_vbd_request_t *vreq)
+ {
+ 	struct td_iovec *iov;
+-	int write;
+-
+-	write = vreq->op == TD_OP_WRITE;
++	td_sector_t secs = 0;
+ 
+-	for (iov = &vreq->iov[0]; iov < &vreq->iov[vreq->iovcnt]; iov++)
+-		td_sector_count_add(&vbd->secs, iov->secs, write);
++	ASSERT(vreq->iov);
++	for (iov = &vreq->iov[0]; iov < &vreq->iov[vreq->iovcnt]; iov++) {
++		secs += iov->secs;
++	}
++	return secs;
+ }
+ 
+ static int
+@@ -1684,17 +1751,29 @@ tapdisk_vbd_issue_new_requests(td_vbd_t *vbd)
  	int err;
  	td_vbd_request_t *vreq, *tmp;
  
 +	pthread_mutex_lock(&vbd->mutex);
  	tapdisk_vbd_for_each_request(vreq, tmp, &vbd->new_requests) {
++		td_sector_t secs = tapdisk_vbd_count_new_request(vreq);
++		bool write = vreq->op == TD_OP_WRITE;
++
 +		pthread_mutex_unlock(&vbd->mutex);
  		err = tapdisk_vbd_issue_request(vbd, vreq);
 +		pthread_mutex_lock(&vbd->mutex);
++
  		/*
  		 * if this request failed, but was not completed,
  		 * we'll back off for a while.
@@ -388,13 +418,16 @@ index 433375d6..32131f31 100644
  			return err;
 +		}
  
- 		tapdisk_vbd_count_new_request(vbd, vreq);
+-		tapdisk_vbd_count_new_request(vbd, vreq);
++		/* XXX: split counting and add; vreq must NOT be accessed after issuing the
++		        request. */
++		td_sector_count_add(&vbd->secs, secs, write);
  	}
 +	pthread_mutex_unlock(&vbd->mutex);
  
  	return 0;
  }
-@@ -1704,12 +1776,18 @@ tapdisk_vbd_recheck_state(td_vbd_t *vbd)
+@@ -1704,12 +1783,18 @@ tapdisk_vbd_recheck_state(td_vbd_t *vbd)
  {
  	int err = 0;
  
@@ -415,7 +448,7 @@ index 433375d6..32131f31 100644
  
  	err = tapdisk_vbd_issue_requests(vbd);
  
-@@ -1722,6 +1800,7 @@ tapdisk_vbd_kill_requests(td_vbd_t *vbd)
+@@ -1722,6 +1807,7 @@ tapdisk_vbd_kill_requests(td_vbd_t *vbd)
  {
  	td_vbd_request_t *vreq, *tmp;
  
@@ -423,7 +456,7 @@ index 433375d6..32131f31 100644
  	tapdisk_vbd_for_each_request(vreq, tmp, &vbd->new_requests) {
  		vreq->error = -ESHUTDOWN;
  		tapdisk_vbd_move_request(vreq, &vbd->completed_requests);
-@@ -1731,6 +1810,7 @@ tapdisk_vbd_kill_requests(td_vbd_t *vbd)
+@@ -1731,6 +1817,7 @@ tapdisk_vbd_kill_requests(td_vbd_t *vbd)
  		vreq->error = -ESHUTDOWN;
  		tapdisk_vbd_move_request(vreq, &vbd->completed_requests);
  	}
@@ -431,7 +464,7 @@ index 433375d6..32131f31 100644
  
  	return 0;
  }
-@@ -1740,17 +1820,24 @@ tapdisk_vbd_issue_requests(td_vbd_t *vbd)
+@@ -1740,17 +1827,24 @@ tapdisk_vbd_issue_requests(td_vbd_t *vbd)
  {
  	int err;
  
@@ -459,7 +492,7 @@ index 433375d6..32131f31 100644
  
  	err = tapdisk_vbd_reissue_failed_requests(vbd);
  	if (err)
-@@ -1765,8 +1852,11 @@ tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+@@ -1765,8 +1859,11 @@ tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
  	gettimeofday(&vreq->ts, NULL);
  	vreq->vbd = vbd;
  
@@ -471,7 +504,7 @@ index 433375d6..32131f31 100644
  
  	return 0;
  }
-@@ -1774,11 +1864,13 @@ tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+@@ -1774,11 +1871,13 @@ tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
  void
  tapdisk_vbd_kick(td_vbd_t *vbd)
  {
@@ -479,14 +512,14 @@ index 433375d6..32131f31 100644
 +	const struct list_head *list;
  	td_vbd_request_t *vreq, *prev, *next;
  
++	pthread_mutex_lock(&vbd->mutex);
  	vbd->kicked++;
  
-+	pthread_mutex_lock(&vbd->mutex);
 +	list = &vbd->completed_requests;
  	while (!list_empty(list)) {
  
  		/*
-@@ -1808,6 +1900,7 @@ tapdisk_vbd_kick(td_vbd_t *vbd)
+@@ -1808,6 +1907,7 @@ tapdisk_vbd_kick(td_vbd_t *vbd)
  		prev->cb(prev, prev->error, prev->token, 1);
  		vbd->returned++;
  	}
@@ -514,3 +547,16 @@ index 23ca7289..f3fa0398 100644
  
  	struct list_head            next;
  
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index 3163e190..d907d149 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -243,7 +243,7 @@ struct td_sector_count {
+ };
+ 
+ static inline void
+-td_sector_count_add(td_sector_count_t *s, td_sector_t v, int write)
++td_sector_count_add(td_sector_count_t *s, td_sector_t v, bool write)
+ {
+ 	if (write)
+ 		s->wr += v;

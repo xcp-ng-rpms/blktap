@@ -1,4 +1,4 @@
-From 9561c2c6b30a9eed55fe1fe24721956ede41f6fe Mon Sep 17 00:00:00 2001
+From 7cce89a9e5a1456ebaa45586c982f22c01570032 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:50 +0100
 Subject: [PATCH] qcow2: driver: support qcow2 images in tapdisk
@@ -12,9 +12,9 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Signed-off-by: Emmanuel Varagnat <emmunel.varagnat@vates.tech>
 ---
  drivers/Makefile.am        |   4 +
- drivers/block-qcow2.c      | 882 +++++++++++++++++++++++++++++++++++++
+ drivers/block-qcow2.c      | 869 +++++++++++++++++++++++++++++++++++++
  drivers/tapdisk-disktype.c |   8 +-
- 3 files changed, 888 insertions(+), 6 deletions(-)
+ 3 files changed, 875 insertions(+), 6 deletions(-)
  create mode 100644 drivers/block-qcow2.c
 
 diff --git a/drivers/Makefile.am b/drivers/Makefile.am
@@ -54,10 +54,10 @@ index c03ef7ed..70bfd2d5 100644
  lib_LTLIBRARIES = libblockcrypto.la
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
 new file mode 100644
-index 00000000..6fc3cc6a
+index 00000000..99c0e7e2
 --- /dev/null
 +++ b/drivers/block-qcow2.c
-@@ -0,0 +1,882 @@
+@@ -0,0 +1,869 @@
 +/*
 + * Copyright (c) 2024, Vates
 + *
@@ -586,9 +586,6 @@ index 00000000..6fc3cc6a
 +		return 0;
 +	}
 +
-+
-+	/* TODO: compare sizes */
-+
 +	return 0;
 +}
 +
@@ -633,11 +630,12 @@ index 00000000..6fc3cc6a
 +free_qcow2_request(struct qcow2_state *s, struct qcow2_request *req)
 +{
 +	memset(&req->treq, 0, sizeof(req->treq));
++
++	qemu_iovec_reset(&req->qiov);
++
 +	pthread_mutex_lock(&s->lock);
 +	s->vreq_free[s->vreq_free_count++] = req;
 +	pthread_mutex_unlock(&s->lock);
-+
-+	qemu_iovec_reset(&req->qiov);
 +}
 +
 +static inline void
@@ -794,7 +792,9 @@ index 00000000..6fc3cc6a
 +			break;
 +
 +		default:
-+			ASSERT(0);
++			ERR(s, req->error, "%s: unknown op: %u",
++				req->treq.image->name, req->op);
++			ASSERT(0 && req->op);
 +			break;
 +	}
 +}
@@ -865,47 +865,34 @@ index 00000000..6fc3cc6a
 +}
 +
 +static void
-+qcow2_queue_block_status(td_driver_t *driver, td_request_t treq)
-+{
-+	treq.status = TD_BLOCK_STATE_NONE;
-+}
-+
-+static void
-+qcow2_queue_read(td_driver_t *driver, td_request_t treq)
++qcow2_queue(td_driver_t *driver, td_request_t *treq, int op)
 +{
 +	struct qcow2_state *s = (struct qcow2_state *)driver->data;
 +	int err;
 +
 +	DBG(TLOG_DBG, "%s: lsec: 0x%08"PRIx64", secs: 0x%04x (seg: %d)\n",
-+		treq.image->name, treq.sec, treq.secs, treq.sidx);
++		treq->image->name, treq->sec, treq->secs, treq->sidx);
 +
-+	err = schedule_request(s, &treq, QCOW2_OP_READ);
++	err = schedule_request(s, treq, op);
 +	if (err)
 +		goto fail;
 +
 +	return;
 +fail:
 +	DBG(TLOG_DBG, "request failed\n");
-+	td_complete_request(treq, err);
++	td_complete_request(*treq, err);
++}
++
++static void
++qcow2_queue_read(td_driver_t *driver, td_request_t treq)
++{
++	qcow2_queue(driver, &treq, QCOW2_OP_READ);
 +}
 +
 +static void
 +qcow2_queue_write(td_driver_t *driver, td_request_t treq)
 +{
-+	struct qcow2_state *s = (struct qcow2_state *)driver->data;
-+	int err;
-+
-+	DBG(TLOG_DBG, "%s: lsec: 0x%08"PRIx64", secs: 0x%04x, (seg: %d)\n",
-+		treq.image->name, treq.sec, treq.secs, treq.sidx);
-+
-+	err = schedule_request(s, &treq, QCOW2_OP_WRITE);
-+	if (err)
-+		goto fail;
-+
-+	return;
-+fail:
-+	DBG(TLOG_DBG, "request failed\n");
-+	td_complete_request(treq, err);
++	qcow2_queue(driver, &treq, QCOW2_OP_WRITE);
 +}
 +
 +void
@@ -934,14 +921,14 @@ index 00000000..6fc3cc6a
 +	.td_open            = _qcow2_open,
 +	.td_close           = _qcow2_close,
 +	.td_queue_read      = qcow2_queue_read,
-+	.td_queue_block_status = qcow2_queue_block_status,
++	.td_queue_block_status = NULL,
 +	.td_queue_write     = qcow2_queue_write,
 +	.td_get_parent_id   = qcow2_get_parent_id,
 +	.td_validate_parent = qcow2_validate_parent,
 +	.td_debug           = qcow2_debug,
 +};
 diff --git a/drivers/tapdisk-disktype.c b/drivers/tapdisk-disktype.c
-index 4a60c756..40bfcce5 100644
+index 8ab96c4f..71678045 100644
 --- a/drivers/tapdisk-disktype.c
 +++ b/drivers/tapdisk-disktype.c
 @@ -77,8 +77,8 @@ static const disk_info_t ram_disk = {

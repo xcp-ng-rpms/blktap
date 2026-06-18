@@ -1,4 +1,4 @@
-From a2ff9b3636d8b30040d96d13b1f9a08706804ec3 Mon Sep 17 00:00:00 2001
+From ea5a1543e987283abac46a62222243b179c9da19 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 17 Mar 2025 14:48:06 +0100
 Subject: [PATCH] tapdisk: fix hardcoded array size with a macro

@@ -1,4 +1,4 @@
-From a4a059f2ed4b648ff06902f58d98778265423a56 Mon Sep 17 00:00:00 2001
+From d49e83a893bee7b183a697bdd4ef750c93d2ca5b Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 27 Nov 2025 11:16:51 +0100
 Subject: [PATCH] td-req: remove unused field gref

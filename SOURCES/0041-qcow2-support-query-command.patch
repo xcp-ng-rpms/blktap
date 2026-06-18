@@ -1,4 +1,4 @@
-From 9d6d40ddb38904e8859844acb27b20b69d231c53 Mon Sep 17 00:00:00 2001
+From b2f29e6773ec00179fdfb5a2bb020b41fcdffeab Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 13 Feb 2025 08:56:22 +0100
 Subject: [PATCH] qcow2: support query command
@@ -7,11 +7,11 @@ This command will print the status of the coalesce in background.
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
- drivers/block-qcow2.c | 105 ++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 105 insertions(+)
+ drivers/block-qcow2.c | 101 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 101 insertions(+)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index bceaf863..37e7c324 100644
+index 4e242237..5c57233e 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -61,6 +61,7 @@
@@ -48,7 +48,7 @@ index bceaf863..37e7c324 100644
  		}
  		pthread_mutex_lock(&s->lock);
  	}
-@@ -957,6 +963,104 @@ do_commit(struct qcow2_state *s, struct qcow2_request *req)
+@@ -953,6 +959,100 @@ signal_commit:
  	pthread_mutex_unlock(&s->commit_lock);
  }
  
@@ -82,8 +82,6 @@ index bceaf863..37e7c324 100644
 +		query->total_progress = s->job_info.total_progress;
 +	}
 +
-+	memset(&s->job_info, 0, sizeof(JobInfo));
-+
 +	err = req->error;
 +	pthread_mutex_unlock(&s->commit_lock);
 +
@@ -100,8 +98,8 @@ index bceaf863..37e7c324 100644
 +	Error *local_err = NULL;
 +	int err = 0;
 +	BlockJob *bjob;
-+	JobStatus status;
-+	uint64_t current, total;
++	JobStatus status = JOB_STATUS_UNDEFINED;
++	uint64_t current = 0, total = 0;
 +
 +	job_lock();
 +	bjob = block_job_get_locked(COMMIT_JOB_ID);
@@ -137,14 +135,12 @@ index bceaf863..37e7c324 100644
 +
 +	DPRINTF("Qcow2: commit job '%s'.\n", JobStatus_str(status));
 +
++signal:
 +	pthread_mutex_lock(&s->commit_lock);
 +	s->job_info.status = status;
 +	s->job_info.current_progress = current;
 +	s->job_info.total_progress = total;
-+	pthread_mutex_unlock(&s->commit_lock);
 +
-+signal:
-+	pthread_mutex_lock(&s->commit_lock);
 +	req->error = err;
 +	pthread_cond_signal(&s->commit_cond);
 +	pthread_mutex_unlock(&s->commit_lock);
@@ -153,7 +149,7 @@ index bceaf863..37e7c324 100644
  void
  qcow2_debug(td_driver_t *driver)
  {
-@@ -988,5 +1092,6 @@ struct tap_disk tapdisk_qcow = {
+@@ -984,5 +1084,6 @@ struct tap_disk tapdisk_qcow = {
  	.td_get_parent_id   = qcow2_get_parent_id,
  	.td_validate_parent = qcow2_validate_parent,
  	.td_commit          = qcow2_commit,

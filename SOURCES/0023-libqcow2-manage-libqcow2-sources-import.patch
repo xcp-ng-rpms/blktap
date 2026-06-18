@@ -1,4 +1,4 @@
-From 464fc64b4b228412e3a0314a32ded34db4a0840a Mon Sep 17 00:00:00 2001
+From 37ddec3d3d0b08715b0a8e341a5b1238df55e4c1 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:16 +0100
 Subject: [PATCH] libqcow2: manage libqcow2 sources import
@@ -10,18 +10,18 @@ sources management.
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
- manage-qemu-sources.sh |  74 ++++++++++
- qemu-files.lst         | 309 +++++++++++++++++++++++++++++++++++++++++
- 2 files changed, 383 insertions(+)
+ manage-qemu-sources.sh |  73 ++++++++++
+ qemu-files.lst         | 300 +++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 373 insertions(+)
  create mode 100755 manage-qemu-sources.sh
  create mode 100644 qemu-files.lst
 
 diff --git a/manage-qemu-sources.sh b/manage-qemu-sources.sh
 new file mode 100755
-index 00000000..7f6babc8
+index 00000000..35c1bb32
 --- /dev/null
 +++ b/manage-qemu-sources.sh
-@@ -0,0 +1,74 @@
+@@ -0,0 +1,73 @@
 +#!/bin/bash
 +
 +usage_function () {
@@ -37,7 +37,7 @@ index 00000000..7f6babc8
 +cmd=${2}
 +
 +if [ ${cmd} != "diff" -a ${cmd} != "sync" ]; then
-+    echo "Wring command: choose 'diff' or 'sync'"
++    echo "Wrong command: choose 'diff' or 'sync'"
 +    usage_function
 +fi
 +
@@ -50,8 +50,7 @@ index 00000000..7f6babc8
 +        echo "${dst_prefix}/${1} doesn't exist."
 +        exit 0
 +    fi
-+    diff -q ${qemudir}/${src_prefix}/${1} ${dst_prefix}/${1}
-+    if [ $? -ne 0 ]; then
++    if ! diff -q ${qemudir}/${src_prefix}/${1} ${dst_prefix}/${1}; then
 +        diff -Npur ${qemudir}/${src_prefix}/${1} ${dst_prefix}/${1}
 +    fi
 +}
@@ -63,7 +62,7 @@ index 00000000..7f6babc8
 +    read ok
 +    if [ "$ok" == "y" ]; then
 +        echo "Fine! Start in:"
-+        for i in `seq 5`; do
++        for i in $(seq 5); do
 +            echo -n "$((6 - i)) "
 +            sleep 1
 +        done
@@ -86,8 +85,8 @@ index 00000000..7f6babc8
 +
 +while read f; do
 +    if [ ${f:0:1} == '#' ]; then
-+        src_prefix=`echo ${f:1} | awk -F ':' '{print $1}'`
-+        dst_prefix=`echo ${f:1} | awk -F ':' '{print $2}'`
++        src_prefix=$(echo ${f:1} | awk -F ':' '{print $1}')
++        dst_prefix=$(echo ${f:1} | awk -F ':' '{print $2}')
 +        continue
 +    fi
 +    if [ ${cmd} == "diff" ]; then
@@ -98,10 +97,10 @@ index 00000000..7f6babc8
 +done < qemu-files.lst
 diff --git a/qemu-files.lst b/qemu-files.lst
 new file mode 100644
-index 00000000..441c2180
+index 00000000..1b3e4a2c
 --- /dev/null
 +++ b/qemu-files.lst
-@@ -0,0 +1,309 @@
+@@ -0,0 +1,300 @@
 +#.:.
 +include/authz/base.h
 +include/block/accounting.h
@@ -280,30 +279,20 @@ index 00000000..441c2180
 +block/linux-aio.c
 +block/mirror.c
 +block/monitor/bitmap-qmp-cmds.c
-+block/nbd.c
 +block/progress_meter.c
 +block/qapi.c
 +block/raw-format.c
 +block/snapshot.c
-+crypto/hash.c
-+crypto/tlscredspriv.h
-+crypto/tlscreds.c
-+crypto/tlssession.c
 +hw/block/block.c
 +hw/block/hd-geometry.c
 +io/channel.c
 +io/channel-file.c
 +io/channel-socket.c
-+io/channel-tls.c
 +io/channel-util.c
 +io/channel-watch.c
 +io/task.c
 +job.c
 +job-qmp.c
-+nbd/client.c
-+nbd/client-connection.c
-+nbd/common.c
-+nbd/nbd-internal.h
 +qapi/qapi-clone-visitor.c
 +qapi/qapi-dealloc-visitor.c
 +qapi/qapi-util.c
@@ -366,6 +355,7 @@ index 00000000..441c2180
 +util/qemu-sockets.c
 +util/qemu-thread-common.h
 +util/qemu-thread-posix.c
++util/qemu-timer-common.c
 +util/qemu-timer.c
 +util/qsp.c
 +util/range.c

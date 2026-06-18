@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.1%{?dist}
+Release: %{?xsrel}.2%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -80,15 +80,13 @@ Patch1034: 0034-libqcow2-mask-signals-used-by-tapdisk.patch
 Patch1035: 0035-tapdisk-replace-signals-handling-by-signalfd.patch
 Patch1036: 0036-qcow2-driver-support-qcow2-images-in-tapdisk.patch
 Patch1037: 0037-vbd-wake-up-scheduler-to-force-check-ring.patch
-Patch1038: 0038-blktap.spec-add-qcow2-dependencies.patch
-Patch1039: 0039-tapdisk-support-new-commit-command.patch
-Patch1040: 0040-qcow2-support-commit-command.patch
-Patch1041: 0041-tapdisk-support-new-query-command.patch
-Patch1042: 0042-qcow2-support-query-command.patch
-Patch1043: 0043-tapdisk-support-new-cancel-command.patch
-Patch1044: 0044-qcow2-support-cancel-command.patch
-Patch1045: 0045-libqcow2-fix-abort-commit-without-crash.patch
-Patch1046: 0046-qcow2-Auto-finalize-commit-job-to-avoid-never-ending.patch
+Patch1038: 0038-tapdisk-support-new-commit-command.patch
+Patch1039: 0039-qcow2-support-commit-command.patch
+Patch1040: 0040-tapdisk-support-new-query-command.patch
+Patch1041: 0041-qcow2-support-query-command.patch
+Patch1042: 0042-tapdisk-support-new-cancel-command.patch
+Patch1043: 0043-qcow2-support-cancel-command.patch
+Patch1044: 0044-libqcow2-fix-abort-commit-without-crash.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -218,6 +216,11 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Jun 18 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-9.2
+- Avoid concurrent access on vbd requests.
+- Fix deadlock on NBD export.
+- Fix use-after-free on VDI close.
+
 * Wed May 20 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-9.1
 - Sync with 3.55.5-9
 - Drop patch 0002-Prevent-segfault-of-vhd-util-scan-on-VHD-with-corrup.patch, upstream now

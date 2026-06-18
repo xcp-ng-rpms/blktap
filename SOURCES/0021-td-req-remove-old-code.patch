@@ -1,4 +1,4 @@
-From e5007807b3dfd1629fafa8a3952794cf3841f874 Mon Sep 17 00:00:00 2001
+From d97bbee2474337f722262e3366a86f71b6f1813e Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Fri, 28 Nov 2025 12:44:55 +0100
 Subject: [PATCH] td-req: remove old code
