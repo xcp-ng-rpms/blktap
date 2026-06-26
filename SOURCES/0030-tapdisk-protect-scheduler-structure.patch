@@ -1,4 +1,4 @@
-From 68feaf7278cffcbe4fe9ad338a1118d63c4a23e2 Mon Sep 17 00:00:00 2001
+From 206d4e826838aa86c3df6f611f75896585a68919 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 3 Apr 2025 16:06:24 +0200
 Subject: [PATCH] tapdisk: protect scheduler structure

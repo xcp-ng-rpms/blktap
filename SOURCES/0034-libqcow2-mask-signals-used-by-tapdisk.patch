@@ -1,4 +1,4 @@
-From 74a73e8eaa5262a189a8e85c97dccab4e95a20e8 Mon Sep 17 00:00:00 2001
+From cc2b5528d52cc78d5cba25fbd5ee9a07149fc155 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 15 Oct 2025 14:35:21 +0200
 Subject: [PATCH] libqcow2: mask signals used by tapdisk
@@ -12,7 +12,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 10 insertions(+)
 
 diff --git a/qcow2/lib/util/main-loop.c b/qcow2/lib/util/main-loop.c
-index 9b212ff4..82d737fe 100644
+index 8bde8add..227caf58 100644
 --- a/qcow2/lib/util/main-loop.c
 +++ b/qcow2/lib/util/main-loop.c
 @@ -102,6 +102,11 @@ static int qemu_signal_init(Error **errp)

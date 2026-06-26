@@ -1,4 +1,4 @@
-From 54d1cad6f6769c28bdda54baaa1e48737882f48b Mon Sep 17 00:00:00 2001
+From fbe5e855d2b3bc859653be445883f8c73b41b230 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:40 +0100
 Subject: [PATCH] tapdisk: protect td_blktap_t structure
@@ -10,15 +10,15 @@ This is the second part of the tapdisk threading protection.
 
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
- drivers/tapdisk-blktap.c | 18 ++++++++++++++----
+ drivers/tapdisk-blktap.c | 34 ++++++++++++++++++++++++----------
  drivers/tapdisk-blktap.h |  1 +
- 2 files changed, 15 insertions(+), 4 deletions(-)
+ 2 files changed, 25 insertions(+), 10 deletions(-)
 
 diff --git a/drivers/tapdisk-blktap.c b/drivers/tapdisk-blktap.c
-index cf72b095..8b9eeea5 100644
+index cf72b095..9c2e4855 100644
 --- a/drivers/tapdisk-blktap.c
 +++ b/drivers/tapdisk-blktap.c
-@@ -87,18 +87,20 @@ struct td_blktap_req {
+@@ -87,19 +87,21 @@ struct td_blktap_req {
          struct timeval          ts;
  };
  
@@ -37,10 +37,12 @@ index cf72b095..8b9eeea5 100644
  }
  
 -void
+-tapdisk_blktap_free_request(td_blktap_t *tap, td_blktap_req_t *req)
 +static void
- tapdisk_blktap_free_request(td_blktap_t *tap, td_blktap_req_t *req)
++tapdisk_blktap_free_request_locked(td_blktap_t *tap, td_blktap_req_t *req)
  {
  	BUG_ON(tap->n_reqs_free >= tap->n_reqs);
+ 	tap->reqs_free[tap->n_reqs_free++] = req;
 @@ -117,6 +119,8 @@ tapdisk_blktap_reqs_free(td_blktap_t *tap)
  		free(tap->reqs_free);
  		tap->reqs_free = NULL;
@@ -59,7 +61,28 @@ index cf72b095..8b9eeea5 100644
  	tap->reqs = malloc(n_reqs * sizeof(td_blktap_req_t));
  	if (!tap->reqs) {
  		err = -errno;
-@@ -200,6 +206,7 @@ tapdisk_blktap_fail_request(td_blktap_t *tap,
+@@ -139,8 +145,10 @@ tapdisk_blktap_reqs_init(td_blktap_t *tap, int n_reqs)
+ 	tap->n_reqs      = n_reqs;
+ 	tap->n_reqs_free = 0;
+ 
++	pthread_mutex_lock(&tap->mutex);
+ 	for (i = 0; i < n_reqs; i++)
+-		tapdisk_blktap_free_request(tap, &tap->reqs[i]);
++		tapdisk_blktap_free_request_locked(tap, &tap->reqs[i]);
++	pthread_mutex_unlock(&tap->mutex);
+ 
+ 	return 0;
+ 
+@@ -180,7 +188,7 @@ tapdisk_blktap_error_status(td_blktap_t *tap, int error)
+ }
+ 
+ static void
+-__tapdisk_blktap_push_response(td_blktap_t *tap, int final)
++__tapdisk_blktap_push_response_locked(td_blktap_t *tap, int final)
+ {
+ 	tap->rsp_prod_pvt++;
+ 
+@@ -200,13 +208,15 @@ tapdisk_blktap_fail_request(td_blktap_t *tap,
  
  	BUG_ON(!tap->vma);
  
@@ -67,15 +90,16 @@ index cf72b095..8b9eeea5 100644
  	rsp = BLKTAP_GET_RESPONSE(tap, tap->rsp_prod_pvt);
  
  	rsp->id        = msg->id;
-@@ -207,6 +214,7 @@ tapdisk_blktap_fail_request(td_blktap_t *tap,
+ 	rsp->operation = msg->operation;
  	rsp->status    = tapdisk_blktap_error_status(tap, error);
  
- 	__tapdisk_blktap_push_response(tap, 1);
+-	__tapdisk_blktap_push_response(tap, 1);
++	__tapdisk_blktap_push_response_locked(tap, 1);
 +	pthread_mutex_unlock(&tap->mutex);
  }
  
  static void
-@@ -218,6 +226,7 @@ tapdisk_blktap_put_response(td_blktap_t *tap,
+@@ -218,6 +228,7 @@ tapdisk_blktap_put_response(td_blktap_t *tap,
          unsigned long long interval;
          struct timeval now;
  
@@ -83,18 +107,19 @@ index cf72b095..8b9eeea5 100644
  	BUG_ON(!tap->vma);
  
  	rsp = BLKTAP_GET_RESPONSE(tap, tap->rsp_prod_pvt);
-@@ -246,7 +255,10 @@ tapdisk_blktap_put_response(td_blktap_t *tap,
+@@ -246,7 +257,10 @@ tapdisk_blktap_put_response(td_blktap_t *tap,
  	rsp->operation = op;
  	rsp->status    = tapdisk_blktap_error_status(tap, error);
  
-+	tapdisk_blktap_free_request(tap, req);
+-	__tapdisk_blktap_push_response(tap, final);
++	tapdisk_blktap_free_request_locked(tap, req);
 +
- 	__tapdisk_blktap_push_response(tap, final);
++	__tapdisk_blktap_push_response_locked(tap, final);
 +	pthread_mutex_unlock(&tap->mutex);
  }
  
  static void
-@@ -256,8 +268,6 @@ tapdisk_blktap_complete_request(td_blktap_t *tap,
+@@ -256,8 +270,6 @@ tapdisk_blktap_complete_request(td_blktap_t *tap,
  {
  	if (likely(tap->vma))
  		tapdisk_blktap_put_response(tap, req, error, final);
@@ -103,6 +128,17 @@ index cf72b095..8b9eeea5 100644
  }
  
  static void
+@@ -390,7 +402,9 @@ tapdisk_blktap_get_requests(td_blktap_t *tap)
+ 		err = tapdisk_blktap_parse_request(tap, msg, req);
+ 		if (err) {
+ 			tapdisk_blktap_fail_request(tap, msg, err);
+-			tapdisk_blktap_free_request(tap, req);
++			pthread_mutex_lock(&tap->mutex);
++			tapdisk_blktap_free_request_locked(tap, req);
++			pthread_mutex_unlock(&tap->mutex);
+ 			goto fail_ring;
+ 		}
+ 
 diff --git a/drivers/tapdisk-blktap.h b/drivers/tapdisk-blktap.h
 index ca576a77..5bd4aae8 100644
 --- a/drivers/tapdisk-blktap.h

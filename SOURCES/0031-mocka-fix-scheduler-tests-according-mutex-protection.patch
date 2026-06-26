@@ -1,4 +1,4 @@
-From 35dc5156cf69f3f11ba9e1cc06a83e6582759b88 Mon Sep 17 00:00:00 2001
+From a509127f18e7290830efdc59b78ef5ccda06aad0 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 21 Jan 2026 17:25:29 +0100
 Subject: [PATCH] mocka: fix scheduler tests according mutex protection

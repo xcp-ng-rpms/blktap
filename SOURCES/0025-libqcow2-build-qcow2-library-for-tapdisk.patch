@@ -1,4 +1,4 @@
-From f1c5e6517749dcf6114595b3c71faf0bd6e48aef Mon Sep 17 00:00:00 2001
+From 26429f3072a88c392ffade221422f2fc814d0bbf Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:28 +0100
 Subject: [PATCH] libqcow2: build qcow2 library for tapdisk
@@ -10,68 +10,48 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
  .gitignore                                  |   4 +
  Makefile.am                                 |   1 +
- configure.ac                                |   8 +
- include/block/aio.h                         |   9 +-
- include/block/block-common.h                |   4 +-
- include/block/block-global-state.h          |   2 +
- include/block/block_int-common.h            |   2 +-
- include/block/block_int-global-state.h      |  12 +
+ configure.ac                                |   7 +
+ include/block/aio.h                         |   7 +-
+ include/block/trace.h                       |  12 +
  include/compiler.h                          |   2 +
  include/crypto/hash.h                       |  20 +-
  include/hw/block/block.h                    |   2 +-
- include/hw/qdev-core.h                      |  18 +-
+ include/hw/qdev-core.h                      |  16 +-
  include/list.h                              |   2 +
  include/qapi/qapi-commands-block-core.h     |   6 +-
  include/qapi/qapi-commands-block.h          |   2 +-
  include/qapi/qapi-events-block-core.h       |   4 +-
- include/qapi/qapi-types-block-core.h        |  76 ++-
+ include/qapi/qapi-types-block-core.h        |  50 +-
  include/qapi/qapi-visit-block-core.h        |   6 +-
  include/qapi/qmp/dispatch.h                 |   2 +-
- include/qcow2.h                             |  22 +-
+ include/qcow2.h                             |   4 +-
  include/qemu/atomic.h                       |   2 +-
- include/qemu/bitops.h                       |   9 +-
+ include/qemu/bitops.h                       |   5 +-
  include/qemu/config-host.h                  | 495 ++++++++++++++++++++
  include/qemu/hbitmap.h                      |   4 +-
  include/qemu/host-utils.h                   |   6 +-
- include/qemu/main-loop.h                    |  12 +-
- include/qemu/option_int.h                   |   2 +-
+ include/qemu/main-loop.h                    |   8 +-
  include/qemu/osdep.h                        |   2 +-
- include/qemu/range.h                        |   2 +
- include/qemu/timer.h                        |   6 +-
  include/sysemu/block-backend-common.h       |   4 +-
- include/sysemu/block-backend-global-state.h |   2 +-
- include/sysemu/block-backend-io.h           |   4 +
+ include/sysemu/block-backend-global-state.h |   2 +
+ include/trace.h                             | 191 ++++++++
+ include/trace/trace-root.h                  |  11 +
+ mk/blktap.spec.in                           |   1 +
  qcow2/Makefile.am                           |  21 +
- qcow2/lib/Makefile.am                       | 166 +++++++
- qcow2/lib/authz/base.c                      |   4 +-
- qcow2/lib/block.c                           |  28 +-
+ qcow2/lib/Makefile.am                       | 159 +++++++
+ qcow2/lib/block.c                           |  20 +-
  qcow2/lib/block/accounting.c                |   3 +-
- qcow2/lib/block/block-backend.c             | 108 +++--
- qcow2/lib/block/block-gen.c                 |   2 +
- qcow2/lib/block/commit.c                    |   6 +-
- qcow2/lib/block/dirty-bitmap.c              |   2 +-
- qcow2/lib/block/file-posix.c                |  46 +-
- qcow2/lib/block/io.c                        |  60 ++-
- qcow2/lib/block/mirror.c                    |  30 +-
- qcow2/lib/block/nbd.c                       |  31 +-
+ qcow2/lib/block/block-backend.c             |  98 +++-
+ qcow2/lib/block/block-gen.c                 |   5 +-
+ qcow2/lib/block/dirty-bitmap.c              |   2 +
+ qcow2/lib/block/file-posix.c                |  20 +-
+ qcow2/lib/block/io.c                        |  40 +-
+ qcow2/lib/block/mirror.c                    |   6 +
  qcow2/lib/block/qapi.c                      |   6 +-
  qcow2/lib/block/raw-format.c                |   4 +
- qcow2/lib/blockdev.c                        |  26 +-
- qcow2/lib/blockjob.c                        |   6 +-
- qcow2/lib/crypto/hash.c                     |  96 +++-
- qcow2/lib/crypto/tlscreds.c                 |  10 +-
- qcow2/lib/crypto/tlssession.c               |  16 +-
+ qcow2/lib/blockdev.c                        |  24 +-
+ qcow2/lib/blockjob.c                        |   4 +
  qcow2/lib/hw/block/block.c                  |   8 +-
- qcow2/lib/hw/block/hd-geometry.c            |   6 +-
- qcow2/lib/io/channel-file.c                 |   6 +-
- qcow2/lib/io/channel-socket.c               |  36 +-
- qcow2/lib/io/channel-tls.c                  |  20 +-
- qcow2/lib/io/task.c                         |  18 +-
- qcow2/lib/job-qmp.c                         |  14 +-
- qcow2/lib/job.c                             |  14 +-
- qcow2/lib/nbd/client-connection.c           |   4 +-
- qcow2/lib/nbd/client.c                      |  83 ++--
- qcow2/lib/nbd/common.c                      |   4 +-
  qcow2/lib/qapi/qapi-events-block-core.c     |  24 +-
  qcow2/lib/qapi/qapi-events-job.c            |   6 +-
  qcow2/lib/qapi/qapi-types-block-core.c      |  38 +-
@@ -82,50 +62,45 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  qcow2/lib/qapi/qapi-types-yank.c            |   4 +-
  qcow2/lib/qapi/qapi-visit-block-core.c      |  80 +++-
  qcow2/lib/qapi/qapi-visit-common.c          |   2 +-
- qcow2/lib/qapi/qapi-visit-core.c            |  62 +--
  qcow2/lib/qapi/qapi-visit-crypto.c          |   2 +-
  qcow2/lib/qapi/qapi-visit-job.c             |   2 +-
  qcow2/lib/qapi/qapi-visit-sockets.c         |   2 +-
  qcow2/lib/qapi/qapi-visit-yank.c            |   2 +-
  qcow2/lib/qapi/qmp-dispatch.c               |   2 +
  qcow2/lib/qapi/qobject-input-visitor.c      |   4 +-
- qcow2/lib/qcow2-cache.c                     |  26 +-
- qcow2/lib/qcow2-cluster.c                   |  34 +-
- qcow2/lib/qcow2-refcount.c                  |   7 +-
+ qcow2/lib/qcow2-cache.c                     |   2 +-
+ qcow2/lib/qcow2-cluster.c                   |   2 +
+ qcow2/lib/qcow2-refcount.c                  |   5 +-
  qcow2/lib/qcow2-threads.c                   |   4 +-
- qcow2/lib/qcow2.c                           | 186 +++++---
+ qcow2/lib/qcow2.c                           | 158 +++++--
  qcow2/lib/qobject/block-qdict.c             |   2 +
- qcow2/lib/qom/object.c                      |  38 +-
- qcow2/lib/system/cpus.c                     |  44 +-
- qcow2/lib/util/aio-posix.c                  |  20 +-
- qcow2/lib/util/async.c                      |   8 +-
+ qcow2/lib/qom/object.c                      |  32 +-
+ qcow2/lib/system/cpus.c                     |  42 +-
+ qcow2/lib/util/aio-posix.c                  |   6 +-
+ qcow2/lib/util/async.c                      |   2 +
  qcow2/lib/util/bufferiszero.c               |   9 +-
  qcow2/lib/util/cutils.c                     |   6 +-
  qcow2/lib/util/error-report.c               |  19 +-
  qcow2/lib/util/error.c                      |   6 +-
- qcow2/lib/util/hbitmap.c                    |  12 +-
+ qcow2/lib/util/hbitmap.c                    |   2 +
  qcow2/lib/util/host-utils.c                 |   2 +
  qcow2/lib/util/iov.c                        |   6 +-
- qcow2/lib/util/lockcnt.c                    |  22 +-
  qcow2/lib/util/main-loop.c                  |  18 +-
- qcow2/lib/util/memalign.c                   |   9 +-
- qcow2/lib/util/module.c                     |   6 +-
+ qcow2/lib/util/memalign.c                   |   3 +-
  qcow2/lib/util/osdep.c                      |  22 +-
- qcow2/lib/util/oslib-posix.c                |  34 +-
- qcow2/lib/util/qemu-coroutine-lock.c        |  12 +-
- qcow2/lib/util/qemu-coroutine.c             |   8 +-
- qcow2/lib/util/qemu-option.c                |  12 +-
+ qcow2/lib/util/oslib-posix.c                |  32 +-
  qcow2/lib/util/qemu-print.c                 |   6 +-
- qcow2/lib/util/qemu-sockets.c               |  18 +-
- qcow2/lib/util/qemu-thread-common.h         |   8 +-
- qcow2/lib/util/qemu-thread-posix.c          |   8 +-
+ qcow2/lib/util/qemu-sockets.c               |  14 +-
+ qcow2/lib/util/qemu-thread-posix.c          |   4 +-
  qcow2/lib/util/qemu-timer.c                 |  25 +-
  qcow2/lib/util/qsp.c                        |  10 +-
- qcow2/lib/util/thread-pool.c                |  10 +-
  qcow2/lib/util/yank.c                       |   2 +-
  qcow2/qemu-img.c                            |  76 +--
- 116 files changed, 1991 insertions(+), 628 deletions(-)
+ 88 files changed, 1713 insertions(+), 286 deletions(-)
+ create mode 100644 include/block/trace.h
  create mode 100644 include/qemu/config-host.h
+ create mode 100644 include/trace.h
+ create mode 100644 include/trace/trace-root.h
  create mode 100644 qcow2/Makefile.am
  create mode 100644 qcow2/lib/Makefile.am
 
@@ -171,23 +146,22 @@ index 7133a020..78c56ba3 100644
  SUBDIRS += control
  SUBDIRS += drivers
 diff --git a/configure.ac b/configure.ac
-index a419f8ae..43fc21a6 100644
+index a419f8ae..26d3c321 100644
 --- a/configure.ac
 +++ b/configure.ac
-@@ -29,6 +29,12 @@ AC_CHECK_LIB([uuid], [main],
+@@ -29,6 +29,11 @@ AC_CHECK_LIB([uuid], [main],
               [:],
  	     AC_MSG_ERROR([Need uuid-dev]))
  
 +PKG_PROG_PKG_CONFIG
 +PKG_CHECK_MODULES([GLIB], [glib-2.0])
 +PKG_CHECK_MODULES([ZLIB], [zlib])
-+PKG_CHECK_MODULES([GNUTLS], [gnutls])
 +PKG_CHECK_MODULES([LIBZSTD], [libzstd])
 +
  AS_IF([test x$with_libiconv != xno],
        [AC_CHECK_LIB([iconv], [main],
  		    [AC_SUBST([LIBICONV], ["-liconv"])],
-@@ -64,6 +70,8 @@ cbt/Makefile
+@@ -64,6 +69,8 @@ cbt/Makefile
  vhd/Makefile
  vhd/lib/Makefile
  vhd/lib/test/Makefile
@@ -197,7 +171,7 @@ index a419f8ae..43fc21a6 100644
  drivers/Makefile
  drivers/crypto/Makefile
 diff --git a/include/block/aio.h b/include/block/aio.h
-index 4ee81936..3776e8bf 100644
+index 4ee81936..d9bdc698 100644
 --- a/include/block/aio.h
 +++ b/include/block/aio.h
 @@ -23,11 +23,15 @@
@@ -225,153 +199,24 @@ index 4ee81936..3776e8bf 100644
  #define aio_bh_schedule_oneshot(ctx, cb, opaque) \
      aio_bh_schedule_oneshot_full((ctx), (cb), (opaque), (stringify(cb)))
  
-@@ -691,6 +696,7 @@ void aio_context_destroy(AioContext *ctx);
- /* Used internally, do not call outside AioContext code */
- void aio_context_use_g_source(AioContext *ctx);
- 
-+#if 0
- /**
-  * aio_context_set_poll_params:
-  * @ctx: the aio context
-@@ -721,3 +727,4 @@ void aio_context_set_aio_params(AioContext *ctx, int64_t max_batch);
- void aio_context_set_thread_pool_params(AioContext *ctx, int64_t min,
-                                         int64_t max, Error **errp);
- #endif
-+#endif
-diff --git a/include/block/block-common.h b/include/block/block-common.h
-index 338fe5ff..b07b07e2 100644
---- a/include/block/block-common.h
-+++ b/include/block/block-common.h
-@@ -125,6 +125,7 @@ typedef struct BlockZoneDescriptor {
-     BlockZoneState state;
- } BlockZoneDescriptor;
- 
-+#if 0
- /*
-  * Track write pointers of a zone in bytes.
-  */
-@@ -132,6 +133,7 @@ typedef struct BlockZoneWps {
-     CoMutex colock;
-     uint64_t wp[];
- } BlockZoneWps;
-+#endif
- 
- typedef struct BlockDriverInfo {
-     /* in bytes, 0 if irrelevant */
-@@ -546,7 +548,7 @@ typedef struct HDGeometry {
-  */
- 
- char *bdrv_perm_names(uint64_t perm);
--uint64_t bdrv_qapi_perm_to_blk_perm(BlockPermission qapi_perm);
-+//uint64_t bdrv_qapi_perm_to_blk_perm(BlockPermission qapi_perm);
- 
- void bdrv_init_with_whitelist(void);
- bool bdrv_uses_whitelist(void);
-diff --git a/include/block/block-global-state.h b/include/block/block-global-state.h
-index bd7cecd1..2e54cf5e 100644
---- a/include/block/block-global-state.h
-+++ b/include/block/block-global-state.h
-@@ -196,8 +196,10 @@ void bdrv_aio_cancel(BlockAIOCB *acb);
- int bdrv_has_zero_init_1(BlockDriverState *bs);
- int coroutine_mixed_fn GRAPH_RDLOCK bdrv_has_zero_init(BlockDriverState *bs);
- BlockDriverState *bdrv_find_node(const char *node_name);
-+#if 0
- BlockDeviceInfoList *bdrv_named_nodes_list(bool flat, Error **errp);
- XDbgBlockGraph * GRAPH_RDLOCK bdrv_get_xdbg_block_graph(Error **errp);
-+#endif
- BlockDriverState *bdrv_lookup_bs(const char *device,
-                                  const char *node_name,
-                                  Error **errp);
-diff --git a/include/block/block_int-common.h b/include/block/block_int-common.h
-index ebb4e56a..c6d8b950 100644
---- a/include/block/block_int-common.h
-+++ b/include/block/block_int-common.h
-@@ -1253,7 +1253,7 @@ struct BlockDriverState {
-     BdrvBlockStatusCache *block_status_cache;
- 
-     /* array of write pointers' location of each zone in the zoned device. */
--    BlockZoneWps *wps;
-+    //BlockZoneWps *wps;
- };
- 
- struct BlockBackendRootState {
-diff --git a/include/block/block_int-global-state.h b/include/block/block_int-global-state.h
-index eb2d92a2..2d91fb96 100644
---- a/include/block/block_int-global-state.h
-+++ b/include/block/block_int-global-state.h
-@@ -37,6 +37,7 @@
-  * the GS API.
-  */
- 
-+#if 0
- /**
-  * stream_start:
-  * @job_id: The id of the newly-created job, or %NULL to use the
-@@ -72,6 +73,7 @@ void stream_start(const char *job_id, BlockDriverState *bs,
-                   BlockdevOnError on_error,
-                   const char *filter_node_name,
-                   Error **errp);
-+#endif
- 
- /**
-  * commit_start:
-@@ -124,6 +126,7 @@ BlockJob *commit_active_start(const char *job_id, BlockDriverState *bs,
-                               const char *filter_node_name,
-                               BlockCompletionFunc *cb, void *opaque,
-                               bool auto_complete, Error **errp);
-+#if 0
- /*
-  * mirror_start:
-  * @job_id: The id of the newly-created job, or %NULL to use the
-@@ -201,6 +204,7 @@ BlockJob *backup_job_create(const char *job_id, BlockDriverState *bs,
-                             int creation_flags,
-                             BlockCompletionFunc *cb, void *opaque,
-                             JobTxn *txn, Error **errp);
-+#endif
- 
- BdrvChild * GRAPH_WRLOCK
- bdrv_root_attach_child(BlockDriverState *child_bs, const char *child_name,
-@@ -247,18 +251,24 @@ void bdrv_default_perms(BlockDriverState *bs, BdrvChild *c,
-                         uint64_t perm, uint64_t shared,
-                         uint64_t *nperm, uint64_t *nshared);
- 
-+#if 0
- void blk_dev_change_media_cb(BlockBackend *blk, bool load, Error **errp);
-+#endif
- bool blk_dev_has_removable_media(BlockBackend *blk);
-+#if 0
- void blk_dev_eject_request(BlockBackend *blk, bool force);
-+#endif
- bool blk_dev_is_medium_locked(BlockBackend *blk);
- 
- void bdrv_restore_dirty_bitmap(BdrvDirtyBitmap *bitmap, HBitmap *backup);
- 
-+#if 0
- void bdrv_set_monitor_owned(BlockDriverState *bs);
- 
- void blockdev_close_all_bdrv_states(void);
- 
- BlockDriverState *bds_tree_init(QDict *bs_opts, Error **errp);
-+#endif
- 
- /**
-  * Simple implementation of bdrv_co_create_opts for protocol drivers
-@@ -270,6 +280,7 @@ int coroutine_fn bdrv_co_create_opts_simple(BlockDriver *drv,
-                                             QemuOpts *opts,
-                                             Error **errp);
- 
-+#if 0
- BdrvDirtyBitmap *block_dirty_bitmap_lookup(const char *node,
-                                            const char *name,
-                                            BlockDriverState **pbs,
-@@ -281,6 +292,7 @@ BdrvDirtyBitmap *block_dirty_bitmap_remove(const char *node, const char *name,
-                                            bool release,
-                                            BlockDriverState **bitmap_bs,
-                                            Error **errp);
-+#endif
- 
- 
- BlockDriverState * GRAPH_RDLOCK
+diff --git a/include/block/trace.h b/include/block/trace.h
+new file mode 100644
+index 00000000..d55cc5eb
+--- /dev/null
++++ b/include/block/trace.h
+@@ -0,0 +1,12 @@
++/* qcow2/lib/block.c */
++#define trace_bdrv_open_common(...)  do {} while(0)
++#define trace_bdrv_lock_medium(...)  do {} while(0)
++/* qcow2/lib/blockdev.c */
++#define trace_qmp_block_stream(...)  do {} while(0)
++#define trace_qmp_block_job_cancel(...)  do {} while(0)
++#define trace_qmp_block_job_pause(...)  do {} while(0)
++#define trace_qmp_block_job_resume(...)  do {} while(0)
++#define trace_qmp_block_job_complete(...)  do {} while(0)
++#define trace_qmp_block_job_finalize(...)  do {} while(0)
++#define trace_qmp_block_job_dismiss(...)  do {} while(0)
++/* qcow2/lib/blockjob.c */
 diff --git a/include/compiler.h b/include/compiler.h
 index 57ab2367..9ab73c76 100644
 --- a/include/compiler.h
@@ -435,7 +280,7 @@ index de3946a5..7d533173 100644
  /* Configuration */
  
 diff --git a/include/hw/qdev-core.h b/include/hw/qdev-core.h
-index 77bfcbdf..f54e6ade 100644
+index 77bfcbdf..524fab7b 100644
 --- a/include/hw/qdev-core.h
 +++ b/include/hw/qdev-core.h
 @@ -7,8 +7,8 @@
@@ -462,36 +307,41 @@ index 77bfcbdf..f54e6ade 100644
      /**
       * @unplug_blockers: list of reasons to block unplugging of device
       */
-@@ -376,7 +378,7 @@ struct BusState {
+@@ -376,7 +378,9 @@ struct BusState {
      /* public: */
      DeviceState *parent;
      char *name;
--    HotplugHandler *hotplug_handler;
-+    //HotplugHandler *hotplug_handler;
++#if 0
+     HotplugHandler *hotplug_handler;
++#endif
      int max_index;
      bool realized;
      bool full;
-@@ -394,7 +396,7 @@ struct BusState {
+@@ -391,10 +395,12 @@ struct BusState {
+      * @sibling: next bus
+      */
+     BusStateEntry sibling;
++#if 0
      /**
       * @reset: ResettableState for the bus; handled by Resettable interface.
       */
--    ResettableState reset;
-+    //ResettableState reset;
+     ResettableState reset;
++#endif
  };
  
  /**
-@@ -531,8 +533,8 @@ bool qdev_realize_and_unref(DeviceState *dev, BusState *bus, Error **errp);
+@@ -531,8 +537,10 @@ bool qdev_realize_and_unref(DeviceState *dev, BusState *bus, Error **errp);
  void qdev_unrealize(DeviceState *dev);
  void qdev_set_legacy_instance_id(DeviceState *dev, int alias_id,
                                   int required_for_version);
--HotplugHandler *qdev_get_bus_hotplug_handler(DeviceState *dev);
--HotplugHandler *qdev_get_machine_hotplug_handler(DeviceState *dev);
-+//HotplugHandler *qdev_get_bus_hotplug_handler(DeviceState *dev);
-+//HotplugHandler *qdev_get_machine_hotplug_handler(DeviceState *dev);
++#if 0
+ HotplugHandler *qdev_get_bus_hotplug_handler(DeviceState *dev);
+ HotplugHandler *qdev_get_machine_hotplug_handler(DeviceState *dev);
++#endif
  bool qdev_hotplug_allowed(DeviceState *dev, Error **errp);
  
  /**
-@@ -545,10 +547,12 @@ bool qdev_hotplug_allowed(DeviceState *dev, Error **errp);
+@@ -545,10 +553,12 @@ bool qdev_hotplug_allowed(DeviceState *dev, Error **errp);
   * Return: pointer to object that implements TYPE_HOTPLUG_HANDLER interface
   * or NULL if there aren't any.
   */
@@ -504,7 +354,7 @@ index 77bfcbdf..f54e6ade 100644
  void qdev_machine_creation_done(void);
  bool qdev_machine_modified(void);
  
-@@ -1014,6 +1018,7 @@ extern bool qdev_hot_removed;
+@@ -1014,6 +1024,7 @@ extern bool qdev_hot_removed;
  
  char *qdev_get_dev_path(DeviceState *dev);
  
@@ -512,7 +362,7 @@ index 77bfcbdf..f54e6ade 100644
  void qbus_set_hotplug_handler(BusState *bus, Object *handler);
  void qbus_set_bus_hotplug_handler(BusState *bus);
  
-@@ -1032,6 +1037,7 @@ static inline bool qbus_is_hotpluggable(BusState *bus)
+@@ -1032,6 +1043,7 @@ static inline bool qbus_is_hotpluggable(BusState *bus)
      }
      return ret;
  }
@@ -585,7 +435,7 @@ index 7f12beff..e9830b25 100644
  #include "qapi-types-block-core.h"
  
 diff --git a/include/qapi/qapi-types-block-core.h b/include/qapi/qapi-types-block-core.h
-index 26585893..a2c2f2e2 100644
+index 26585893..4a3960c6 100644
 --- a/include/qapi/qapi-types-block-core.h
 +++ b/include/qapi/qapi-types-block-core.h
 @@ -14,10 +14,10 @@
@@ -614,22 +464,19 @@ index 26585893..a2c2f2e2 100644
      IMAGE_INFO_SPECIFIC_KIND_FILE,
      IMAGE_INFO_SPECIFIC_KIND__MAX,
  } ImageInfoSpecificKind;
-@@ -1007,6 +1009,7 @@ struct SnapshotInfo {
- void qapi_free_SnapshotInfo(SnapshotInfo *obj);
- G_DEFINE_AUTOPTR_CLEANUP_FUNC(SnapshotInfo, qapi_free_SnapshotInfo)
- 
-+#if 0
- struct ImageInfoSpecificQCow2EncryptionBase {
+@@ -1017,10 +1019,12 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(ImageInfoSpecificQCow2EncryptionBase, qapi_free_Im
+ struct ImageInfoSpecificQCow2Encryption {
+     /* Members inherited from ImageInfoSpecificQCow2EncryptionBase: */
      BlockdevQcow2EncryptionFormat format;
- };
-@@ -1030,6 +1033,7 @@ static inline ImageInfoSpecificQCow2EncryptionBase *qapi_ImageInfoSpecificQCow2E
- 
- void qapi_free_ImageInfoSpecificQCow2Encryption(ImageInfoSpecificQCow2Encryption *obj);
- G_DEFINE_AUTOPTR_CLEANUP_FUNC(ImageInfoSpecificQCow2Encryption, qapi_free_ImageInfoSpecificQCow2Encryption)
++#if 0
+     /* Own members: */
+     union { /* union tag is @format */
+         QCryptoBlockInfoLUKS luks;
+     } u;
 +#endif
+ };
  
- struct Qcow2BitmapInfoList {
-     Qcow2BitmapInfoList *next;
+ static inline ImageInfoSpecificQCow2EncryptionBase *qapi_ImageInfoSpecificQCow2Encryption_base(const ImageInfoSpecificQCow2Encryption *obj)
 @@ -1114,6 +1118,7 @@ struct ImageInfoSpecificQCow2Wrapper {
  void qapi_free_ImageInfoSpecificQCow2Wrapper(ImageInfoSpecificQCow2Wrapper *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(ImageInfoSpecificQCow2Wrapper, qapi_free_ImageInfoSpecificQCow2Wrapper)
@@ -658,38 +505,31 @@ index 26585893..a2c2f2e2 100644
          ImageInfoSpecificFileWrapper file;
      } u;
  };
-@@ -2186,6 +2194,7 @@ struct BlockJobChangeOptionsMirror {
- void qapi_free_BlockJobChangeOptionsMirror(BlockJobChangeOptionsMirror *obj);
- G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockJobChangeOptionsMirror, qapi_free_BlockJobChangeOptionsMirror)
+@@ -2347,9 +2355,11 @@ struct q_obj_BlockdevQcowEncryption_base {
  
-+#if 0
- struct q_obj_BlockJobChangeOptions_base {
-     char *id;
-     JobType type;
-@@ -2201,6 +2210,7 @@ struct BlockJobChangeOptions {
- 
- void qapi_free_BlockJobChangeOptions(BlockJobChangeOptions *obj);
- G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockJobChangeOptions, qapi_free_BlockJobChangeOptions)
-+#endif
- 
- struct BlockdevCacheOptions {
-     bool has_direct;
-@@ -2341,6 +2351,7 @@ struct Qcow2OverlapChecks {
- void qapi_free_Qcow2OverlapChecks(Qcow2OverlapChecks *obj);
- G_DEFINE_AUTOPTR_CLEANUP_FUNC(Qcow2OverlapChecks, qapi_free_Qcow2OverlapChecks)
- 
-+#if 0
- struct q_obj_BlockdevQcowEncryption_base {
+ struct BlockdevQcowEncryption {
      BlockdevQcowEncryptionFormat format;
++#if 0
+     union { /* union tag is @format */
+         QCryptoBlockOptionsQCow aes;
+     } u;
++#endif
  };
-@@ -2385,6 +2396,7 @@ struct BlockdevQcow2Encryption {
+ 
+ void qapi_free_BlockdevQcowEncryption(BlockdevQcowEncryption *obj);
+@@ -2377,10 +2387,12 @@ struct q_obj_BlockdevQcow2Encryption_base {
+ 
+ struct BlockdevQcow2Encryption {
+     BlockdevQcow2EncryptionFormat format;
++#if 0
+     union { /* union tag is @format */
+         QCryptoBlockOptionsQCow aes;
+         QCryptoBlockOptionsLUKS luks;
+     } u;
++#endif
+ };
  
  void qapi_free_BlockdevQcow2Encryption(BlockdevQcow2Encryption *obj);
- G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevQcow2Encryption, qapi_free_BlockdevQcow2Encryption)
-+#endif
- 
- struct BlockdevOptionsPreallocate {
-     /* Members inherited from BlockdevOptionsGenericFormat: */
 @@ -2442,6 +2454,7 @@ static inline BlockdevOptionsGenericCOWFormat *qapi_BlockdevOptionsQcow2_base(co
  void qapi_free_BlockdevOptionsQcow2(BlockdevOptionsQcow2 *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevOptionsQcow2, qapi_free_BlockdevOptionsQcow2)
@@ -754,40 +594,24 @@ index 26585893..a2c2f2e2 100644
  
  struct BlockdevOptionsRaw {
      /* Members inherited from BlockdevOptionsGenericFormat: */
-@@ -3105,26 +3125,31 @@ struct BlockdevOptions {
+@@ -3105,6 +3125,7 @@ struct BlockdevOptions {
      bool has_detect_zeroes;
      BlockdevDetectZeroesOptions detect_zeroes;
      union { /* union tag is @driver */
--        BlockdevOptionsBlkdebug blkdebug;
--        BlockdevOptionsBlklogwrites blklogwrites;
--        BlockdevOptionsBlkverify blkverify;
--        BlockdevOptionsBlkreplay blkreplay;
--        BlockdevOptionsGenericFormat bochs;
--        BlockdevOptionsGenericFormat cloop;
--        BlockdevOptionsGenericFormat compress;
--        BlockdevOptionsCbw copy_before_write;
--        BlockdevOptionsCor copy_on_read;
--        BlockdevOptionsGenericFormat dmg;
 +#if 0
-+        //BlockdevOptionsBlkdebug blkdebug;
-+        //BlockdevOptionsBlklogwrites blklogwrites;
-+        //BlockdevOptionsBlkverify blkverify;
-+        //BlockdevOptionsBlkreplay blkreplay;
-+        //BlockdevOptionsGenericFormat bochs;
-+        //BlockdevOptionsGenericFormat cloop;
-+        //BlockdevOptionsGenericFormat compress;
-+        //BlockdevOptionsCbw copy_before_write;
-+        //BlockdevOptionsCor copy_on_read;
-+        //BlockdevOptionsGenericFormat dmg;
+         BlockdevOptionsBlkdebug blkdebug;
+         BlockdevOptionsBlklogwrites blklogwrites;
+         BlockdevOptionsBlkverify blkverify;
+@@ -3115,16 +3136,20 @@ struct BlockdevOptions {
+         BlockdevOptionsCbw copy_before_write;
+         BlockdevOptionsCor copy_on_read;
+         BlockdevOptionsGenericFormat dmg;
 +#endif
          BlockdevOptionsFile file;
--        BlockdevOptionsCurlFtp ftp;
--        BlockdevOptionsCurlFtps ftps;
--        BlockdevOptionsGluster gluster;
 +#if 0
-+        //BlockdevOptionsCurlFtp ftp;
-+        //BlockdevOptionsCurlFtps ftps;
-+        //BlockdevOptionsGluster gluster;
+         BlockdevOptionsCurlFtp ftp;
+         BlockdevOptionsCurlFtps ftps;
+         BlockdevOptionsGluster gluster;
 +#endif
  #if defined(HAVE_HOST_BLOCK_DEVICE)
          BlockdevOptionsFile host_cdrom;
@@ -834,16 +658,17 @@ index 26585893..a2c2f2e2 100644
  
  struct BlockdevCreateOptionsQcow2 {
      BlockdevRef *file;
-@@ -3309,7 +3339,7 @@ struct BlockdevCreateOptionsQcow2 {
+@@ -3309,7 +3339,9 @@ struct BlockdevCreateOptionsQcow2 {
      char *backing_file;
      bool has_backing_fmt;
      BlockdevDriver backing_fmt;
--    QCryptoBlockCreateOptions *encrypt;
-+    //QCryptoBlockCreateOptions *encrypt;
++#if 0
+     QCryptoBlockCreateOptions *encrypt;
++#endif
      bool has_cluster_size;
      uint64_t cluster_size;
      bool has_preallocation;
-@@ -3424,12 +3454,15 @@ struct BlockdevCreateOptions {
+@@ -3424,12 +3456,15 @@ struct BlockdevCreateOptions {
      BlockdevDriver driver;
      union { /* union tag is @driver */
          BlockdevCreateOptionsFile file;
@@ -859,7 +684,7 @@ index 26585893..a2c2f2e2 100644
          BlockdevCreateOptionsQed qed;
          BlockdevCreateOptionsRbd rbd;
          BlockdevCreateOptionsSsh ssh;
-@@ -3437,6 +3470,7 @@ struct BlockdevCreateOptions {
+@@ -3437,6 +3472,7 @@ struct BlockdevCreateOptions {
          BlockdevCreateOptionsVhdx vhdx;
          BlockdevCreateOptionsVmdk vmdk;
          BlockdevCreateOptionsVpc vpc;
@@ -867,7 +692,7 @@ index 26585893..a2c2f2e2 100644
      } u;
  };
  
-@@ -3448,6 +3482,7 @@ struct q_obj_blockdev_create_arg {
+@@ -3448,6 +3484,7 @@ struct q_obj_blockdev_create_arg {
      BlockdevCreateOptions *options;
  };
  
@@ -875,28 +700,30 @@ index 26585893..a2c2f2e2 100644
  struct BlockdevAmendOptionsLUKS {
      /* Members inherited from QCryptoBlockAmendOptionsLUKS: */
      QCryptoBlockLUKSKeyslotState state;
-@@ -3468,9 +3503,10 @@ static inline QCryptoBlockAmendOptionsLUKS *qapi_BlockdevAmendOptionsLUKS_base(c
+@@ -3468,9 +3505,12 @@ static inline QCryptoBlockAmendOptionsLUKS *qapi_BlockdevAmendOptionsLUKS_base(c
  
  void qapi_free_BlockdevAmendOptionsLUKS(BlockdevAmendOptionsLUKS *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevAmendOptionsLUKS, qapi_free_BlockdevAmendOptionsLUKS)
 +#endif
  
  struct BlockdevAmendOptionsQcow2 {
--    QCryptoBlockAmendOptions *encrypt;
-+    //QCryptoBlockAmendOptions *encrypt;
++#if 0
+     QCryptoBlockAmendOptions *encrypt;
++#endif
  };
  
  void qapi_free_BlockdevAmendOptionsQcow2(BlockdevAmendOptionsQcow2 *obj);
-@@ -3483,7 +3519,7 @@ struct q_obj_BlockdevAmendOptions_base {
+@@ -3483,7 +3523,9 @@ struct q_obj_BlockdevAmendOptions_base {
  struct BlockdevAmendOptions {
      BlockdevDriver driver;
      union { /* union tag is @driver */
--        BlockdevAmendOptionsLUKS luks;
-+        //BlockdevAmendOptionsLUKS luks;
++#if 0
+         BlockdevAmendOptionsLUKS luks;
++#endif
          BlockdevAmendOptionsQcow2 qcow2;
      } u;
  };
-@@ -3573,12 +3609,14 @@ struct q_obj_x_blockdev_change_arg {
+@@ -3573,12 +3615,14 @@ struct q_obj_x_blockdev_change_arg {
      char *node;
  };
  
@@ -942,7 +769,7 @@ index f2e95681..0a0c8361 100644
  
  typedef void (QmpCommandFunc)(QDict *, QObject **, Error **);
 diff --git a/include/qcow2.h b/include/qcow2.h
-index a9e3481c..5d606fc9 100644
+index a9e3481c..12b3315b 100644
 --- a/include/qcow2.h
 +++ b/include/qcow2.h
 @@ -25,7 +25,7 @@
@@ -954,76 +781,17 @@ index a9e3481c..5d606fc9 100644
  #include "qemu/coroutine.h"
  #include "qemu/units.h"
  #include "block/block_int.h"
-@@ -231,10 +231,12 @@ typedef struct QCowSnapshot {
- struct Qcow2Cache;
- typedef struct Qcow2Cache Qcow2Cache;
- 
-+#if 0
- typedef struct Qcow2CryptoHeaderExtension {
-     uint64_t offset;
-     uint64_t length;
- } QEMU_PACKED Qcow2CryptoHeaderExtension;
-+#endif
- 
- typedef struct Qcow2UnknownHeaderExtension {
-     uint32_t magic;
-@@ -359,12 +361,12 @@ typedef struct BDRVQcow2State {
- 
+@@ -360,8 +360,10 @@ typedef struct BDRVQcow2State {
      CoMutex lock;
  
--    Qcow2CryptoHeaderExtension crypto_header; /* QCow2 header extension */
--    QCryptoBlockOpenOptions *crypto_opts; /* Disk encryption runtime options */
--    QCryptoBlock *crypto; /* Disk encryption format driver */
--    bool crypt_physical_offset; /* Whether to use virtual or physical offset
--                                   for encryption initialization vector tweak */
--    uint32_t crypt_method_header;
-+    //Qcow2CryptoHeaderExtension crypto_header; /* QCow2 header extension */
-+    //QCryptoBlockOpenOptions *crypto_opts; /* Disk encryption runtime options */
-+    //QCryptoBlock *crypto; /* Disk encryption format driver */
-+    //bool crypt_physical_offset; /* Whether to use virtual or physical offset
-+    //                               for encryption initialization vector tweak */
-+    //uint32_t crypt_method_header;
-     uint64_t snapshots_offset;
-     int snapshots_size;
-     unsigned int nb_snapshots;
-@@ -892,9 +894,11 @@ int coroutine_fn qcow2_check_refcounts(BlockDriverState *bs, BdrvCheckResult *re
- 
- void GRAPH_RDLOCK qcow2_process_discards(BlockDriverState *bs, int ret);
- 
+     Qcow2CryptoHeaderExtension crypto_header; /* QCow2 header extension */
 +#if 0
- int GRAPH_RDLOCK
- qcow2_check_metadata_overlap(BlockDriverState *bs, int ign, int64_t offset,
-                              int64_t size);
+     QCryptoBlockOpenOptions *crypto_opts; /* Disk encryption runtime options */
+     QCryptoBlock *crypto; /* Disk encryption format driver */
 +#endif
- int GRAPH_RDLOCK
- qcow2_pre_write_overlap_check(BlockDriverState *bs, int ign, int64_t offset,
-                               int64_t size, bool data_file);
-@@ -924,9 +928,11 @@ int coroutine_fn GRAPH_RDLOCK
- qcow2_shrink_l1_table(BlockDriverState *bs, uint64_t max_size);
- 
- int GRAPH_RDLOCK qcow2_write_l1_entry(BlockDriverState *bs, int l1_index);
-+#if 0
- int qcow2_encrypt_sectors(BDRVQcow2State *s, int64_t sector_num,
-                           uint8_t *buf, int nb_sectors, bool enc, Error **errp);
- 
-+#endif
- int GRAPH_RDLOCK
- qcow2_get_host_offset(BlockDriverState *bs, uint64_t offset,
-                       unsigned int *bytes, uint64_t *host_offset,
-@@ -1064,11 +1070,13 @@ qcow2_co_compress(BlockDriverState *bs, void *dest, size_t dest_size,
- ssize_t coroutine_fn
- qcow2_co_decompress(BlockDriverState *bs, void *dest, size_t dest_size,
-                     const void *src, size_t src_size);
-+#if 0
- int coroutine_fn
- qcow2_co_encrypt(BlockDriverState *bs, uint64_t host_offset,
-                  uint64_t guest_offset, void *buf, size_t len);
- int coroutine_fn
- qcow2_co_decrypt(BlockDriverState *bs, uint64_t host_offset,
-                  uint64_t guest_offset, void *buf, size_t len);
-+#endif
- 
- #endif
+     bool crypt_physical_offset; /* Whether to use virtual or physical offset
+                                    for encryption initialization vector tweak */
+     uint32_t crypt_method_header;
 diff --git a/include/qemu/atomic.h b/include/qemu/atomic.h
 index 7a3f2e65..9e392dcd 100644
 --- a/include/qemu/atomic.h
@@ -1038,7 +806,7 @@ index 7a3f2e65..9e392dcd 100644
  /* Compiler barrier */
  #define barrier()   ({ asm volatile("" ::: "memory"); (void)0; })
 diff --git a/include/qemu/bitops.h b/include/qemu/bitops.h
-index 2c0a2fe7..df735fa7 100644
+index 2c0a2fe7..69c31b5b 100644
 --- a/include/qemu/bitops.h
 +++ b/include/qemu/bitops.h
 @@ -12,9 +12,8 @@
@@ -1053,38 +821,6 @@ index 2c0a2fe7..df735fa7 100644
  
  #define BITS_PER_BYTE           CHAR_BIT
  #define BITS_PER_LONG           (sizeof (unsigned long) * BITS_PER_BYTE)
-@@ -41,6 +40,7 @@ static inline void set_bit(long nr, unsigned long *addr)
-     *p  |= mask;
- }
- 
-+#if 0
- /**
-  * set_bit_atomic - Set a bit in memory atomically
-  * @nr: the bit to set
-@@ -53,6 +53,7 @@ static inline void set_bit_atomic(long nr, unsigned long *addr)
- 
-     qatomic_or(p, mask);
- }
-+#endif
- 
- /**
-  * clear_bit - Clears a bit in memory
-@@ -67,6 +68,7 @@ static inline void clear_bit(long nr, unsigned long *addr)
-     *p &= ~mask;
- }
- 
-+#if 0
- /**
-  * clear_bit_atomic - Clears a bit in memory atomically
-  * @nr: Bit to clear
-@@ -79,6 +81,7 @@ static inline void clear_bit_atomic(long nr, unsigned long *addr)
- 
-     return qatomic_and(p, ~mask);
- }
-+#endif
- 
- /**
-  * change_bit - Toggle a bit in memory
 diff --git a/include/qemu/config-host.h b/include/qemu/config-host.h
 new file mode 100644
 index 00000000..c0b00bf6
@@ -1624,7 +1360,7 @@ index ead97d35..12ae37af 100644
 +//Int128 divs256(Int128 *plow, Int128 *phigh, Int128 divisor);
  #endif
 diff --git a/include/qemu/main-loop.h b/include/qemu/main-loop.h
-index 5764db15..e0a0be44 100644
+index 5764db15..feab3b96 100644
 --- a/include/qemu/main-loop.h
 +++ b/include/qemu/main-loop.h
 @@ -26,11 +26,12 @@
@@ -1652,51 +1388,6 @@ index 5764db15..e0a0be44 100644
  
  /**
   * qemu_init_main_loop: Set up the process so that it can run the main loop.
-@@ -110,6 +114,7 @@ AioContext *qemu_get_aio_context(void);
-  */
- void qemu_notify_event(void);
- 
-+#if 0
- #ifdef _WIN32
- /* return TRUE if no sleep should be done afterwards */
- typedef int PollingFunc(void *opaque);
-@@ -195,6 +200,7 @@ typedef void IOReadHandler(void *opaque, const uint8_t *buf, int size);
-  * the event loop.
-  */
- typedef int IOCanReadHandler(void *opaque);
-+#endif
- 
- /**
-  * qemu_set_fd_handler: Register a file descriptor with the main loop
-@@ -342,6 +348,7 @@ void bql_lock_impl(const char *file, int line);
-  */
- void bql_unlock(void);
- 
-+#if 0
- /**
-  * BQL_LOCK_GUARD
-  *
-@@ -369,6 +376,7 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(BQLLockAuto, bql_auto_unlock)
- #define BQL_LOCK_GUARD() \
-     g_autoptr(BQLLockAuto) _bql_lock_auto __attribute__((unused)) \
-         = bql_auto_lock(__FILE__, __LINE__)
-+#endif
- 
- /*
-  * qemu_cond_wait_bql: Wait on condition for the Big QEMU Lock (BQL)
-diff --git a/include/qemu/option_int.h b/include/qemu/option_int.h
-index 5dd9a516..f88dd33b 100644
---- a/include/qemu/option_int.h
-+++ b/include/qemu/option_int.h
-@@ -46,7 +46,7 @@ struct QemuOpt {
- struct QemuOpts {
-     char *id;
-     QemuOptsList *list;
--    Location loc;
-+    //Location loc;
-     QTAILQ_HEAD(, QemuOpt) head;
-     QTAILQ_ENTRY(QemuOpts) next;
- };
 diff --git a/include/qemu/osdep.h b/include/qemu/osdep.h
 index fe7c3c5f..bdc90246 100644
 --- a/include/qemu/osdep.h
@@ -1710,55 +1401,8 @@ index fe7c3c5f..bdc90246 100644
  #endif
  
  /*
-diff --git a/include/qemu/range.h b/include/qemu/range.h
-index d446ad88..8afd93e0 100644
---- a/include/qemu/range.h
-+++ b/include/qemu/range.h
-@@ -236,6 +236,7 @@ int range_compare(Range *a, Range *b);
- 
- GList *range_list_insert(GList *list, Range *data);
- 
-+#if 0
- /*
-  * Inverse an array of sorted ranges over the [low, high] span, ie.
-  * original ranges becomes holes in the newly allocated inv_ranges
-@@ -243,5 +244,6 @@ GList *range_list_insert(GList *list, Range *data);
- void range_inverse_array(GList *in_ranges,
-                          GList **out_ranges,
-                          uint64_t low, uint64_t high);
-+#endif
- 
- #endif
-diff --git a/include/qemu/timer.h b/include/qemu/timer.h
-index fa56ec94..f877974c 100644
---- a/include/qemu/timer.h
-+++ b/include/qemu/timer.h
-@@ -842,19 +842,21 @@ static inline int64_t get_clock(void)
- 
- #else
- 
--extern int use_rt_clock;
-+//extern int use_rt_clock;
- 
- static inline int64_t get_clock(void)
- {
-+#if 0
-     if (use_rt_clock) {
-         struct timespec ts;
-         clock_gettime(CLOCK_MONOTONIC, &ts);
-         return ts.tv_sec * 1000000000LL + ts.tv_nsec;
-     } else {
-+#endif
-         /* XXX: using gettimeofday leads to problems if the date
-            changes, so it should be avoided. */
-         return get_clock_realtime();
--    }
-+    //}
- }
- #endif
- 
 diff --git a/include/sysemu/block-backend-common.h b/include/sysemu/block-backend-common.h
-index 780cea73..6b77d20d 100644
+index 780cea73..a8af5e5c 100644
 --- a/include/sysemu/block-backend-common.h
 +++ b/include/sysemu/block-backend-common.h
 @@ -14,7 +14,7 @@
@@ -1770,62 +1414,256 @@ index 780cea73..6b77d20d 100644
  
  /*
   * TODO Have to include block/block.h for a bunch of block layer
-@@ -97,7 +97,7 @@ typedef struct BlockDevOps {
+@@ -97,7 +97,9 @@ typedef struct BlockDevOps {
   * friends so that BlockBackends can be kept in lists outside block-backend.c
   */
  typedef struct BlockBackendPublic {
--    ThrottleGroupMember throttle_group_member;
-+    //ThrottleGroupMember throttle_group_member;
++#if 0
+     ThrottleGroupMember throttle_group_member;
++#endif
  } BlockBackendPublic;
  
  #endif /* BLOCK_BACKEND_COMMON_H */
 diff --git a/include/sysemu/block-backend-global-state.h b/include/sysemu/block-backend-global-state.h
-index 49c12b0f..8c557f0d 100644
+index 49c12b0f..c4d5e87b 100644
 --- a/include/sysemu/block-backend-global-state.h
 +++ b/include/sysemu/block-backend-global-state.h
-@@ -117,7 +117,7 @@ int blk_load_vmstate(BlockBackend *blk, uint8_t *buf, int64_t pos, int size);
+@@ -117,7 +117,9 @@ int blk_load_vmstate(BlockBackend *blk, uint8_t *buf, int64_t pos, int size);
  int blk_probe_blocksizes(BlockBackend *blk, BlockSizes *bsz);
  int blk_probe_geometry(BlockBackend *blk, HDGeometry *geo);
  
--void blk_set_io_limits(BlockBackend *blk, ThrottleConfig *cfg);
-+//void blk_set_io_limits(BlockBackend *blk, ThrottleConfig *cfg);
++#if 0
+ void blk_set_io_limits(BlockBackend *blk, ThrottleConfig *cfg);
++#endif
  void blk_io_limits_disable(BlockBackend *blk);
  void blk_io_limits_enable(BlockBackend *blk, const char *group);
  void blk_io_limits_update_group(BlockBackend *blk, const char *group);
-diff --git a/include/sysemu/block-backend-io.h b/include/sysemu/block-backend-io.h
-index d174275a..040efc7c 100644
---- a/include/sysemu/block-backend-io.h
-+++ b/include/sysemu/block-backend-io.h
-@@ -46,6 +46,7 @@ BlockAIOCB *blk_aio_pwritev(BlockBackend *blk, int64_t offset,
-                             BlockCompletionFunc *cb, void *opaque);
- BlockAIOCB *blk_aio_flush(BlockBackend *blk,
-                           BlockCompletionFunc *cb, void *opaque);
-+#if 0
- BlockAIOCB *blk_aio_zone_report(BlockBackend *blk, int64_t offset,
-                                 unsigned int *nr_zones,
-                                 BlockZoneDescriptor *zones,
-@@ -56,6 +57,7 @@ BlockAIOCB *blk_aio_zone_mgmt(BlockBackend *blk, BlockZoneOp op,
- BlockAIOCB *blk_aio_zone_append(BlockBackend *blk, int64_t *offset,
-                                 QEMUIOVector *qiov, BdrvRequestFlags flags,
-                                 BlockCompletionFunc *cb, void *opaque);
-+#endif
- BlockAIOCB *blk_aio_pdiscard(BlockBackend *blk, int64_t offset, int64_t bytes,
-                              BlockCompletionFunc *cb, void *opaque);
- void blk_aio_cancel_async(BlockAIOCB *acb);
-@@ -92,11 +94,13 @@ void *blk_blockalign(BlockBackend *blk, size_t size);
- bool blk_is_writable(BlockBackend *blk);
- bool blk_enable_write_cache(BlockBackend *blk);
- BlockdevOnError blk_get_on_error(BlockBackend *blk, bool is_read);
-+#if 0
- BlockErrorAction blk_get_error_action(BlockBackend *blk, bool is_read,
-                                       int error);
- void blk_error_action(BlockBackend *blk, BlockErrorAction action,
-                       bool is_read, int error);
- void blk_iostatus_set_err(BlockBackend *blk, int error);
-+#endif
- int blk_get_max_iov(BlockBackend *blk);
- int blk_get_max_hw_iov(BlockBackend *blk);
- 
+diff --git a/include/trace.h b/include/trace.h
+new file mode 100644
+index 00000000..d1b57619
+--- /dev/null
++++ b/include/trace.h
+@@ -0,0 +1,191 @@
++/* qcow2/lib/system/cpus.c */
++#define trace_vm_stop_flush_all(...)  do {} while(0)
++/* qcow2/lib/hw/block/hd-geometry.c */
++#define trace_hd_geometry_lchs_guess(...)  do {} while(0)
++#define trace_hd_geometry_guess(...)  do {} while(0)
++/* qcow2/lib/qapi/qapi-visit-core.c */
++#define trace_visit_complete(...)  do {} while(0)
++#define trace_visit_free(...)  do {} while(0)
++#define trace_visit_start_struct(...)  do {} while(0)
++#define trace_visit_check_struct(...)  do {} while(0)
++#define trace_visit_end_struct(...)  do {} while(0)
++#define trace_visit_start_list(...)  do {} while(0)
++#define trace_visit_next_list(...)  do {} while(0)
++#define trace_visit_check_list(...)  do {} while(0)
++#define trace_visit_end_list(...)  do {} while(0)
++#define trace_visit_start_alternate(...)  do {} while(0)
++#define trace_visit_end_alternate(...)  do {} while(0)
++#define trace_visit_optional(...)  do {} while(0)
++#define trace_visit_policy_reject(...)  do {} while(0)
++#define trace_visit_policy_skip(...)  do {} while(0)
++#define trace_visit_type_int(...)  do {} while(0)
++#define trace_visit_type_uint8(...)  do {} while(0)
++#define trace_visit_type_uint16(...)  do {} while(0)
++#define trace_visit_type_uint32(...)  do {} while(0)
++#define trace_visit_type_uint64(...)  do {} while(0)
++#define trace_visit_type_int8(...)  do {} while(0)
++#define trace_visit_type_int16(...)  do {} while(0)
++#define trace_visit_type_int32(...)  do {} while(0)
++#define trace_visit_type_int64(...)  do {} while(0)
++#define trace_visit_type_size(...)  do {} while(0)
++#define trace_visit_type_bool(...)  do {} while(0)
++#define trace_visit_type_str(...)  do {} while(0)
++#define trace_visit_type_number(...)  do {} while(0)
++#define trace_visit_type_any(...)  do {} while(0)
++#define trace_visit_type_null(...)  do {} while(0)
++#define trace_visit_type_enum(...)  do {} while(0)
++/* qcow2/lib/io/channel-file.c */
++#define trace_qio_channel_file_new_fd(...)  do {} while(0)
++#define trace_qio_channel_file_new_path(...)  do {} while(0)
++/* qcow2/lib/io/channel-socket.c */
++#define trace_qio_channel_socket_new(...)  do {} while(0)
++#define trace_qio_channel_socket_new_fd(...)  do {} while(0)
++#define trace_qio_channel_socket_connect_sync(...)  do {} while(0)
++#define trace_qio_channel_socket_connect_fail(...)  do {} while(0)
++#define trace_qio_channel_socket_connect_complete(...)  do {} while(0)
++#define trace_qio_channel_socket_connect_async(...)  do {} while(0)
++#define trace_qio_channel_socket_listen_sync(...)  do {} while(0)
++#define trace_qio_channel_socket_listen_fail(...)  do {} while(0)
++#define trace_qio_channel_socket_listen_complete(...)  do {} while(0)
++#define trace_qio_channel_socket_listen_async(...)  do {} while(0)
++#define trace_qio_channel_socket_dgram_sync(...)  do {} while(0)
++#define trace_qio_channel_socket_dgram_fail(...)  do {} while(0)
++#define trace_qio_channel_socket_dgram_complete(...)  do {} while(0)
++#define trace_qio_channel_socket_dgram_async(...)  do {} while(0)
++#define trace_qio_channel_socket_accept(...)  do {} while(0)
++#define trace_qio_channel_socket_accept_fail(...)  do {} while(0)
++#define trace_qio_channel_socket_accept_complete(...)  do {} while(0)
++/* qcow2/lib/io/task.c */
++#define trace_qio_task_new(...)  do {} while(0)
++#define trace_qio_task_thread_result(...)  do {} while(0)
++#define trace_qio_task_thread_run(...)  do {} while(0)
++#define trace_qio_task_thread_exit(...)  do {} while(0)
++#define trace_qio_task_thread_source_attach(...)  do {} while(0)
++#define trace_qio_task_thread_start(...)  do {} while(0)
++#define trace_qio_task_thread_source_cancel(...)  do {} while(0)
++#define trace_qio_task_complete(...)  do {} while(0)
++/* qcow2/lib/util/aio-posix.c */
++#define trace_poll_add(...)  do {} while(0)
++#define trace_poll_remove(...)  do {} while(0)
++#define trace_run_poll_handlers_begin(...)  do {} while(0)
++#define trace_run_poll_handlers_end(...)  do {} while(0)
++#define trace_poll_shrink(...)  do {} while(0)
++#define trace_poll_grow(...)  do {} while(0)
++/* qcow2/lib/util/async.c */
++#define trace_reentrant_aio(...)  do {} while(0)
++#define trace_aio_co_schedule_bh_cb(...)  do {} while(0)
++#define trace_aio_co_schedule(...)  do {} while(0)
++/* qcow2/lib/util/hbitmap.c */
++#define trace_hbitmap_iter_skip_words(...)  do {} while(0)
++#define trace_hbitmap_set(...)  do {} while(0)
++#define trace_hbitmap_reset(...)  do {} while(0)
++/* qcow2/lib/util/lockcnt.c */
++#define trace_lockcnt_fast_path_attempt(...)  do {} while(0)
++#define trace_lockcnt_fast_path_success(...)  do {} while(0)
++#define trace_lockcnt_futex_wait_prepare(...)  do {} while(0)
++#define trace_lockcnt_futex_wait(...)  do {} while(0)
++#define trace_lockcnt_futex_wait_resume(...)  do {} while(0)
++#define trace_lockcnt_futex_wake(...)  do {} while(0)
++#define trace_lockcnt_unlock_attempt(...)  do {} while(0)
++#define trace_lockcnt_unlock_success(...)  do {} while(0)
++/* qcow2/lib/util/memalign.c */
++#define trace_qemu_memalign(...)  do {} while(0)
++#define trace_qemu_vfree(...)  do {} while(0)
++/* qcow2/lib/util/module.c */
++#define trace_module_load_module(...)  do {} while(0)
++#define trace_module_lookup_object_type(...)  do {} while(0)
++/* qcow2/lib/util/oslib-posix.c */
++#define trace_qemu_anon_ram_alloc(...)  do {} while(0)
++#define trace_qemu_anon_ram_free(...)  do {} while(0)
++/* qcow2/lib/util/qemu-coroutine-lock.c */
++#define trace_qemu_co_mutex_lock_entry(...)  do {} while(0)
++#define trace_qemu_co_mutex_lock_return(...)  do {} while(0)
++#define trace_qemu_co_mutex_lock_uncontended(...)  do {} while(0)
++#define trace_qemu_co_mutex_unlock_entry(...)  do {} while(0)
++#define trace_qemu_co_mutex_unlock_return(...)  do {} while(0)
++/* qcow2/lib/util/qemu-coroutine.c */
++#define trace_qemu_aio_coroutine_enter(...)  do {} while(0)
++#define trace_qemu_coroutine_terminate(...)  do {} while(0)
++#define trace_qemu_coroutine_yield(...)  do {} while(0)
++/* qcow2/lib/util/qemu-sockets.c */
++#define trace_socket_listen(...)  do {} while(0)
++/* qcow2/lib/util/qemu-thread-common.h */
++#define trace_qemu_mutex_lock(...)  do {} while(0)
++#define trace_qemu_mutex_locked(...)  do {} while(0)
++#define trace_qemu_mutex_unlock(...)  do {} while(0)
++/* qcow2/lib/util/thread-pool.c */
++#define trace_thread_pool_complete(...)  do {} while(0)
++#define trace_thread_pool_cancel(...)  do {} while(0)
++#define trace_thread_pool_submit(...)  do {} while(0)
++/* qcow2/lib/authz/base.c */
++#define trace_qauthz_is_allowed(...)  do {} while(0)
++/* qcow2/lib/block/block-backend.c */
++#define trace_blk_root_attach(...)  do {} while(0)
++#define trace_blk_root_detach(...)  do {} while(0)
++#define trace_blk_co_preadv(...)  do {} while(0)
++#define trace_blk_co_pwritev(...)  do {} while(0)
++/* qcow2/lib/block/commit.c */
++#define trace_commit_one_iteration(...)  do {} while(0)
++#define trace_commit_start(...)  do {} while(0)
++/* qcow2/lib/block/dirty-bitmap.c */
++/* qcow2/lib/block/file-posix.c */
++#define trace_file_flush_fdatasync_failed(...)  do {} while(0)
++#define trace_file_copy_file_range(...)  do {} while(0)
++#define trace_zbd_zone_append_complete(...)  do {} while(0)
++#define trace_zbd_zone_report(...)  do {} while(0)
++#define trace_zbd_zone_mgmt(...)  do {} while(0)
++#define trace_zbd_zone_append(...)  do {} while(0)
++#define trace_file_FindEjectableOpticalMedia(...)  do {} while(0)
++#define trace_file_setup_cdrom(...)  do {} while(0)
++#define trace_file_hdev_is_sg(...)  do {} while(0)
++/* qcow2/lib/block/io.c */
++#define trace_bdrv_co_do_copy_on_readv(...)  do {} while(0)
++#define trace_bdrv_co_preadv_part(...)  do {} while(0)
++#define trace_bdrv_co_pwritev_part(...)  do {} while(0)
++#define trace_bdrv_co_pwrite_zeroes(...)  do {} while(0)
++#define trace_bdrv_co_copy_range_from(...)  do {} while(0)
++#define trace_bdrv_co_copy_range_to(...)  do {} while(0)
++/* qcow2/lib/block/mirror.c */
++#define trace_mirror_iteration_done(...)  do {} while(0)
++#define trace_mirror_yield_in_flight(...)  do {} while(0)
++#define trace_mirror_one_iteration(...)  do {} while(0)
++#define trace_mirror_restart_iter(...)  do {} while(0)
++#define trace_mirror_yield(...)  do {} while(0)
++#define trace_mirror_before_flush(...)  do {} while(0)
++#define trace_mirror_before_drain(...)  do {} while(0)
++#define trace_mirror_before_sleep(...)  do {} while(0)
++#define trace_mirror_start(...)  do {} while(0)
++/* qcow2/lib/qom/object.c */
++#define trace_object_dynamic_cast_assert(...)  do {} while(0)
++#define trace_object_class_dynamic_cast_assert(...)  do {} while(0)
++/* qcow2/lib/qcow2-cache.c */
++#define trace_qcow2_cache_entry_flush(...)  do {} while(0)
++#define trace_qcow2_cache_flush(...)  do {} while(0)
++#define trace_qcow2_cache_get(...)  do {} while(0)
++#define trace_qcow2_cache_get_done(...)  do {} while(0)
++#define trace_qcow2_cache_get_read(...)  do {} while(0)
++#define trace_qcow2_cache_get_replace_entry(...)  do {} while(0)
++/* qcow2/lib/qcow2-cluster.c */
++#define trace_qcow2_l2_allocate(...)  do {} while(0)
++#define trace_qcow2_l2_allocate_get_empty(...)  do {} while(0)
++#define trace_qcow2_l2_allocate_write_l2(...)  do {} while(0)
++#define trace_qcow2_l2_allocate_write_l1(...)  do {} while(0)
++#define trace_qcow2_l2_allocate_done(...)  do {} while(0)
++#define trace_qcow2_cluster_link_l2(...)  do {} while(0)
++#define trace_qcow2_handle_copied(...)  do {} while(0)
++#define trace_qcow2_do_alloc_clusters_offset(...)  do {} while(0)
++#define trace_qcow2_cluster_alloc_phys(...)  do {} while(0)
++#define trace_qcow2_handle_alloc(...)  do {} while(0)
++#define trace_qcow2_alloc_clusters_offset(...)  do {} while(0)
++/* qcow2/lib/qcow2-refcount.c */
++#define trace_qcow2_process_discards_failed_region(...)  do {} while(0)
++/* qcow2/lib/qcow2.c */
++#define trace_qcow2_add_task(...) do {} while(0)
++#define trace_qcow2_skip_cow(...) do {} while(0)
++#define trace_qcow2_writev_data(...) do {} while(0)
++#define trace_qcow2_writev_start_req(...) do {} while(0)
++#define trace_qcow2_writev_start_part(...) do {} while(0)
++#define trace_qcow2_writev_done_part(...) do {} while(0)
++#define trace_qcow2_writev_done_req(...) do {} while(0)
++#define trace_qcow2_pwrite_zeroes_start_req(...) do {} while(0)
++#define trace_qcow2_pwrite_zeroes(...) do {} while(0)
+diff --git a/include/trace/trace-root.h b/include/trace/trace-root.h
+new file mode 100644
+index 00000000..68037e50
+--- /dev/null
++++ b/include/trace/trace-root.h
+@@ -0,0 +1,11 @@
++/* qcow2/lib/job-qmp.c */
++#define trace_qmp_job_cancel(...)  do {} while(0)
++#define trace_qmp_job_pause(...)  do {} while(0)
++#define trace_qmp_job_resume(...)  do {} while(0)
++#define trace_qmp_job_complete(...)  do {} while(0)
++#define trace_qmp_job_finalize(...)  do {} while(0)
++#define trace_qmp_job_dismiss(...)  do {} while(0)
++/* qcow2/lib/job.c */
++#define trace_job_state_transition(...)  do {} while(0)
++#define trace_job_apply_verb(...)  do {} while(0)
++#define trace_job_completed(...)  do {} while(0)
+diff --git a/mk/blktap.spec.in b/mk/blktap.spec.in
+index 2da6fe2c..fd1a4714 100644
+--- a/mk/blktap.spec.in
++++ b/mk/blktap.spec.in
+@@ -11,6 +11,7 @@ BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
+ Obsoletes: xen-blktap
+ BuildRequires: e2fsprogs-devel, libaio-devel, systemd, autogen, autoconf, automake, libtool, libuuid-devel
+ BuildRequires: xen-devel, kernel-headers, xen-dom0-libs-devel, zlib-devel, xen-libs-devel, libcmocka-devel, lcov, git
++BuildRequires: glib2, glib2-devel, libzstd, libzstd-devel
+ BuildRequires: openssl-devel >= 1.1.1
+ Requires(post): systemd
+ Requires(preun): systemd
 diff --git a/qcow2/Makefile.am b/qcow2/Makefile.am
 new file mode 100644
 index 00000000..69460e08
@@ -1855,10 +1693,10 @@ index 00000000..69460e08
 +	-rm -rf *.gc??
 diff --git a/qcow2/lib/Makefile.am b/qcow2/lib/Makefile.am
 new file mode 100644
-index 00000000..fb125aa7
+index 00000000..55a007d9
 --- /dev/null
 +++ b/qcow2/lib/Makefile.am
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,159 @@
 +AUTOMAKE_OPTIONS = subdir-objects
 +
 +SUBDIRS = .
@@ -1902,28 +1740,20 @@ index 00000000..fb125aa7
 +libqcow2_la_SOURCES += block/linux-aio.c
 +libqcow2_la_SOURCES += block/mirror.c
 +libqcow2_la_SOURCES += block/monitor/bitmap-qmp-cmds.c
-+libqcow2_la_SOURCES += block/nbd.c
 +libqcow2_la_SOURCES += block/progress_meter.c
 +libqcow2_la_SOURCES += block/qapi.c
 +libqcow2_la_SOURCES += block/raw-format.c
 +libqcow2_la_SOURCES += block/snapshot.c
-+libqcow2_la_SOURCES += crypto/hash.c
-+libqcow2_la_SOURCES += crypto/tlscreds.c
-+libqcow2_la_SOURCES += crypto/tlssession.c
 +libqcow2_la_SOURCES += hw/block/block.c
 +libqcow2_la_SOURCES += hw/block/hd-geometry.c
 +libqcow2_la_SOURCES += io/channel.c
 +libqcow2_la_SOURCES += io/channel-file.c
 +libqcow2_la_SOURCES += io/channel-socket.c
-+libqcow2_la_SOURCES += io/channel-tls.c
 +libqcow2_la_SOURCES += io/channel-util.c
 +libqcow2_la_SOURCES += io/channel-watch.c
 +libqcow2_la_SOURCES += io/task.c
 +libqcow2_la_SOURCES += job.c
 +libqcow2_la_SOURCES += job-qmp.c
-+libqcow2_la_SOURCES += nbd/client.c
-+libqcow2_la_SOURCES += nbd/client-connection.c
-+libqcow2_la_SOURCES += nbd/common.c
 +libqcow2_la_SOURCES += qapi/qapi-clone-visitor.c
 +libqcow2_la_SOURCES += qapi/qapi-dealloc-visitor.c
 +libqcow2_la_SOURCES += qapi/qapi-events-block-core.c
@@ -1998,6 +1828,7 @@ index 00000000..fb125aa7
 +libqcow2_la_SOURCES += util/qemu-print.c
 +libqcow2_la_SOURCES += util/qemu-sockets.c
 +libqcow2_la_SOURCES += util/qemu-thread-posix.c
++libqcow2_la_SOURCES += util/qemu-timer-common.c
 +libqcow2_la_SOURCES += util/qemu-timer.c
 +libqcow2_la_SOURCES += util/qsp.c
 +libqcow2_la_SOURCES += util/range.c
@@ -2025,38 +1856,11 @@ index 00000000..fb125aa7
 +
 +clean-local:
 +	-rm -rf *.gc??
-diff --git a/qcow2/lib/authz/base.c b/qcow2/lib/authz/base.c
-index f2b7fbe9..bd155bea 100644
---- a/qcow2/lib/authz/base.c
-+++ b/qcow2/lib/authz/base.c
-@@ -21,7 +21,7 @@
- #include "qemu/osdep.h"
- #include "authz/base.h"
- #include "qemu/module.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- bool qauthz_is_allowed(QAuthZ *authz,
-                        const char *identity,
-@@ -31,7 +31,7 @@ bool qauthz_is_allowed(QAuthZ *authz,
-     bool allowed;
- 
-     allowed = cls->is_allowed(authz, identity, errp);
--    trace_qauthz_is_allowed(authz, identity, allowed);
-+    //trace_qauthz_is_allowed(authz, identity, allowed);
- 
-     return allowed;
- }
 diff --git a/qcow2/lib/block.c b/qcow2/lib/block.c
-index c317de9e..e823b462 100644
+index c317de9e..de666676 100644
 --- a/qcow2/lib/block.c
 +++ b/qcow2/lib/block.c
-@@ -24,12 +24,12 @@
-  */
- 
- #include "qemu/osdep.h"
--#include "block/trace.h"
-+//#include "block/trace.h"
+@@ -28,8 +28,8 @@
  #include "block/block_int.h"
  #include "block/blockjob.h"
  #include "block/dirty-bitmap.h"
@@ -2067,17 +1871,6 @@ index c317de9e..e823b462 100644
  #include "block/qdict.h"
  #include "qemu/error-report.h"
  #include "block/module_block.h"
-@@ -1917,8 +1917,8 @@ static int bdrv_open_common(BlockDriverState *bs, BlockBackend *file,
-         goto fail_opts;
-     }
- 
--    trace_bdrv_open_common(bs, filename ?: "", bs->open_flags,
--                           drv->format_name);
-+    //trace_bdrv_open_common(bs, filename ?: "", bs->open_flags,
-+    //                       drv->format_name);
- 
-     ro = bdrv_is_read_only(bs);
- 
 @@ -5114,7 +5114,6 @@ static void GRAPH_UNLOCKED bdrv_reopen_abort(BDRVReopenState *reopen_state)
      }
  }
@@ -2183,15 +1976,6 @@ index c317de9e..e823b462 100644
  
  BlockDriverState *bdrv_lookup_bs(const char *device,
                                   const char *node_name,
-@@ -7095,7 +7105,7 @@ void coroutine_fn bdrv_co_lock_medium(BlockDriverState *bs, bool locked)
-     BlockDriver *drv = bs->drv;
-     IO_CODE();
-     assert_bdrv_graph_readable();
--    trace_bdrv_lock_medium(bs, locked);
-+    //trace_bdrv_lock_medium(bs, locked);
- 
-     if (drv && drv->bdrv_co_lock_medium) {
-         drv->bdrv_co_lock_medium(bs, locked);
 @@ -7425,6 +7435,7 @@ AioContext *bdrv_get_aio_context(BlockDriverState *bs)
      return bs ? bs->aio_context : qemu_get_aio_context();
  }
@@ -2223,7 +2007,7 @@ index 28297453..dea4f667 100644
  static QEMUClockType clock_type = QEMU_CLOCK_REALTIME;
  static const int qtest_latency_ns = NANOSECONDS_PER_SECOND / 1000;
 diff --git a/qcow2/lib/block/block-backend.c b/qcow2/lib/block/block-backend.c
-index db6f9b92..d15da172 100644
+index db6f9b92..0d08a07b 100644
 --- a/qcow2/lib/block/block-backend.c
 +++ b/qcow2/lib/block/block-backend.c
 @@ -15,18 +15,18 @@
@@ -2246,9 +2030,8 @@ index db6f9b92..d15da172 100644
  #include "qemu/id.h"
  #include "qemu/main-loop.h"
  #include "qemu/option.h"
--#include "trace.h"
+ #include "trace.h"
 -#include "migration/misc.h"
-+//#include "trace.h"
 +//#include "migration/misc.h"
  
  /* Number of coroutines to reserve per attached device model */
@@ -2294,24 +2077,6 @@ index db6f9b92..d15da172 100644
  
      blk_set_perm_locked(blk, blk->perm, blk->shared_perm, &local_err);
      if (local_err) {
-@@ -285,7 +289,7 @@ static void blk_root_attach(BdrvChild *child)
-     BlockBackend *blk = child->opaque;
-     BlockBackendAioNotifier *notifier;
- 
--    trace_blk_root_attach(child, blk, child->bs);
-+    //trace_blk_root_attach(child, blk, child->bs);
- 
-     QLIST_FOREACH(notifier, &blk->aio_notifiers, list) {
-         bdrv_add_aio_context_notifier(child->bs,
-@@ -300,7 +304,7 @@ static void blk_root_detach(BdrvChild *child)
-     BlockBackend *blk = child->opaque;
-     BlockBackendAioNotifier *notifier;
- 
--    trace_blk_root_detach(child, blk, child->bs);
-+    //trace_blk_root_detach(child, blk, child->bs);
- 
-     QLIST_FOREACH(notifier, &blk->aio_notifiers, list) {
-         bdrv_remove_aio_context_notifier(child->bs,
 @@ -480,16 +484,20 @@ static void blk_delete(BlockBackend *blk)
      assert(!blk->refcnt);
      assert(!blk->name);
@@ -2530,15 +2295,6 @@ index db6f9b92..d15da172 100644
  
  void blk_set_allow_write_beyond_eof(BlockBackend *blk, bool allow)
  {
-@@ -1329,7 +1355,7 @@ blk_co_do_preadv_part(BlockBackend *blk, int64_t offset, int64_t bytes,
- 
-     /* Call blk_bs() only after waiting, the graph may have changed */
-     bs = blk_bs(blk);
--    trace_blk_co_preadv(blk, bs, offset, bytes, flags);
-+    //trace_blk_co_preadv(blk, bs, offset, bytes, flags);
- 
-     ret = blk_check_byte_request(blk, offset, bytes);
-     if (ret < 0) {
 @@ -1338,11 +1364,13 @@ blk_co_do_preadv_part(BlockBackend *blk, int64_t offset, int64_t bytes,
  
      bdrv_inc_in_flight(bs);
@@ -2553,15 +2309,6 @@ index db6f9b92..d15da172 100644
  
      ret = bdrv_co_preadv_part(blk->root, offset, bytes, qiov, qiov_offset,
                                flags);
-@@ -1404,7 +1432,7 @@ blk_co_do_pwritev_part(BlockBackend *blk, int64_t offset, int64_t bytes,
- 
-     /* Call blk_bs() only after waiting, the graph may have changed */
-     bs = blk_bs(blk);
--    trace_blk_co_pwritev(blk, bs, offset, bytes, flags);
-+    //trace_blk_co_pwritev(blk, bs, offset, bytes, flags);
- 
-     ret = blk_check_byte_request(blk, offset, bytes);
-     if (ret < 0) {
 @@ -1412,11 +1440,13 @@ blk_co_do_pwritev_part(BlockBackend *blk, int64_t offset, int64_t bytes,
      }
  
@@ -2752,7 +2499,7 @@ index db6f9b92..d15da172 100644
      if (qatomic_fetch_dec(&blk->quiesce_counter) == 1) {
          if (blk->dev_ops && blk->dev_ops->drained_end) {
 diff --git a/qcow2/lib/block/block-gen.c b/qcow2/lib/block/block-gen.c
-index ff2832fa..8d4f3294 100644
+index ff2832fa..6265dd52 100644
 --- a/qcow2/lib/block/block-gen.c
 +++ b/qcow2/lib/block/block-gen.c
 @@ -2190,6 +2190,7 @@ int blk_pwrite_zeroes(BlockBackend *blk, int64_t offset, int64_t bytes, BdrvRequ
@@ -2771,63 +2518,42 @@ index ff2832fa..8d4f3294 100644
  
  
  /*
-diff --git a/qcow2/lib/block/commit.c b/qcow2/lib/block/commit.c
-index 7c3fdcb0..6b96a4c6 100644
---- a/qcow2/lib/block/commit.c
-+++ b/qcow2/lib/block/commit.c
-@@ -14,7 +14,7 @@
- 
- #include "qemu/osdep.h"
- #include "qemu/cutils.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "block/block_int.h"
- #include "block/blockjob_int.h"
- #include "qapi/error.h"
-@@ -170,7 +170,7 @@ static int coroutine_fn commit_run(Job *job, Error **errp)
-         ret = blk_co_is_allocated_above(s->top, s->base_overlay, true,
-                                         offset, COMMIT_BUFFER_SIZE, &n);
-         copy = (ret > 0);
--        trace_commit_one_iteration(s, offset, n, ret);
-+        //trace_commit_one_iteration(s, offset, n, ret);
-         if (copy) {
-             assert(n < SIZE_MAX);
- 
-@@ -414,7 +414,7 @@ void commit_start(const char *job_id, BlockDriverState *bs,
-     s->backing_mask_protocol = backing_mask_protocol;
-     s->on_error = on_error;
- 
--    trace_commit_start(bs, base, top, s);
-+    //trace_commit_start(bs, base, top, s);
-     job_start(&s->common.job);
-     return;
- 
+@@ -2592,7 +2594,7 @@ int bdrv_common_block_status_above(BlockDriverState *bs, BlockDriverState *base,
+ /*
+  * Wrappers for nbd_co_do_establish_connection
+  */
+-
++#if 0
+ typedef struct NbdDoEstablishConnection {
+     BdrvPollCo poll_state;
+     int ret;
+@@ -2634,3 +2636,4 @@ int nbd_do_establish_connection(BlockDriverState *bs, bool blocking, Error **err
+         return s.ret;
+     }
+ }
++#endif
 diff --git a/qcow2/lib/block/dirty-bitmap.c b/qcow2/lib/block/dirty-bitmap.c
-index 13a19797..df6a3c30 100644
+index 13a19797..557059de 100644
 --- a/qcow2/lib/block/dirty-bitmap.c
 +++ b/qcow2/lib/block/dirty-bitmap.c
-@@ -23,7 +23,7 @@
-  */
- #include "qemu/osdep.h"
- #include "qapi/error.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "block/block-io.h"
- #include "block/block_int.h"
- #include "block/blockjob.h"
+@@ -770,10 +770,12 @@ BdrvDirtyBitmap *bdrv_dirty_bitmap_next(BdrvDirtyBitmap *bitmap)
+     return QLIST_NEXT(bitmap, list);
+ }
+ 
++#if 0
+ char *bdrv_dirty_bitmap_sha256(const BdrvDirtyBitmap *bitmap, Error **errp)
+ {
+     return hbitmap_sha256(bitmap->bitmap, errp);
+ }
++#endif
+ 
+ int64_t bdrv_dirty_bitmap_next_dirty(BdrvDirtyBitmap *bitmap, int64_t offset,
+                                      int64_t bytes)
 diff --git a/qcow2/lib/block/file-posix.c b/qcow2/lib/block/file-posix.c
-index ff928b5e..852f0222 100644
+index ff928b5e..3223c75e 100644
 --- a/qcow2/lib/block/file-posix.c
 +++ b/qcow2/lib/block/file-posix.c
-@@ -32,15 +32,15 @@
- #include "qemu/option.h"
- #include "qemu/units.h"
- #include "qemu/memalign.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "block/thread-pool.h"
- #include "qemu/iov.h"
- #include "block/raw-aio.h"
+@@ -39,8 +39,8 @@
  #include "qapi/qmp/qdict.h"
  #include "qapi/qmp/qstring.h"
  
@@ -2907,95 +2633,15 @@ index ff928b5e..852f0222 100644
  static int handle_aiocb_ioctl(void *opaque)
  {
      RawPosixAIOData *aiocb = opaque;
-@@ -1627,7 +1633,7 @@ static int handle_aiocb_flush(void *opaque)
- 
-     ret = qemu_fdatasync(aiocb->aio_fildes);
-     if (ret == -1) {
--        trace_file_flush_fdatasync_failed(errno);
-+        //trace_file_flush_fdatasync_failed(errno);
- 
-         /* There is no clear definition of the semantics of a failing fsync(),
-          * so we may have to assume the worst. The sad truth is that this
-@@ -2168,9 +2174,9 @@ static int handle_aiocb_copy_range(void *opaque)
-         ssize_t ret = copy_file_range(aiocb->aio_fildes, &in_off,
-                                       aiocb->copy_range.aio_fd2, &out_off,
-                                       bytes, 0);
--        trace_file_copy_file_range(aiocb->bs, aiocb->aio_fildes, in_off,
--                                   aiocb->copy_range.aio_fd2, out_off, bytes,
--                                   0, ret);
-+        //trace_file_copy_file_range(aiocb->bs, aiocb->aio_fildes, in_off,
-+        //                           aiocb->copy_range.aio_fd2, out_off, bytes,
-+        //                           0, ret);
-         if (ret == 0) {
-             /* No progress (e.g. when beyond EOF), let the caller fall back to
-              * buffer I/O. */
-@@ -2546,8 +2552,8 @@ out:
-             if (!BDRV_ZT_IS_CONV(*wp)) {
-                 if (type & QEMU_AIO_ZONE_APPEND) {
-                     *offset_ptr = *wp;
--                    trace_zbd_zone_append_complete(bs, *offset_ptr
--                        >> BDRV_SECTOR_BITS);
-+                    //trace_zbd_zone_append_complete(bs, *offset_ptr
-+                    //    >> BDRV_SECTOR_BITS);
-                 }
-                 /* Advance the wp if needed */
-                 if (offset + bytes > *wp) {
-@@ -3404,7 +3410,7 @@ static int coroutine_fn raw_co_zone_report(BlockDriverState *bs, int64_t offset,
-         },
+@@ -3481,7 +3487,7 @@ static int coroutine_fn raw_co_zone_mgmt(BlockDriverState *bs, BlockZoneOp op,
      };
  
--    trace_zbd_zone_report(bs, *nr_zones, offset >> BDRV_SECTOR_BITS);
-+    //trace_zbd_zone_report(bs, *nr_zones, offset >> BDRV_SECTOR_BITS);
-     return raw_thread_pool_submit(handle_aiocb_zone_report, &acb);
- }
- #endif
-@@ -3480,8 +3486,8 @@ static int coroutine_fn raw_co_zone_mgmt(BlockDriverState *bs, BlockZoneOp op,
-         },
-     };
- 
--    trace_zbd_zone_mgmt(bs, op_name, offset >> BDRV_SECTOR_BITS,
+     trace_zbd_zone_mgmt(bs, op_name, offset >> BDRV_SECTOR_BITS,
 -                        len >> BDRV_SECTOR_BITS);
-+    //trace_zbd_zone_mgmt(bs, op_name, offset >> BDRV_SECTOR_BITS,
 +    //                    len >> BDRV_SECTOR_BITS);
      ret = raw_thread_pool_submit(handle_aiocb_zone_mgmt, &acb);
      if (ret != 0) {
          update_zones_wp(bs, s->fd, offset, nrz);
-@@ -3539,7 +3545,7 @@ static int coroutine_fn raw_co_zone_append(BlockDriverState *bs,
-         len += iov_len;
-     }
- 
--    trace_zbd_zone_append(bs, *offset >> BDRV_SECTOR_BITS);
-+    //trace_zbd_zone_append(bs, *offset >> BDRV_SECTOR_BITS);
-     return raw_co_prw(bs, offset, len, qiov, QEMU_AIO_ZONE_APPEND);
- }
- #endif
-@@ -3962,7 +3968,7 @@ static char *FindEjectableOpticalMedia(io_iterator_t *mediaIterator)
- 
-         /* If a match was found, leave the loop */
-         if (*mediaIterator != 0) {
--            trace_file_FindEjectableOpticalMedia(matching_array[index]);
-+            //trace_file_FindEjectableOpticalMedia(matching_array[index]);
-             mediaType = g_strdup(matching_array[index]);
-             break;
-         }
-@@ -4022,7 +4028,7 @@ static bool setup_cdrom(char *bsd_path, Error **errp)
-     if (partition_found == false) {
-         error_setg(errp, "Failed to find a working partition on disc");
-     } else {
--        trace_file_setup_cdrom(test_partition);
-+        //trace_file_setup_cdrom(test_partition);
-         pstrcpy(bsd_path, MAXPATHLEN, test_partition);
-     }
-     return partition_found;
-@@ -4084,7 +4090,7 @@ static bool hdev_is_sg(BlockDriverState *bs)
- 
-     ret = ioctl(s->fd, SG_GET_SCSI_ID, &scsiid);
-     if (ret >= 0) {
--        trace_file_hdev_is_sg(scsiid.scsi_type, sg_version);
-+        //trace_file_hdev_is_sg(scsiid.scsi_type, sg_version);
-         return true;
-     }
- 
 @@ -4194,6 +4200,7 @@ hdev_co_ioctl(BlockDriverState *bs, unsigned long int req, void *buf)
          return ret;
      }
@@ -3013,15 +2659,10 @@ index ff928b5e..852f0222 100644
      acb = (RawPosixAIOData) {
          .bs         = bs,
 diff --git a/qcow2/lib/block/io.c b/qcow2/lib/block/io.c
-index 301514c8..ae2adc51 100644
+index 301514c8..f5aaade3 100644
 --- a/qcow2/lib/block/io.c
 +++ b/qcow2/lib/block/io.c
-@@ -23,21 +23,23 @@
-  */
- 
- #include "qemu/osdep.h"
--#include "trace.h"
-+//#include "trace.h"
+@@ -27,17 +27,19 @@
  #include "sysemu/block-backend.h"
  #include "block/aio-wait.h"
  #include "block/blockjob.h"
@@ -3044,17 +2685,6 @@ index 301514c8..ae2adc51 100644
  
  /* Maximum bounce buffer for copy-on-read and write zeroes, in bytes */
  #define MAX_BOUNCE_BUFFER (32768 << BDRV_SECTOR_BITS)
-@@ -1209,8 +1211,8 @@ bdrv_co_do_copy_on_readv(BdrvChild *child, int64_t offset, int64_t bytes,
-     bdrv_round_to_subclusters(bs, offset, bytes, &align_offset, &align_bytes);
-     skip_bytes = offset - align_offset;
- 
--    trace_bdrv_co_do_copy_on_readv(bs, offset, bytes,
--                                   align_offset, align_bytes);
-+    //trace_bdrv_co_do_copy_on_readv(bs, offset, bytes,
-+    //                               align_offset, align_bytes);
- 
-     while (align_bytes) {
-         int64_t pnum;
 @@ -1263,7 +1265,7 @@ bdrv_co_do_copy_on_readv(BdrvChild *child, int64_t offset, int64_t bytes,
                  goto err;
              }
@@ -3108,15 +2738,6 @@ index 301514c8..ae2adc51 100644
      }
  
  zero_mem:
-@@ -1779,7 +1781,7 @@ int coroutine_fn bdrv_co_preadv_part(BdrvChild *child,
-     int ret;
-     IO_CODE();
- 
--    trace_bdrv_co_preadv_part(bs, offset, bytes, flags);
-+    //trace_bdrv_co_preadv_part(bs, offset, bytes, flags);
- 
-     if (!bdrv_co_is_inserted(bs)) {
-         return -ENOMEDIUM;
 @@ -2001,7 +2003,7 @@ bdrv_co_write_req_prepare(BdrvChild *child, int64_t offset, int64_t bytes,
          } else {
              assert(child->perm & BLK_PERM_WRITE);
@@ -3155,24 +2776,7 @@ index 301514c8..ae2adc51 100644
  
      if (ret >= 0) {
          ret = 0;
-@@ -2233,7 +2235,7 @@ int coroutine_fn bdrv_co_pwritev_part(BdrvChild *child,
-     bool padded = false;
-     IO_CODE();
- 
--    trace_bdrv_co_pwritev_part(child->bs, offset, bytes, flags);
-+    //trace_bdrv_co_pwritev_part(child->bs, offset, bytes, flags);
- 
-     if (!bdrv_co_is_inserted(bs)) {
-         return -ENOMEDIUM;
-@@ -2317,13 +2319,14 @@ int coroutine_fn bdrv_co_pwrite_zeroes(BdrvChild *child, int64_t offset,
-                                        int64_t bytes, BdrvRequestFlags flags)
- {
-     IO_CODE();
--    trace_bdrv_co_pwrite_zeroes(child->bs, offset, bytes, flags);
-+    //trace_bdrv_co_pwrite_zeroes(child->bs, offset, bytes, flags);
-     assert_bdrv_graph_readable();
- 
-     return bdrv_co_pwritev(child, offset, bytes, NULL,
+@@ -2324,6 +2326,7 @@ int coroutine_fn bdrv_co_pwrite_zeroes(BdrvChild *child, int64_t offset,
                             BDRV_REQ_ZERO_WRITE | flags);
  }
  
@@ -3220,28 +2824,6 @@ index 301514c8..ae2adc51 100644
  
  void *qemu_blockalign(BlockDriverState *bs, size_t size)
  {
-@@ -3478,8 +3486,8 @@ int coroutine_fn bdrv_co_copy_range_from(BdrvChild *src, int64_t src_offset,
- {
-     IO_CODE();
-     assert_bdrv_graph_readable();
--    trace_bdrv_co_copy_range_from(src, src_offset, dst, dst_offset, bytes,
--                                  read_flags, write_flags);
-+    //trace_bdrv_co_copy_range_from(src, src_offset, dst, dst_offset, bytes,
-+    //                              read_flags, write_flags);
-     return bdrv_co_copy_range_internal(src, src_offset, dst, dst_offset,
-                                        bytes, read_flags, write_flags, true);
- }
-@@ -3496,8 +3504,8 @@ int coroutine_fn bdrv_co_copy_range_to(BdrvChild *src, int64_t src_offset,
- {
-     IO_CODE();
-     assert_bdrv_graph_readable();
--    trace_bdrv_co_copy_range_to(src, src_offset, dst, dst_offset, bytes,
--                                read_flags, write_flags);
-+    //trace_bdrv_co_copy_range_to(src, src_offset, dst, dst_offset, bytes,
-+    //                            read_flags, write_flags);
-     return bdrv_co_copy_range_internal(src, src_offset, dst, dst_offset,
-                                        bytes, read_flags, write_flags, false);
- }
 @@ -3679,6 +3687,7 @@ void bdrv_cancel_in_flight(BlockDriverState *bs)
      }
  }
@@ -3256,121 +2838,10 @@ index 301514c8..ae2adc51 100644
  }
 +#endif
 diff --git a/qcow2/lib/block/mirror.c b/qcow2/lib/block/mirror.c
-index 61f0a717..4b75f105 100644
+index 61f0a717..1b34bb9e 100644
 --- a/qcow2/lib/block/mirror.c
 +++ b/qcow2/lib/block/mirror.c
-@@ -15,7 +15,7 @@
- #include "qemu/cutils.h"
- #include "qemu/coroutine.h"
- #include "qemu/range.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "block/blockjob_int.h"
- #include "block/block_int.h"
- #include "block/dirty-bitmap.h"
-@@ -201,7 +201,9 @@ static void coroutine_fn mirror_iteration_done(MirrorOp *op, int ret)
-     int64_t chunk_num;
-     int i, nb_chunks;
- 
-+#if 0
-     trace_mirror_iteration_done(s, op->offset, op->bytes, ret);
-+#endif
- 
-     s->in_flight--;
-     s->bytes_in_flight -= op->bytes;
-@@ -375,7 +377,9 @@ static void coroutine_fn mirror_co_read(void *opaque)
-     nb_chunks = DIV_ROUND_UP(op->bytes, s->granularity);
- 
-     while (s->buf_free_count < nb_chunks) {
-+#if 0
-         trace_mirror_yield_in_flight(s, op->offset, s->in_flight);
-+#endif
-         mirror_wait_for_free_in_flight_slot(s);
-     }
- 
-@@ -396,7 +400,9 @@ static void coroutine_fn mirror_co_read(void *opaque)
-     s->in_flight++;
-     s->bytes_in_flight += op->bytes;
-     op->is_in_flight = true;
-+#if 0
-     trace_mirror_one_iteration(s, op->offset, op->bytes);
-+#endif
- 
-     WITH_GRAPH_RDLOCK_GUARD() {
-         ret = bdrv_co_preadv(s->mirror_top_bs->backing, op->offset, op->bytes,
-@@ -499,7 +505,9 @@ static void coroutine_fn GRAPH_UNLOCKED mirror_iteration(MirrorBlockJob *s)
-     if (offset < 0) {
-         bdrv_set_dirty_iter(s->dbi, 0);
-         offset = bdrv_dirty_iter_next(s->dbi);
-+#if 0
-         trace_mirror_restart_iter(s, bdrv_get_dirty_count(s->dirty_bitmap));
-+#endif
-         assert(offset >= 0);
-     }
-     bdrv_dirty_bitmap_unlock(s->dirty_bitmap);
-@@ -601,7 +609,9 @@ static void coroutine_fn GRAPH_UNLOCKED mirror_iteration(MirrorBlockJob *s)
-         }
- 
-         while (s->in_flight >= MAX_IN_FLIGHT) {
-+#if 0
-             trace_mirror_yield_in_flight(s, offset, s->in_flight);
-+#endif
-             mirror_wait_for_free_in_flight_slot(s);
-         }
- 
-@@ -867,8 +877,10 @@ static int coroutine_fn GRAPH_UNLOCKED mirror_dirty_init(MirrorBlockJob *s)
-             }
- 
-             if (s->in_flight >= MAX_IN_FLIGHT) {
-+#if 0
-                 trace_mirror_yield(s, UINT64_MAX, s->buf_free_count,
-                                    s->in_flight);
-+#endif
-                 mirror_wait_for_free_in_flight_slot(s);
-                 continue;
-             }
-@@ -1071,7 +1083,9 @@ static int coroutine_fn mirror_run(Job *job, Error **errp)
-             iostatus == BLOCK_DEVICE_IO_STATUS_OK) {
-             if (s->in_flight >= MAX_IN_FLIGHT || s->buf_free_count == 0 ||
-                 (cnt == 0 && s->in_flight > 0)) {
-+#if 0
-                 trace_mirror_yield(s, cnt, s->buf_free_count, s->in_flight);
-+#endif
-                 mirror_wait_for_free_in_flight_slot(s);
-                 continue;
-             } else if (cnt != 0) {
-@@ -1081,7 +1095,9 @@ static int coroutine_fn mirror_run(Job *job, Error **errp)
- 
-         should_complete = false;
-         if (s->in_flight == 0 && cnt == 0) {
-+#if 0
-             trace_mirror_before_flush(s);
-+#endif
-             if (!job_is_ready(&s->common.job)) {
-                 if (mirror_flush(s) < 0) {
-                     /* Go check s->ret.  */
-@@ -1114,7 +1130,9 @@ static int coroutine_fn mirror_run(Job *job, Error **errp)
-              * whether to switch to target check one last time if I/O has
-              * come in the meanwhile, and if not flush the data to disk.
-              */
-+#if 0
-             trace_mirror_before_drain(s, cnt);
-+#endif
- 
-             s->in_drain = true;
-             bdrv_drained_begin(bs);
-@@ -1139,8 +1157,10 @@ static int coroutine_fn mirror_run(Job *job, Error **errp)
- 
-         if (job_is_ready(&s->common.job) && !should_complete) {
-             if (s->in_flight == 0 && cnt == 0) {
-+#if 0
-                 trace_mirror_before_sleep(s, cnt, job_is_ready(&s->common.job),
-                                           BLOCK_JOB_SLICE_TIME);
-+#endif
-                 job_sleep_ns(&s->common.job, BLOCK_JOB_SLICE_TIME);
-             }
-         } else {
-@@ -1235,6 +1255,7 @@ static bool mirror_drained_poll(BlockJob *job)
+@@ -1235,6 +1235,7 @@ static bool mirror_drained_poll(BlockJob *job)
      return !!s->in_flight;
  }
  
@@ -3378,7 +2849,7 @@ index 61f0a717..4b75f105 100644
  static bool mirror_cancel(Job *job, bool force)
  {
      MirrorBlockJob *s = container_of(job, MirrorBlockJob, common.job);
-@@ -1251,6 +1272,7 @@ static bool mirror_cancel(Job *job, bool force)
+@@ -1251,6 +1252,7 @@ static bool mirror_cancel(Job *job, bool force)
      }
      return force;
  }
@@ -3386,7 +2857,7 @@ index 61f0a717..4b75f105 100644
  
  static bool commit_active_cancel(Job *job, bool force)
  {
-@@ -1258,6 +1280,7 @@ static bool commit_active_cancel(Job *job, bool force)
+@@ -1258,6 +1260,7 @@ static bool commit_active_cancel(Job *job, bool force)
      return force || !job_is_ready(job);
  }
  
@@ -3394,7 +2865,7 @@ index 61f0a717..4b75f105 100644
  static void mirror_change(BlockJob *job, BlockJobChangeOptions *opts,
                            Error **errp)
  {
-@@ -1317,6 +1340,7 @@ static const BlockJobDriver mirror_job_driver = {
+@@ -1317,6 +1320,7 @@ static const BlockJobDriver mirror_job_driver = {
      .change                 = mirror_change,
      .query                  = mirror_query,
  };
@@ -3402,16 +2873,7 @@ index 61f0a717..4b75f105 100644
  
  static const BlockJobDriver commit_active_job_driver = {
      .job_driver = {
-@@ -1969,7 +1993,7 @@ static BlockJob *mirror_start_job(
- 
-     QTAILQ_INIT(&s->ops_in_flight);
- 
--    trace_mirror_start(bs, s, opaque);
-+    //trace_mirror_start(bs, s, opaque);
-     job_start(&s->common.job);
- 
-     return &s->common;
-@@ -2004,6 +2028,7 @@ fail:
+@@ -2004,6 +2008,7 @@ fail:
      return NULL;
  }
  
@@ -3419,7 +2881,7 @@ index 61f0a717..4b75f105 100644
  void mirror_start(const char *job_id, BlockDriverState *bs,
                    BlockDriverState *target, const char *replaces,
                    int creation_flags, int64_t speed,
-@@ -2038,6 +2063,7 @@ void mirror_start(const char *job_id, BlockDriverState *bs,
+@@ -2038,6 +2043,7 @@ void mirror_start(const char *job_id, BlockDriverState *bs,
                       &mirror_job_driver, is_none_mode, base, false,
                       filter_node_name, true, copy_mode, false, errp);
  }
@@ -3427,148 +2889,6 @@ index 61f0a717..4b75f105 100644
  
  BlockJob *commit_active_start(const char *job_id, BlockDriverState *bs,
                                BlockDriverState *base, int creation_flags,
-diff --git a/qcow2/lib/block/nbd.c b/qcow2/lib/block/nbd.c
-index 2c65cdcf..2710edce 100644
---- a/qcow2/lib/block/nbd.c
-+++ b/qcow2/lib/block/nbd.c
-@@ -30,7 +30,7 @@
- 
- #include "qemu/osdep.h"
- 
--#include "trace.h"
-+//#include "trace.h"
- #include "qemu/uri.h"
- #include "qemu/option.h"
- #include "qemu/cutils.h"
-@@ -311,7 +311,7 @@ nbd_handle_updated_info(BlockDriverState *bs, Error **errp)
-         }
-     }
- 
--    trace_nbd_client_handshake_success(s->export);
-+    //trace_nbd_client_handshake_success(s->export);
- 
-     return 0;
- }
-@@ -373,7 +373,7 @@ static bool nbd_client_connecting(BDRVNBDState *s)
- /* Called with s->requests_lock taken.  */
- static void coroutine_fn GRAPH_RDLOCK nbd_reconnect_attempt(BDRVNBDState *s)
- {
--    int ret;
-+    //int ret;
-     bool blocking = s->state == NBD_CLIENT_CONNECTING_WAIT;
- 
-     /*
-@@ -383,7 +383,7 @@ static void coroutine_fn GRAPH_RDLOCK nbd_reconnect_attempt(BDRVNBDState *s)
-     assert(nbd_client_connecting(s));
-     assert(s->in_flight == 1);
- 
--    trace_nbd_reconnect_attempt(s->bs->in_flight);
-+    //trace_nbd_reconnect_attempt(s->bs->in_flight);
- 
-     if (blocking && !s->reconnect_delay_timer) {
-         /*
-@@ -405,8 +405,9 @@ static void coroutine_fn GRAPH_RDLOCK nbd_reconnect_attempt(BDRVNBDState *s)
-     }
- 
-     qemu_mutex_unlock(&s->requests_lock);
--    ret = nbd_co_do_establish_connection(s->bs, blocking, NULL);
--    trace_nbd_reconnect_attempt_result(ret, s->bs->in_flight);
-+    nbd_co_do_establish_connection(s->bs, blocking, NULL);
-+    //ret = nbd_co_do_establish_connection(s->bs, blocking, NULL);
-+    //trace_nbd_reconnect_attempt_result(ret, s->bs->in_flight);
-     qemu_mutex_lock(&s->requests_lock);
- 
-     /*
-@@ -601,7 +602,7 @@ static int nbd_parse_offset_hole_payload(BDRVNBDState *s,
-     }
-     if (s->info.min_block &&
-         !QEMU_IS_ALIGNED(hole_size, s->info.min_block)) {
--        trace_nbd_structured_read_compliance("hole");
-+        //trace_nbd_structured_read_compliance("hole");
-     }
- 
-     qemu_iovec_memset(qiov, offset - orig_offset, 0, hole_size);
-@@ -671,7 +672,7 @@ static int nbd_parse_blockstatus_payload(BDRVNBDState *s,
-      */
-     if (s->info.min_block && !QEMU_IS_ALIGNED(extent->length,
-                                               s->info.min_block)) {
--        trace_nbd_parse_blockstatus_compliance("extent length is unaligned");
-+        //trace_nbd_parse_blockstatus_compliance("extent length is unaligned");
-         if (extent->length > s->info.min_block) {
-             extent->length = QEMU_ALIGN_DOWN(extent->length,
-                                              s->info.min_block);
-@@ -692,11 +693,11 @@ static int nbd_parse_blockstatus_payload(BDRVNBDState *s,
-      * the length of our request.
-      */
-     if (count != wide || chunk->length > pay_len) {
--        trace_nbd_parse_blockstatus_compliance("unexpected extent count");
-+        //trace_nbd_parse_blockstatus_compliance("unexpected extent count");
-     }
-     if (extent->length > orig_length) {
-         extent->length = orig_length;
--        trace_nbd_parse_blockstatus_compliance("extent length too large");
-+        //trace_nbd_parse_blockstatus_compliance("extent length too large");
-     }
- 
-     /*
-@@ -786,7 +787,7 @@ nbd_co_receive_offset_data_payload(BDRVNBDState *s, uint64_t orig_offset,
-         return -EINVAL;
-     }
-     if (s->info.min_block && !QEMU_IS_ALIGNED(data_size, s->info.min_block)) {
--        trace_nbd_structured_read_compliance("data");
-+        //trace_nbd_structured_read_compliance("data");
-     }
- 
-     qemu_iovec_init(&sub_qiov, qiov->niov);
-@@ -1161,7 +1162,7 @@ nbd_co_receive_blockstatus_reply(BDRVNBDState *s, uint64_t cookie,
-         case NBD_REPLY_TYPE_BLOCK_STATUS:
-             wide = chunk->type == NBD_REPLY_TYPE_BLOCK_STATUS_EXT;
-             if ((s->info.mode >= NBD_MODE_EXTENDED) != wide) {
--                trace_nbd_extended_headers_compliance("block_status");
-+                //trace_nbd_extended_headers_compliance("block_status");
-             }
-             if (received) {
-                 nbd_channel_error(s, -EINVAL);
-@@ -1228,11 +1229,13 @@ nbd_co_request(BlockDriverState *bs, NBDRequest *request,
-         ret = nbd_co_receive_return_code(s, request->cookie,
-                                          &request_ret, &local_err);
-         if (local_err) {
-+#if 0
-             trace_nbd_co_request_fail(request->from, request->len,
-                                       request->cookie, request->flags,
-                                       request->type,
-                                       nbd_cmd_lookup(request->type),
-                                       ret, error_get_pretty(local_err));
-+#endif
-             error_free(local_err);
-             local_err = NULL;
-         }
-@@ -1287,10 +1290,12 @@ nbd_client_co_preadv(BlockDriverState *bs, int64_t offset, int64_t bytes,
-         ret = nbd_co_receive_cmdread_reply(s, request.cookie, offset, qiov,
-                                            &request_ret, &local_err);
-         if (local_err) {
-+#if 0
-             trace_nbd_co_request_fail(request.from, request.len, request.cookie,
-                                       request.flags, request.type,
-                                       nbd_cmd_lookup(request.type),
-                                       ret, error_get_pretty(local_err));
-+#endif
-             error_free(local_err);
-             local_err = NULL;
-         }
-@@ -1451,10 +1456,12 @@ static int coroutine_fn GRAPH_RDLOCK nbd_client_co_block_status(
-                                                &extent, &request_ret,
-                                                &local_err);
-         if (local_err) {
-+#if 0
-             trace_nbd_co_request_fail(request.from, request.len, request.cookie,
-                                       request.flags, request.type,
-                                       nbd_cmd_lookup(request.type),
-                                       ret, error_get_pretty(local_err));
-+#endif
-             error_free(local_err);
-             local_err = NULL;
-         }
 diff --git a/qcow2/lib/block/qapi.c b/qcow2/lib/block/qapi.c
 index 2b5793f1..82e12895 100644
 --- a/qcow2/lib/block/qapi.c
@@ -3633,7 +2953,7 @@ index ac7e8495..f3343e98 100644
      .bdrv_co_copy_range_from = &raw_co_copy_range_from,
      .bdrv_co_copy_range_to  = &raw_co_copy_range_to,
 diff --git a/qcow2/lib/blockdev.c b/qcow2/lib/blockdev.c
-index 835064ed..53279249 100644
+index 835064ed..95cba97c 100644
 --- a/qcow2/lib/blockdev.c
 +++ b/qcow2/lib/blockdev.c
 @@ -37,14 +37,14 @@
@@ -3663,10 +2983,9 @@ index 835064ed..53279249 100644
 +//#include "sysemu/sysemu.h"
 +//#include "sysemu/iothread.h"
  #include "block/block_int.h"
--#include "block/trace.h"
+ #include "block/trace.h"
 -#include "sysemu/runstate.h"
 -#include "sysemu/replay.h"
-+//#include "block/trace.h"
 +//#include "sysemu/runstate.h"
 +//#include "sysemu/replay.h"
  #include "qemu/cutils.h"
@@ -3733,18 +3052,9 @@ index 835064ed..53279249 100644
  };
 +#endif
 diff --git a/qcow2/lib/blockjob.c b/qcow2/lib/blockjob.c
-index d5f29e14..b739a1ca 100644
+index d5f29e14..071b511c 100644
 --- a/qcow2/lib/blockjob.c
 +++ b/qcow2/lib/blockjob.c
-@@ -28,7 +28,7 @@
- #include "block/block.h"
- #include "block/blockjob_int.h"
- #include "block/block_int.h"
--#include "block/trace.h"
-+//#include "block/trace.h"
- #include "sysemu/block-backend.h"
- #include "qapi/error.h"
- #include "qapi/qapi-events-block-core.h"
 @@ -213,6 +213,7 @@ void block_job_remove_all_bdrv(BlockJob *job)
      bdrv_graph_wrunlock();
  }
@@ -3777,232 +3087,6 @@ index d5f29e14..b739a1ca 100644
  
  void block_job_ratelimit_processed_bytes(BlockJob *job, uint64_t n)
  {
-diff --git a/qcow2/lib/crypto/hash.c b/qcow2/lib/crypto/hash.c
-index b0f8228b..a282cf74 100644
---- a/qcow2/lib/crypto/hash.c
-+++ b/qcow2/lib/crypto/hash.c
-@@ -18,20 +18,92 @@
-  *
-  */
- 
-+#include <gnutls/crypto.h>
-+
- #include "qemu/osdep.h"
- #include "crypto/hash.h"
--#include "hashpriv.h"
-+//#include "hashpriv.h"
- 
- static size_t qcrypto_hash_alg_size[QCRYPTO_HASH_ALG__MAX] = {
--    [QCRYPTO_HASH_ALG_MD5] = 16,
--    [QCRYPTO_HASH_ALG_SHA1] = 20,
--    [QCRYPTO_HASH_ALG_SHA224] = 28,
--    [QCRYPTO_HASH_ALG_SHA256] = 32,
--    [QCRYPTO_HASH_ALG_SHA384] = 48,
--    [QCRYPTO_HASH_ALG_SHA512] = 64,
--    [QCRYPTO_HASH_ALG_RIPEMD160] = 20,
-+    [QCRYPTO_HASH_ALG_MD5]       = QCRYPTO_HASH_DIGEST_LEN_MD5,
-+    [QCRYPTO_HASH_ALG_SHA1]      = QCRYPTO_HASH_DIGEST_LEN_SHA1,
-+    [QCRYPTO_HASH_ALG_SHA224]    = QCRYPTO_HASH_DIGEST_LEN_SHA224,
-+    [QCRYPTO_HASH_ALG_SHA256]    = QCRYPTO_HASH_DIGEST_LEN_SHA256,
-+    [QCRYPTO_HASH_ALG_SHA384]    = QCRYPTO_HASH_DIGEST_LEN_SHA384,
-+    [QCRYPTO_HASH_ALG_SHA512]    = QCRYPTO_HASH_DIGEST_LEN_SHA512,
-+    [QCRYPTO_HASH_ALG_RIPEMD160] = QCRYPTO_HASH_DIGEST_LEN_RIPEMD160,
-+};
-+
-+static int qcrypto_hash_alg_map[QCRYPTO_HASH_ALG__MAX] = {
-+    [QCRYPTO_HASH_ALG_MD5] = GNUTLS_DIG_MD5,
-+    [QCRYPTO_HASH_ALG_SHA1] = GNUTLS_DIG_SHA1,
-+    [QCRYPTO_HASH_ALG_SHA224] = GNUTLS_DIG_SHA224,
-+    [QCRYPTO_HASH_ALG_SHA256] = GNUTLS_DIG_SHA256,
-+    [QCRYPTO_HASH_ALG_SHA384] = GNUTLS_DIG_SHA384,
-+    [QCRYPTO_HASH_ALG_SHA512] = GNUTLS_DIG_SHA512,
-+    [QCRYPTO_HASH_ALG_RIPEMD160] = GNUTLS_DIG_RMD160,
- };
- 
-+gboolean qcrypto_hash_supports(QCryptoHashAlgorithm alg)
-+{
-+    size_t i;
-+    const gnutls_digest_algorithm_t *algs;
-+    if (alg >= QCRYPTO_HASH_ALG__MAX ||
-+        qcrypto_hash_alg_map[alg] == GNUTLS_DIG_UNKNOWN) {
-+        return false;
-+    }
-+    algs = gnutls_digest_list();
-+    for (i = 0; algs[i] != GNUTLS_DIG_UNKNOWN; i++) {
-+        if (algs[i] == qcrypto_hash_alg_map[alg]) {
-+            return true;
-+        }
-+    }
-+    return false;
-+}
-+
-+static int
-+qcrypto_gnutls_hash_bytesv(QCryptoHashAlgorithm alg,
-+                           const struct iovec *iov,
-+                           size_t niov,
-+                           uint8_t **result,
-+                           size_t *resultlen,
-+                           Error **errp)
-+{
-+    int i, ret;
-+    gnutls_hash_hd_t hash;
-+
-+    if (!qcrypto_hash_supports(alg)) {
-+        fprintf(stderr, "Unknown hash algorithm %d.\n", alg);
-+        return -1;
-+    }
-+
-+    ret = gnutls_hash_get_len(qcrypto_hash_alg_map[alg]);
-+    if (*resultlen == 0) {
-+        *resultlen = ret;
-+        *result = calloc(sizeof(uint8_t), *resultlen);
-+    } else if (*resultlen != ret) {
-+        fprintf(stderr,
-+                "Result buffer size %zu is smaller than hash %d.\n",
-+                *resultlen, ret);
-+        return -1;
-+    }
-+
-+    ret = gnutls_hash_init(&hash, qcrypto_hash_alg_map[alg]);
-+    if (ret < 0) {
-+        fprintf(stderr,
-+                "Unable to initialize hash algorithm: %s.\n",
-+                gnutls_strerror(ret));
-+        return -1;
-+    }
-+
-+    for (i = 0; i < niov; i++) {
-+        gnutls_hash(hash, iov[i].iov_base, iov[i].iov_len);
-+    }
-+
-+    gnutls_hash_deinit(hash, *result);
-+    return 0;
-+}
-+
- size_t qcrypto_hash_digest_len(QCryptoHashAlgorithm alg)
- {
-     assert(alg < G_N_ELEMENTS(qcrypto_hash_alg_size));
-@@ -59,9 +131,9 @@ int qcrypto_hash_bytesv(QCryptoHashAlgorithm alg,
-     }
- #endif
- 
--    return qcrypto_hash_lib_driver.hash_bytesv(alg, iov, niov,
--                                               result, resultlen,
--                                               errp);
-+    return qcrypto_gnutls_hash_bytesv(alg, iov, niov,
-+                                      result, resultlen,
-+                                      errp);
- }
- 
- 
-@@ -114,6 +186,7 @@ int qcrypto_hash_digest(QCryptoHashAlgorithm alg,
-     return qcrypto_hash_digestv(alg, &iov, 1, digest, errp);
- }
- 
-+#if 0
- int qcrypto_hash_base64v(QCryptoHashAlgorithm alg,
-                          const struct iovec *iov,
-                          size_t niov,
-@@ -142,3 +215,4 @@ int qcrypto_hash_base64(QCryptoHashAlgorithm alg,
- 
-     return qcrypto_hash_base64v(alg, &iov, 1, base64, errp);
- }
-+#endif
-diff --git a/qcow2/lib/crypto/tlscreds.c b/qcow2/lib/crypto/tlscreds.c
-index 084ce0d5..eb4a1684 100644
---- a/qcow2/lib/crypto/tlscreds.c
-+++ b/qcow2/lib/crypto/tlscreds.c
-@@ -20,10 +20,10 @@
- 
- #include "qemu/osdep.h"
- #include "qapi/error.h"
--#include "qapi-types-crypto.h"
-+#include "qapi/qapi-types-crypto.h"
- #include "qemu/module.h"
- #include "tlscredspriv.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- #define DH_BITS 2048
- 
-@@ -36,7 +36,7 @@ qcrypto_tls_creds_get_dh_params_file(QCryptoTLSCreds *creds,
- {
-     int ret;
- 
--    trace_qcrypto_tls_creds_load_dh(creds, filename ? filename : "<generated>");
-+    //trace_qcrypto_tls_creds_load_dh(creds, filename ? filename : "<generated>");
- 
-     if (filename == NULL) {
-         ret = gnutls_dh_params_init(dh_params);
-@@ -129,8 +129,8 @@ qcrypto_tls_creds_get_path(QCryptoTLSCreds *creds,
- 
-     ret = 0;
-  cleanup:
--    trace_qcrypto_tls_creds_get_path(creds, filename,
--                                     *cred ? *cred : "<none>");
-+    //trace_qcrypto_tls_creds_get_path(creds, filename,
-+    //                                 *cred ? *cred : "<none>");
-     return ret;
- }
- 
-diff --git a/qcow2/lib/crypto/tlssession.c b/qcow2/lib/crypto/tlssession.c
-index 77286e23..83aa84dc 100644
---- a/qcow2/lib/crypto/tlssession.c
-+++ b/qcow2/lib/crypto/tlssession.c
-@@ -26,7 +26,7 @@
- #include "qapi/error.h"
- #include "authz/base.h"
- #include "tlscredspriv.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- #ifdef CONFIG_GNUTLS
- 
-@@ -140,9 +140,11 @@ qcrypto_tls_session_new(QCryptoTLSCreds *creds,
-     int ret;
- 
-     session = g_new0(QCryptoTLSSession, 1);
-+#if 0
-     trace_qcrypto_tls_session_new(
-         session, creds, hostname ? hostname : "<none>",
-         authzid ? authzid : "<none>", endpoint);
-+#endif
- 
-     if (hostname) {
-         session->hostname = g_strdup(hostname);
-@@ -435,26 +437,26 @@ qcrypto_tls_session_check_credentials(QCryptoTLSSession *session,
- {
-     if (object_dynamic_cast(OBJECT(session->creds),
-                             TYPE_QCRYPTO_TLS_CREDS_ANON)) {
--        trace_qcrypto_tls_session_check_creds(session, "nop");
-+        //trace_qcrypto_tls_session_check_creds(session, "nop");
-         return 0;
-     } else if (object_dynamic_cast(OBJECT(session->creds),
-                             TYPE_QCRYPTO_TLS_CREDS_PSK)) {
--        trace_qcrypto_tls_session_check_creds(session, "nop");
-+        //trace_qcrypto_tls_session_check_creds(session, "nop");
-         return 0;
-     } else if (object_dynamic_cast(OBJECT(session->creds),
-                             TYPE_QCRYPTO_TLS_CREDS_X509)) {
-         if (session->creds->verifyPeer) {
-             int ret = qcrypto_tls_session_check_certificate(session,
-                                                             errp);
--            trace_qcrypto_tls_session_check_creds(session,
--                                                  ret == 0 ? "pass" : "fail");
-+            //trace_qcrypto_tls_session_check_creds(session,
-+            //                                      ret == 0 ? "pass" : "fail");
-             return ret;
-         } else {
--            trace_qcrypto_tls_session_check_creds(session, "skip");
-+            //trace_qcrypto_tls_session_check_creds(session, "skip");
-             return 0;
-         }
-     } else {
--        trace_qcrypto_tls_session_check_creds(session, "error");
-+        //trace_qcrypto_tls_session_check_creds(session, "error");
-         error_setg(errp, "Unexpected credential type %s",
-                    object_get_typename(OBJECT(session->creds)));
-         return -1;
 diff --git a/qcow2/lib/hw/block/block.c b/qcow2/lib/hw/block/block.c
 index 3ceca7dc..9a0da1e6 100644
 --- a/qcow2/lib/hw/block/block.c
@@ -4041,890 +3125,6 @@ index 3ceca7dc..9a0da1e6 100644
      }
      if (conf->cyls || conf->heads || conf->secs) {
          if (conf->cyls < 1 || conf->cyls > cyls_max) {
-diff --git a/qcow2/lib/hw/block/hd-geometry.c b/qcow2/lib/hw/block/hd-geometry.c
-index 2b0af443..498f7a81 100644
---- a/qcow2/lib/hw/block/hd-geometry.c
-+++ b/qcow2/lib/hw/block/hd-geometry.c
-@@ -35,7 +35,7 @@
- #include "qapi/qapi-types-block.h"
- #include "qemu/bswap.h"
- #include "hw/block/block.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- struct partition {
-         uint8_t boot_ind;           /* 0x80 - active */
-@@ -88,7 +88,7 @@ static int guess_disk_lchs(BlockBackend *blk,
-             *pheads = heads;
-             *psectors = sectors;
-             *pcylinders = cylinders;
--            trace_hd_geometry_lchs_guess(blk, cylinders, heads, sectors);
-+            //trace_hd_geometry_lchs_guess(blk, cylinders, heads, sectors);
-             return 0;
-         }
-     }
-@@ -157,7 +157,7 @@ void hd_geometry_guess(BlockBackend *blk,
-             translation = *ptrans;
-         }
-     }
--    trace_hd_geometry_guess(blk, *pcyls, *pheads, *psecs, translation);
-+    //trace_hd_geometry_guess(blk, *pcyls, *pheads, *psecs, translation);
- }
- 
- int hd_bios_chs_auto_trans(uint32_t cyls, uint32_t heads, uint32_t secs)
-diff --git a/qcow2/lib/io/channel-file.c b/qcow2/lib/io/channel-file.c
-index 2ea8d083..dcd512dd 100644
---- a/qcow2/lib/io/channel-file.c
-+++ b/qcow2/lib/io/channel-file.c
-@@ -25,7 +25,7 @@
- #include "qapi/error.h"
- #include "qemu/module.h"
- #include "qemu/sockets.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- QIOChannelFile *
- qio_channel_file_new_fd(int fd)
-@@ -40,7 +40,7 @@ qio_channel_file_new_fd(int fd)
-         qio_channel_set_feature(QIO_CHANNEL(ioc), QIO_CHANNEL_FEATURE_SEEKABLE);
-     }
- 
--    trace_qio_channel_file_new_fd(ioc, fd);
-+    //trace_qio_channel_file_new_fd(ioc, fd);
- 
-     return ioc;
- }
-@@ -82,7 +82,7 @@ qio_channel_file_new_path(const char *path,
-         qio_channel_set_feature(QIO_CHANNEL(ioc), QIO_CHANNEL_FEATURE_SEEKABLE);
-     }
- 
--    trace_qio_channel_file_new_path(ioc, path, flags, mode, ioc->fd);
-+    //trace_qio_channel_file_new_path(ioc, path, flags, mode, ioc->fd);
- 
-     return ioc;
- }
-diff --git a/qcow2/lib/io/channel-socket.c b/qcow2/lib/io/channel-socket.c
-index 608bcf06..7081d0d3 100644
---- a/qcow2/lib/io/channel-socket.c
-+++ b/qcow2/lib/io/channel-socket.c
-@@ -24,7 +24,7 @@
- #include "io/channel-socket.h"
- #include "io/channel-util.h"
- #include "io/channel-watch.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "qapi/clone-visitor.h"
- #ifdef CONFIG_LINUX
- #include <linux/errqueue.h>
-@@ -73,7 +73,7 @@ qio_channel_socket_new(void)
-     ioc->event = CreateEvent(NULL, FALSE, FALSE, NULL);
- #endif
- 
--    trace_qio_channel_socket_new(sioc);
-+    //trace_qio_channel_socket_new(sioc);
- 
-     return sioc;
- }
-@@ -139,7 +139,7 @@ qio_channel_socket_new_fd(int fd,
-         return NULL;
-     }
- 
--    trace_qio_channel_socket_new_fd(ioc, fd);
-+    //trace_qio_channel_socket_new_fd(ioc, fd);
- 
-     return ioc;
- }
-@@ -151,14 +151,14 @@ int qio_channel_socket_connect_sync(QIOChannelSocket *ioc,
- {
-     int fd;
- 
--    trace_qio_channel_socket_connect_sync(ioc, addr);
-+    //trace_qio_channel_socket_connect_sync(ioc, addr);
-     fd = socket_connect(addr, errp);
-     if (fd < 0) {
--        trace_qio_channel_socket_connect_fail(ioc);
-+        //trace_qio_channel_socket_connect_fail(ioc);
-         return -1;
-     }
- 
--    trace_qio_channel_socket_connect_complete(ioc, fd);
-+    //trace_qio_channel_socket_connect_complete(ioc, fd);
-     if (qio_channel_socket_set_fd(ioc, fd, errp) < 0) {
-         close(fd);
-         return -1;
-@@ -209,7 +209,7 @@ void qio_channel_socket_connect_async(QIOChannelSocket *ioc,
- 
-     /* socket_connect() does a non-blocking connect(), but it
-      * still blocks in DNS lookups, so we must use a thread */
--    trace_qio_channel_socket_connect_async(ioc, addr);
-+    //trace_qio_channel_socket_connect_async(ioc, addr);
-     qio_task_run_in_thread(task,
-                            qio_channel_socket_connect_worker,
-                            addrCopy,
-@@ -225,14 +225,14 @@ int qio_channel_socket_listen_sync(QIOChannelSocket *ioc,
- {
-     int fd;
- 
--    trace_qio_channel_socket_listen_sync(ioc, addr, num);
-+    //trace_qio_channel_socket_listen_sync(ioc, addr, num);
-     fd = socket_listen(addr, num, errp);
-     if (fd < 0) {
--        trace_qio_channel_socket_listen_fail(ioc);
-+        //trace_qio_channel_socket_listen_fail(ioc);
-         return -1;
-     }
- 
--    trace_qio_channel_socket_listen_complete(ioc, fd);
-+    //trace_qio_channel_socket_listen_complete(ioc, fd);
-     if (qio_channel_socket_set_fd(ioc, fd, errp) < 0) {
-         close(fd);
-         return -1;
-@@ -286,7 +286,7 @@ void qio_channel_socket_listen_async(QIOChannelSocket *ioc,
-     data->num = num;
- 
-     /* socket_listen() blocks in DNS lookups, so we must use a thread */
--    trace_qio_channel_socket_listen_async(ioc, addr, num);
-+    //trace_qio_channel_socket_listen_async(ioc, addr, num);
-     qio_task_run_in_thread(task,
-                            qio_channel_socket_listen_worker,
-                            data,
-@@ -302,14 +302,14 @@ int qio_channel_socket_dgram_sync(QIOChannelSocket *ioc,
- {
-     int fd;
- 
--    trace_qio_channel_socket_dgram_sync(ioc, localAddr, remoteAddr);
-+    //trace_qio_channel_socket_dgram_sync(ioc, localAddr, remoteAddr);
-     fd = socket_dgram(remoteAddr, localAddr, errp);
-     if (fd < 0) {
--        trace_qio_channel_socket_dgram_fail(ioc);
-+        //trace_qio_channel_socket_dgram_fail(ioc);
-         return -1;
-     }
- 
--    trace_qio_channel_socket_dgram_complete(ioc, fd);
-+    //trace_qio_channel_socket_dgram_complete(ioc, fd);
-     if (qio_channel_socket_set_fd(ioc, fd, errp) < 0) {
-         close(fd);
-         return -1;
-@@ -364,7 +364,7 @@ void qio_channel_socket_dgram_async(QIOChannelSocket *ioc,
-     data->localAddr = QAPI_CLONE(SocketAddress, localAddr);
-     data->remoteAddr = QAPI_CLONE(SocketAddress, remoteAddr);
- 
--    trace_qio_channel_socket_dgram_async(ioc, localAddr, remoteAddr);
-+    //trace_qio_channel_socket_dgram_async(ioc, localAddr, remoteAddr);
-     qio_task_run_in_thread(task,
-                            qio_channel_socket_dgram_worker,
-                            data,
-@@ -384,7 +384,7 @@ qio_channel_socket_accept(QIOChannelSocket *ioc,
-     cioc->localAddrLen = sizeof(ioc->localAddr);
- 
-  retry:
--    trace_qio_channel_socket_accept(ioc);
-+    //trace_qio_channel_socket_accept(ioc);
-     cioc->fd = qemu_accept(ioc->fd, (struct sockaddr *)&cioc->remoteAddr,
-                            &cioc->remoteAddrLen);
-     if (cioc->fd < 0) {
-@@ -392,7 +392,7 @@ qio_channel_socket_accept(QIOChannelSocket *ioc,
-             goto retry;
-         }
-         error_setg_errno(errp, errno, "Unable to accept connection");
--        trace_qio_channel_socket_accept_fail(ioc);
-+        //trace_qio_channel_socket_accept_fail(ioc);
-         goto error;
-     }
- 
-@@ -413,7 +413,7 @@ qio_channel_socket_accept(QIOChannelSocket *ioc,
-     qio_channel_set_feature(QIO_CHANNEL(cioc),
-                             QIO_CHANNEL_FEATURE_READ_MSG_PEEK);
- 
--    trace_qio_channel_socket_accept_complete(ioc, cioc, cioc->fd);
-+    //trace_qio_channel_socket_accept_complete(ioc, cioc, cioc->fd);
-     return cioc;
- 
-  error:
-diff --git a/qcow2/lib/io/channel-tls.c b/qcow2/lib/io/channel-tls.c
-index aab630e5..dd347704 100644
---- a/qcow2/lib/io/channel-tls.c
-+++ b/qcow2/lib/io/channel-tls.c
-@@ -22,7 +22,7 @@
- #include "qapi/error.h"
- #include "qemu/module.h"
- #include "io/channel-tls.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "qemu/atomic.h"
- 
- 
-@@ -96,7 +96,7 @@ qio_channel_tls_new_server(QIOChannel *master,
-         qio_channel_tls_read_handler,
-         tioc);
- 
--    trace_qio_channel_tls_new_server(tioc, master, creds, aclname);
-+    //trace_qio_channel_tls_new_server(tioc, master, creds, aclname);
-     return tioc;
- 
-  error:
-@@ -139,7 +139,7 @@ qio_channel_tls_new_client(QIOChannel *master,
-         qio_channel_tls_read_handler,
-         tioc);
- 
--    trace_qio_channel_tls_new_client(tioc, master, creds, hostname);
-+    //trace_qio_channel_tls_new_client(tioc, master, creds, hostname);
-     return tioc;
- 
-  error:
-@@ -165,7 +165,7 @@ static void qio_channel_tls_handshake_task(QIOChannelTLS *ioc,
-     QCryptoTLSSessionHandshakeStatus status;
- 
-     if (qcrypto_tls_session_handshake(ioc->session, &err) < 0) {
--        trace_qio_channel_tls_handshake_fail(ioc);
-+        //trace_qio_channel_tls_handshake_fail(ioc);
-         qio_task_set_error(task, err);
-         qio_task_complete(task);
-         return;
-@@ -173,13 +173,13 @@ static void qio_channel_tls_handshake_task(QIOChannelTLS *ioc,
- 
-     status = qcrypto_tls_session_get_handshake_status(ioc->session);
-     if (status == QCRYPTO_TLS_HANDSHAKE_COMPLETE) {
--        trace_qio_channel_tls_handshake_complete(ioc);
-+        //trace_qio_channel_tls_handshake_complete(ioc);
-         if (qcrypto_tls_session_check_credentials(ioc->session,
-                                                   &err) < 0) {
--            trace_qio_channel_tls_credentials_deny(ioc);
-+            //trace_qio_channel_tls_credentials_deny(ioc);
-             qio_task_set_error(task, err);
-         } else {
--            trace_qio_channel_tls_credentials_allow(ioc);
-+            //trace_qio_channel_tls_credentials_allow(ioc);
-         }
-         qio_task_complete(task);
-     } else {
-@@ -199,7 +199,7 @@ static void qio_channel_tls_handshake_task(QIOChannelTLS *ioc,
-             condition = G_IO_IN;
-         }
- 
--        trace_qio_channel_tls_handshake_pending(ioc, status);
-+        //trace_qio_channel_tls_handshake_pending(ioc, status);
-         ioc->hs_ioc_tag =
-             qio_channel_add_watch_full(ioc->master,
-                                        condition,
-@@ -243,7 +243,7 @@ void qio_channel_tls_handshake(QIOChannelTLS *ioc,
-     task = qio_task_new(OBJECT(ioc),
-                         func, opaque, destroy);
- 
--    trace_qio_channel_tls_handshake_start(ioc);
-+    //trace_qio_channel_tls_handshake_start(ioc);
-     qio_channel_tls_handshake_task(ioc, task, context);
- }
- 
-@@ -375,7 +375,7 @@ static int qio_channel_tls_close(QIOChannel *ioc,
-     QIOChannelTLS *tioc = QIO_CHANNEL_TLS(ioc);
- 
-     if (tioc->hs_ioc_tag) {
--        trace_qio_channel_tls_handshake_cancel(ioc);
-+        //trace_qio_channel_tls_handshake_cancel(ioc);
-         g_clear_handle_id(&tioc->hs_ioc_tag, g_source_remove);
-     }
- 
-diff --git a/qcow2/lib/io/task.c b/qcow2/lib/io/task.c
-index 451f26f8..f48832e9 100644
---- a/qcow2/lib/io/task.c
-+++ b/qcow2/lib/io/task.c
-@@ -23,7 +23,7 @@
- #include "qapi/error.h"
- #include "qemu/thread.h"
- #include "qom/object.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- struct QIOTaskThreadData {
-     QIOTaskWorker worker;
-@@ -65,7 +65,7 @@ QIOTask *qio_task_new(Object *source,
-     qemu_mutex_init(&task->thread_lock);
-     qemu_cond_init(&task->thread_cond);
- 
--    trace_qio_task_new(task, source, func, opaque);
-+    //trace_qio_task_new(task, source, func, opaque);
- 
-     return task;
- }
-@@ -108,7 +108,7 @@ static gboolean qio_task_thread_result(gpointer opaque)
- {
-     QIOTask *task = opaque;
- 
--    trace_qio_task_thread_result(task);
-+    //trace_qio_task_thread_result(task);
-     qio_task_complete(task);
- 
-     return FALSE;
-@@ -119,7 +119,7 @@ static gpointer qio_task_thread_worker(gpointer opaque)
- {
-     QIOTask *task = opaque;
- 
--    trace_qio_task_thread_run(task);
-+    //trace_qio_task_thread_run(task);
- 
-     task->thread->worker(task, task->thread->opaque);
- 
-@@ -128,7 +128,7 @@ static gpointer qio_task_thread_worker(gpointer opaque)
-      * thread. So we schedule an idle callback to report
-      * the worker results
-      */
--    trace_qio_task_thread_exit(task);
-+    //trace_qio_task_thread_exit(task);
- 
-     qemu_mutex_lock(&task->thread_lock);
- 
-@@ -138,7 +138,7 @@ static gpointer qio_task_thread_worker(gpointer opaque)
-     g_source_attach(task->thread->completion,
-                     task->thread->context);
-     g_source_unref(task->thread->completion);
--    trace_qio_task_thread_source_attach(task, task->thread->completion);
-+    //trace_qio_task_thread_source_attach(task, task->thread->completion);
- 
-     qemu_cond_signal(&task->thread_cond);
-     qemu_mutex_unlock(&task->thread_lock);
-@@ -167,7 +167,7 @@ void qio_task_run_in_thread(QIOTask *task,
- 
-     task->thread = data;
- 
--    trace_qio_task_thread_start(task, worker, opaque);
-+    //trace_qio_task_thread_start(task, worker, opaque);
-     qemu_thread_create(&thread,
-                        "io-task-worker",
-                        qio_task_thread_worker,
-@@ -184,7 +184,7 @@ void qio_task_wait_thread(QIOTask *task)
-         qemu_cond_wait(&task->thread_cond, &task->thread_lock);
-     }
- 
--    trace_qio_task_thread_source_cancel(task, task->thread->completion);
-+    //trace_qio_task_thread_source_cancel(task, task->thread->completion);
-     g_source_destroy(task->thread->completion);
-     qemu_mutex_unlock(&task->thread_lock);
- 
-@@ -195,7 +195,7 @@ void qio_task_wait_thread(QIOTask *task)
- void qio_task_complete(QIOTask *task)
- {
-     task->func(task, task->opaque);
--    trace_qio_task_complete(task);
-+    //trace_qio_task_complete(task);
-     qio_task_free(task);
- }
- 
-diff --git a/qcow2/lib/job-qmp.c b/qcow2/lib/job-qmp.c
-index 9e26fa89..3b9cb0aa 100644
---- a/qcow2/lib/job-qmp.c
-+++ b/qcow2/lib/job-qmp.c
-@@ -27,7 +27,7 @@
- #include "qemu/job.h"
- #include "qapi/qapi-commands-job.h"
- #include "qapi/error.h"
--#include "trace/trace-root.h"
-+//#include "trace/trace-root.h"
- 
- /*
-  * Get a job using its ID. Called with job_mutex held.
-@@ -56,7 +56,7 @@ void qmp_job_cancel(const char *id, Error **errp)
-         return;
-     }
- 
--    trace_qmp_job_cancel(job);
-+    //trace_qmp_job_cancel(job);
-     job_user_cancel_locked(job, true, errp);
- }
- 
-@@ -71,7 +71,7 @@ void qmp_job_pause(const char *id, Error **errp)
-         return;
-     }
- 
--    trace_qmp_job_pause(job);
-+    //trace_qmp_job_pause(job);
-     job_user_pause_locked(job, errp);
- }
- 
-@@ -86,7 +86,7 @@ void qmp_job_resume(const char *id, Error **errp)
-         return;
-     }
- 
--    trace_qmp_job_resume(job);
-+    //trace_qmp_job_resume(job);
-     job_user_resume_locked(job, errp);
- }
- 
-@@ -101,7 +101,7 @@ void qmp_job_complete(const char *id, Error **errp)
-         return;
-     }
- 
--    trace_qmp_job_complete(job);
-+    //trace_qmp_job_complete(job);
-     job_complete_locked(job, errp);
- }
- 
-@@ -116,7 +116,7 @@ void qmp_job_finalize(const char *id, Error **errp)
-         return;
-     }
- 
--    trace_qmp_job_finalize(job);
-+    //trace_qmp_job_finalize(job);
-     job_ref_locked(job);
-     job_finalize_locked(job, errp);
- 
-@@ -134,7 +134,7 @@ void qmp_job_dismiss(const char *id, Error **errp)
-         return;
-     }
- 
--    trace_qmp_job_dismiss(job);
-+    //trace_qmp_job_dismiss(job);
-     job_dismiss_locked(&job, errp);
- }
- 
-diff --git a/qcow2/lib/job.c b/qcow2/lib/job.c
-index 660ce22c..63223a10 100644
---- a/qcow2/lib/job.c
-+++ b/qcow2/lib/job.c
-@@ -29,7 +29,7 @@
- #include "qemu/id.h"
- #include "qemu/main-loop.h"
- #include "block/aio-wait.h"
--#include "trace/trace-root.h"
-+//#include "trace/trace-root.h"
- #include "qapi/qapi-events-job.h"
- 
- /*
-@@ -209,9 +209,9 @@ static void job_state_transition_locked(Job *job, JobStatus s1)
- {
-     JobStatus s0 = job->status;
-     assert(s1 >= 0 && s1 < JOB_STATUS__MAX);
--    trace_job_state_transition(job, job->ret,
--                               JobSTT[s0][s1] ? "allowed" : "disallowed",
--                               JobStatus_str(s0), JobStatus_str(s1));
-+    //trace_job_state_transition(job, job->ret,
-+    //                           JobSTT[s0][s1] ? "allowed" : "disallowed",
-+    //                           JobStatus_str(s0), JobStatus_str(s1));
-     assert(JobSTT[s0][s1]);
-     job->status = s1;
- 
-@@ -224,8 +224,8 @@ int job_apply_verb_locked(Job *job, JobVerb verb, Error **errp)
- {
-     JobStatus s0 = job->status;
-     assert(verb >= 0 && verb < JOB_VERB__MAX);
--    trace_job_apply_verb(job, JobStatus_str(s0), JobVerb_str(verb),
--                         JobVerbTable[verb][s0] ? "allowed" : "prohibited");
-+    //trace_job_apply_verb(job, JobStatus_str(s0), JobVerb_str(verb),
-+    //                     JobVerbTable[verb][s0] ? "allowed" : "prohibited");
-     if (JobVerbTable[verb][s0]) {
-         return 0;
-     }
-@@ -1060,7 +1060,7 @@ static void job_completed_locked(Job *job)
-     assert(job && job->txn && !job_is_completed_locked(job));
- 
-     job_update_rc_locked(job);
--    trace_job_completed(job, job->ret);
-+    //trace_job_completed(job, job->ret);
-     if (job->ret) {
-         job_completed_txn_abort_locked(job);
-     } else {
-diff --git a/qcow2/lib/nbd/client-connection.c b/qcow2/lib/nbd/client-connection.c
-index f9da67c8..c834ae9c 100644
---- a/qcow2/lib/nbd/client-connection.c
-+++ b/qcow2/lib/nbd/client-connection.c
-@@ -23,7 +23,7 @@
-  */
- 
- #include "qemu/osdep.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- #include "block/nbd.h"
- 
-@@ -211,7 +211,7 @@ static void *connect_thread_func(void *opaque)
-             object_unref(OBJECT(conn->sioc));
-             conn->sioc = NULL;
-             if (conn->do_retry && !conn->detached) {
--                trace_nbd_connect_thread_sleep(timeout);
-+                //trace_nbd_connect_thread_sleep(timeout);
-                 qemu_mutex_unlock(&conn->mutex);
- 
-                 sleep(timeout);
-diff --git a/qcow2/lib/nbd/client.c b/qcow2/lib/nbd/client.c
-index c89c7504..3e5c5828 100644
---- a/qcow2/lib/nbd/client.c
-+++ b/qcow2/lib/nbd/client.c
-@@ -20,7 +20,7 @@
- #include "qemu/osdep.h"
- #include "qapi/error.h"
- #include "qemu/queue.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "nbd-internal.h"
- #include "qemu/cutils.h"
- 
-@@ -75,7 +75,7 @@ static int nbd_send_option_request(QIOChannel *ioc, uint32_t opt,
-     if (len == -1) {
-         req.length = len = strlen(data);
-     }
--    trace_nbd_send_option_request(opt, nbd_opt_lookup(opt), len);
-+    //trace_nbd_send_option_request(opt, nbd_opt_lookup(opt), len);
- 
-     stq_be_p(&req.magic, NBD_OPTS_MAGIC);
-     stl_be_p(&req.option, opt);
-@@ -124,9 +124,11 @@ static int nbd_receive_option_reply(QIOChannel *ioc, uint32_t opt,
-     reply->type = be32_to_cpu(reply->type);
-     reply->length = be32_to_cpu(reply->length);
- 
-+#if 0
-     trace_nbd_receive_option_reply(reply->option, nbd_opt_lookup(reply->option),
-                                    reply->type, nbd_rep_lookup(reply->type),
-                                    reply->length);
-+#endif
- 
-     if (reply->magic != NBD_REP_MAGIC) {
-         error_setg(errp, "Unexpected option reply magic");
-@@ -176,14 +178,18 @@ static int nbd_handle_reply_err(QIOChannel *ioc, NBDOptionReply *reply,
-             goto err;
-         }
-         msg[reply->length] = '\0';
-+#if 0
-         trace_nbd_server_error_msg(reply->type,
-                                    nbd_reply_type_lookup(reply->type), msg);
-+#endif
-     }
- 
-     if (reply->type == NBD_REP_ERR_UNSUP || !strict) {
-+#if 0
-         trace_nbd_reply_err_ignored(reply->option,
-                                     nbd_opt_lookup(reply->option),
-                                     reply->type, nbd_rep_lookup(reply->type));
-+#endif
-         return 0;
-     }
- 
-@@ -319,7 +325,7 @@ static int nbd_receive_list(QIOChannel *ioc, char **name, char **description,
-         local_desc[len] = '\0';
-     }
- 
--    trace_nbd_receive_list(local_name, local_desc ?: "");
-+    //trace_nbd_receive_list(local_name, local_desc ?: "");
-     *name = g_steal_pointer(&local_name);
-     if (description) {
-         *description = g_steal_pointer(&local_desc);
-@@ -352,7 +358,7 @@ static int nbd_opt_info_or_go(QIOChannel *ioc, uint32_t opt,
-     info->flags = 0;
- 
-     assert(opt == NBD_OPT_GO || opt == NBD_OPT_INFO);
--    trace_nbd_opt_info_go_start(nbd_opt_lookup(opt), info->name);
-+    //trace_nbd_opt_info_go_start(nbd_opt_lookup(opt), info->name);
-     buf = g_malloc(4 + len + 2 + 2 * info->request_sizes + 1);
-     stl_be_p(buf, len);
-     memcpy(buf + 4, info->name, len);
-@@ -392,7 +398,7 @@ static int nbd_opt_info_or_go(QIOChannel *ioc, uint32_t opt,
-                 error_setg(errp, "broken server omitted NBD_INFO_EXPORT");
-                 return -1;
-             }
--            trace_nbd_opt_info_go_success(nbd_opt_lookup(opt));
-+            //trace_nbd_opt_info_go_success(nbd_opt_lookup(opt));
-             return 1;
-         }
-         if (reply.type != NBD_REP_INFO) {
-@@ -437,7 +443,7 @@ static int nbd_opt_info_or_go(QIOChannel *ioc, uint32_t opt,
-                 nbd_send_opt_abort(ioc);
-                 return -1;
-             }
--            trace_nbd_receive_negotiate_size_flags(info->size, info->flags);
-+            //trace_nbd_receive_negotiate_size_flags(info->size, info->flags);
-             break;
- 
-         case NBD_INFO_BLOCK_SIZE:
-@@ -483,8 +489,8 @@ static int nbd_opt_info_or_go(QIOChannel *ioc, uint32_t opt,
-                 nbd_send_opt_abort(ioc);
-                 return -1;
-             }
--            trace_nbd_opt_info_block_size(info->min_block, info->opt_block,
--                                          info->max_block);
-+            //trace_nbd_opt_info_block_size(info->min_block, info->opt_block,
-+            //                              info->max_block);
-             break;
- 
-         default:
-@@ -492,7 +498,7 @@ static int nbd_opt_info_or_go(QIOChannel *ioc, uint32_t opt,
-              * Not worth the bother to check if NBD_INFO_NAME or
-              * NBD_INFO_DESCRIPTION exceed NBD_MAX_STRING_SIZE.
-              */
--            trace_nbd_opt_info_unknown(type, nbd_info_lookup(type));
-+            //trace_nbd_opt_info_unknown(type, nbd_info_lookup(type));
-             if (nbd_drop(ioc, len, errp) < 0) {
-                 error_prepend(errp, "Failed to read info payload: ");
-                 nbd_send_opt_abort(ioc);
-@@ -511,7 +517,7 @@ static int nbd_receive_query_exports(QIOChannel *ioc,
-     bool list_empty = true;
-     bool found_export = false;
- 
--    trace_nbd_receive_query_exports_start(wantname);
-+    //trace_nbd_receive_query_exports_start(wantname);
-     if (nbd_send_option_request(ioc, NBD_OPT_LIST, 0, NULL, errp) < 0) {
-         return -1;
-     }
-@@ -541,7 +547,7 @@ static int nbd_receive_query_exports(QIOChannel *ioc,
-                 nbd_send_opt_abort(ioc);
-                 return -1;
-             }
--            trace_nbd_receive_query_exports_success(wantname);
-+            //trace_nbd_receive_query_exports_success(wantname);
-             return 0;
-         }
-         list_empty = false;
-@@ -631,13 +637,13 @@ static QIOChannel *nbd_receive_starttls(QIOChannel *ioc,
-         return NULL;
-     }
- 
--    trace_nbd_receive_starttls_new_client();
-+    //trace_nbd_receive_starttls_new_client();
-     tioc = qio_channel_tls_new_client(ioc, tlscreds, hostname, errp);
-     if (!tioc) {
-         return NULL;
-     }
-     qio_channel_set_name(QIO_CHANNEL(tioc), "nbd-client-tls");
--    trace_nbd_receive_starttls_tls_handshake();
-+    //trace_nbd_receive_starttls_tls_handshake();
-     qio_channel_tls_handshake(tioc,
-                               nbd_client_tls_handshake,
-                               &data,
-@@ -689,7 +695,7 @@ static int nbd_send_meta_query(QIOChannel *ioc, uint32_t opt,
-     }
-     p = data = g_malloc(data_len);
- 
--    trace_nbd_opt_meta_request(nbd_opt_lookup(opt), query ?: "(all)", export);
-+    //trace_nbd_opt_meta_request(nbd_opt_lookup(opt), query ?: "(all)", export);
-     stl_be_p(p, export_len);
-     memcpy(p += sizeof(export_len), export, export_len);
-     stl_be_p(p += export_len, queries);
-@@ -767,7 +773,7 @@ static int nbd_receive_one_meta_context(QIOChannel *ioc,
-         return -1;
-     }
-     local_name[reply.length] = '\0';
--    trace_nbd_opt_meta_reply(nbd_opt_lookup(opt), local_name, local_id);
-+    //trace_nbd_opt_meta_reply(nbd_opt_lookup(opt), local_name, local_id);
- 
-     if (name) {
-         *name = local_name;
-@@ -905,7 +911,7 @@ static int nbd_start_negotiate(QIOChannel *ioc, QCryptoTLSCreds *tlscreds,
-     ERRP_GUARD();
-     uint64_t magic;
- 
--    trace_nbd_start_negotiate(tlscreds, hostname ? hostname : "<null>");
-+    //trace_nbd_start_negotiate(tlscreds, hostname ? hostname : "<null>");
- 
-     if (zeroes) {
-         *zeroes = true;
-@@ -921,7 +927,7 @@ static int nbd_start_negotiate(QIOChannel *ioc, QCryptoTLSCreds *tlscreds,
-     if (nbd_read64(ioc, &magic, "initial magic", errp) < 0) {
-         return -EINVAL;
-     }
--    trace_nbd_receive_negotiate_magic(magic);
-+    //trace_nbd_receive_negotiate_magic(magic);
- 
-     if (magic != NBD_INIT_MAGIC) {
-         error_setg(errp, "Bad initial magic received: 0x%" PRIx64, magic);
-@@ -931,7 +937,7 @@ static int nbd_start_negotiate(QIOChannel *ioc, QCryptoTLSCreds *tlscreds,
-     if (nbd_read64(ioc, &magic, "server magic", errp) < 0) {
-         return -EINVAL;
-     }
--    trace_nbd_receive_negotiate_magic(magic);
-+    //trace_nbd_receive_negotiate_magic(magic);
- 
-     if (magic == NBD_OPTS_MAGIC) {
-         uint32_t clientflags = 0;
-@@ -941,7 +947,7 @@ static int nbd_start_negotiate(QIOChannel *ioc, QCryptoTLSCreds *tlscreds,
-         if (nbd_read16(ioc, &globalflags, "server flags", errp) < 0) {
-             return -EINVAL;
-         }
--        trace_nbd_receive_negotiate_server_flags(globalflags);
-+        //trace_nbd_receive_negotiate_server_flags(globalflags);
-         if (globalflags & NBD_FLAG_FIXED_NEWSTYLE) {
-             fixedNewStyle = true;
-             clientflags |= NBD_FLAG_C_FIXED_NEWSTYLE;
-@@ -1047,7 +1053,7 @@ int nbd_receive_negotiate(QIOChannel *ioc, QCryptoTLSCreds *tlscreds,
-     bool base_allocation = info->base_allocation;
- 
-     assert(info->name && strlen(info->name) <= NBD_MAX_STRING_SIZE);
--    trace_nbd_receive_negotiate_name(info->name);
-+    //trace_nbd_receive_negotiate_name(info->name);
- 
-     result = nbd_start_negotiate(ioc, tlscreds, hostname, outioc,
-                                  info->mode, &zeroes, errp);
-@@ -1124,7 +1130,7 @@ int nbd_receive_negotiate(QIOChannel *ioc, QCryptoTLSCreds *tlscreds,
-         g_assert_not_reached();
-     }
- 
--    trace_nbd_receive_negotiate_size_flags(info->size, info->flags);
-+    //trace_nbd_receive_negotiate_size_flags(info->size, info->flags);
-     if (zeroes && nbd_drop(ioc, 124, errp) < 0) {
-         error_prepend(errp, "Failed to read reserved block: ");
-         return -EINVAL;
-@@ -1286,7 +1292,7 @@ int nbd_init(int fd, QIOChannelSocket *sioc, NBDExportInfo *info,
-         return -E2BIG;
-     }
- 
--    trace_nbd_init_set_socket();
-+    //trace_nbd_init_set_socket();
- 
-     if (ioctl(fd, NBD_SET_SOCK, (unsigned long) sioc->fd) < 0) {
-         int serrno = errno;
-@@ -1294,7 +1300,7 @@ int nbd_init(int fd, QIOChannelSocket *sioc, NBDExportInfo *info,
-         return -serrno;
-     }
- 
--    trace_nbd_init_set_block_size(sector_size);
-+    //trace_nbd_init_set_block_size(sector_size);
- 
-     if (ioctl(fd, NBD_SET_BLKSIZE, sector_size) < 0) {
-         int serrno = errno;
-@@ -1302,9 +1308,9 @@ int nbd_init(int fd, QIOChannelSocket *sioc, NBDExportInfo *info,
-         return -serrno;
-     }
- 
--    trace_nbd_init_set_size(sectors);
-+    //trace_nbd_init_set_size(sectors);
-     if (info->size % sector_size) {
--        trace_nbd_init_trailing_bytes(info->size % sector_size);
-+        //trace_nbd_init_trailing_bytes(info->size % sector_size);
-     }
- 
-     if (ioctl(fd, NBD_SET_SIZE_BLOCKS, sectors) < 0) {
-@@ -1316,7 +1322,7 @@ int nbd_init(int fd, QIOChannelSocket *sioc, NBDExportInfo *info,
-     if (ioctl(fd, NBD_SET_FLAGS, (unsigned long) info->flags) < 0) {
-         if (errno == ENOTTY) {
-             int read_only = (info->flags & NBD_FLAG_READ_ONLY) != 0;
--            trace_nbd_init_set_readonly();
-+            //trace_nbd_init_set_readonly();
- 
-             if (ioctl(fd, BLKROSET, (unsigned long) &read_only) < 0) {
-                 int serrno = errno;
-@@ -1330,7 +1336,7 @@ int nbd_init(int fd, QIOChannelSocket *sioc, NBDExportInfo *info,
-         }
-     }
- 
--    trace_nbd_init_finish();
-+    //trace_nbd_init_finish();
- 
-     return 0;
- }
-@@ -1340,7 +1346,7 @@ int nbd_client(int fd)
-     int ret;
-     int serrno;
- 
--    trace_nbd_client_loop();
-+    //trace_nbd_client_loop();
- 
-     ret = ioctl(fd, NBD_DO_IT);
-     if (ret < 0 && errno == EPIPE) {
-@@ -1352,12 +1358,12 @@ int nbd_client(int fd)
-     }
-     serrno = errno;
- 
--    trace_nbd_client_loop_ret(ret, strerror(serrno));
-+    //trace_nbd_client_loop_ret(ret, strerror(serrno));
- 
--    trace_nbd_client_clear_queue();
-+    //trace_nbd_client_clear_queue();
-     ioctl(fd, NBD_CLEAR_QUE);
- 
--    trace_nbd_client_clear_socket();
-+    //trace_nbd_client_clear_socket();
-     ioctl(fd, NBD_CLEAR_SOCK);
- 
-     errno = serrno;
-@@ -1379,9 +1385,11 @@ int nbd_send_request(QIOChannel *ioc, NBDRequest *request)
-     uint8_t buf[NBD_EXTENDED_REQUEST_SIZE];
-     size_t len;
- 
-+#if 0
-     trace_nbd_send_request(request->from, request->len, request->cookie,
-                            request->flags, request->type,
-                            nbd_cmd_lookup(request->type));
-+#endif
- 
-     stw_be_p(buf + 4, request->flags);
-     stw_be_p(buf + 6, request->type);
-@@ -1535,7 +1543,7 @@ int coroutine_fn nbd_receive_reply(BlockDriverState *bs, QIOChannel *ioc,
-                                    NBDReply *reply, NBDMode mode, Error **errp)
- {
-     int ret;
--    const char *type;
-+    //const char *type;
-     uint32_t expected;
- 
-     ret = nbd_read_eof(bs, ioc, &reply->magic, sizeof(reply->magic), errp);
-@@ -1549,37 +1557,46 @@ int coroutine_fn nbd_receive_reply(BlockDriverState *bs, QIOChannel *ioc,
-     switch (reply->magic) {
-     case NBD_SIMPLE_REPLY_MAGIC:
-         if (mode >= NBD_MODE_EXTENDED) {
-+#if 0
-             trace_nbd_receive_wrong_header(reply->magic,
-                                            nbd_mode_lookup(mode));
-+#endif
-         }
-         ret = nbd_receive_simple_reply(ioc, &reply->simple, errp);
-         if (ret < 0) {
-             return ret;
-         }
-+#if 0
-         trace_nbd_receive_simple_reply(reply->simple.error,
-                                        nbd_err_lookup(reply->simple.error),
-                                        reply->cookie);
-+#endif
-         break;
-     case NBD_STRUCTURED_REPLY_MAGIC:
-     case NBD_EXTENDED_REPLY_MAGIC:
-         expected = mode >= NBD_MODE_EXTENDED ? NBD_EXTENDED_REPLY_MAGIC
-             : NBD_STRUCTURED_REPLY_MAGIC;
-         if (reply->magic != expected) {
-+#if 0
-             trace_nbd_receive_wrong_header(reply->magic,
-                                            nbd_mode_lookup(mode));
-+#endif
-         }
-         ret = nbd_receive_reply_chunk_header(ioc, reply, errp);
-         if (ret < 0) {
-             return ret;
-         }
-+        nbd_reply_type_lookup(reply->structured.type);
-+#if 0
-         type = nbd_reply_type_lookup(reply->structured.type);
-         trace_nbd_receive_reply_chunk_header(reply->structured.flags,
-                                              reply->structured.type, type,
-                                              reply->structured.cookie,
-                                              reply->structured.length);
-+#endif
-         break;
-     default:
--        trace_nbd_receive_wrong_header(reply->magic, nbd_mode_lookup(mode));
-+        //trace_nbd_receive_wrong_header(reply->magic, nbd_mode_lookup(mode));
-         error_setg(errp, "invalid magic (got 0x%" PRIx32 ")", reply->magic);
-         return -EINVAL;
-     }
-diff --git a/qcow2/lib/nbd/common.c b/qcow2/lib/nbd/common.c
-index 589a748c..891b7f6b 100644
---- a/qcow2/lib/nbd/common.c
-+++ b/qcow2/lib/nbd/common.c
-@@ -17,7 +17,7 @@
-  */
- 
- #include "qemu/osdep.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "nbd-internal.h"
- 
- /* Discard length bytes from channel.  Return -errno on failure and 0 on
-@@ -237,7 +237,7 @@ int nbd_errno_to_system_errno(int err)
-         ret = ESHUTDOWN;
-         break;
-     default:
--        trace_nbd_unknown_error(err);
-+        //trace_nbd_unknown_error(err);
-         /* fallthrough */
-     case NBD_EINVAL:
-         ret = EINVAL;
 diff --git a/qcow2/lib/qapi/qapi-events-block-core.c b/qcow2/lib/qapi/qapi-events-block-core.c
 index a08a710c..2c8a538c 100644
 --- a/qcow2/lib/qapi/qapi-events-block-core.c
@@ -5995,283 +4195,6 @@ index cacb730a..96e8d05f 100644
  
  bool visit_type_IoOperationType(Visitor *v, const char *name,
                   IoOperationType *obj, Error **errp)
-diff --git a/qcow2/lib/qapi/qapi-visit-core.c b/qcow2/lib/qapi/qapi-visit-core.c
-index 6c13510a..895f89fd 100644
---- a/qcow2/lib/qapi/qapi-visit-core.c
-+++ b/qcow2/lib/qapi/qapi-visit-core.c
-@@ -18,7 +18,7 @@
- #include "qapi/qmp/qerror.h"
- #include "qapi/visitor.h"
- #include "qapi/visitor-impl.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- /* Zero-initialization must result in default policy */
- QEMU_BUILD_BUG_ON(COMPAT_POLICY_INPUT_ACCEPT || COMPAT_POLICY_OUTPUT_ACCEPT);
-@@ -27,7 +27,7 @@ QEMU_BUILD_BUG_ON(COMPAT_POLICY_INPUT_ACCEPT || COMPAT_POLICY_OUTPUT_ACCEPT);
- void visit_complete(Visitor *v, void *opaque)
- {
-     assert(v->type != VISITOR_OUTPUT || v->complete);
--    trace_visit_complete(v, opaque);
-+    //trace_visit_complete(v, opaque);
-     if (v->complete) {
-         v->complete(v, opaque);
-     }
-@@ -35,7 +35,7 @@ void visit_complete(Visitor *v, void *opaque)
- 
- void visit_free(Visitor *v)
- {
--    trace_visit_free(v);
-+    //trace_visit_free(v);
-     if (v) {
-         v->free(v);
-     }
-@@ -46,7 +46,7 @@ bool visit_start_struct(Visitor *v, const char *name, void **obj,
- {
-     bool ok;
- 
--    trace_visit_start_struct(v, name, obj, size);
-+    //trace_visit_start_struct(v, name, obj, size);
-     if (obj) {
-         assert(size);
-         assert(!(v->type & VISITOR_OUTPUT) || *obj);
-@@ -60,13 +60,13 @@ bool visit_start_struct(Visitor *v, const char *name, void **obj,
- 
- bool visit_check_struct(Visitor *v, Error **errp)
- {
--    trace_visit_check_struct(v);
-+    //trace_visit_check_struct(v);
-     return v->check_struct ? v->check_struct(v, errp) : true;
- }
- 
- void visit_end_struct(Visitor *v, void **obj)
- {
--    trace_visit_end_struct(v, obj);
-+    //trace_visit_end_struct(v, obj);
-     v->end_struct(v, obj);
- }
- 
-@@ -76,7 +76,7 @@ bool visit_start_list(Visitor *v, const char *name, GenericList **list,
-     bool ok;
- 
-     assert(!list || size >= sizeof(GenericList));
--    trace_visit_start_list(v, name, list, size);
-+    //trace_visit_start_list(v, name, list, size);
-     ok = v->start_list(v, name, list, size, errp);
-     if (list && (v->type & VISITOR_INPUT)) {
-         assert(ok || !*list);
-@@ -87,19 +87,19 @@ bool visit_start_list(Visitor *v, const char *name, GenericList **list,
- GenericList *visit_next_list(Visitor *v, GenericList *tail, size_t size)
- {
-     assert(tail && size >= sizeof(GenericList));
--    trace_visit_next_list(v, tail, size);
-+    //trace_visit_next_list(v, tail, size);
-     return v->next_list(v, tail, size);
- }
- 
- bool visit_check_list(Visitor *v, Error **errp)
- {
--    trace_visit_check_list(v);
-+    //trace_visit_check_list(v);
-     return v->check_list ? v->check_list(v, errp) : true;
- }
- 
- void visit_end_list(Visitor *v, void **obj)
- {
--    trace_visit_end_list(v, obj);
-+    //trace_visit_end_list(v, obj);
-     v->end_list(v, obj);
- }
- 
-@@ -111,7 +111,7 @@ bool visit_start_alternate(Visitor *v, const char *name,
- 
-     assert(obj && size >= sizeof(GenericAlternate));
-     assert(!(v->type & VISITOR_OUTPUT) || *obj);
--    trace_visit_start_alternate(v, name, obj, size);
-+    //trace_visit_start_alternate(v, name, obj, size);
-     if (!v->start_alternate) {
-         assert(!(v->type & VISITOR_INPUT));
-         return true;
-@@ -125,7 +125,7 @@ bool visit_start_alternate(Visitor *v, const char *name,
- 
- void visit_end_alternate(Visitor *v, void **obj)
- {
--    trace_visit_end_alternate(v, obj);
-+    //trace_visit_end_alternate(v, obj);
-     if (v->end_alternate) {
-         v->end_alternate(v, obj);
-     }
-@@ -133,7 +133,7 @@ void visit_end_alternate(Visitor *v, void **obj)
- 
- bool visit_optional(Visitor *v, const char *name, bool *present)
- {
--    trace_visit_optional(v, name, present);
-+    //trace_visit_optional(v, name, present);
-     if (v->optional) {
-         v->optional(v, name, present);
-     }
-@@ -143,7 +143,7 @@ bool visit_optional(Visitor *v, const char *name, bool *present)
- bool visit_policy_reject(Visitor *v, const char *name,
-                          unsigned special_features, Error **errp)
- {
--    trace_visit_policy_reject(v, name);
-+    //trace_visit_policy_reject(v, name);
-     if (v->policy_reject) {
-         return v->policy_reject(v, name, special_features, errp);
-     }
-@@ -153,7 +153,7 @@ bool visit_policy_reject(Visitor *v, const char *name,
- bool visit_policy_skip(Visitor *v, const char *name,
-                        unsigned special_features)
- {
--    trace_visit_policy_skip(v, name);
-+    //trace_visit_policy_skip(v, name);
-     if (v->policy_skip) {
-         return v->policy_skip(v, name, special_features);
-     }
-@@ -178,7 +178,7 @@ bool visit_is_dealloc(Visitor *v)
- bool visit_type_int(Visitor *v, const char *name, int64_t *obj, Error **errp)
- {
-     assert(obj);
--    trace_visit_type_int(v, name, obj);
-+    //trace_visit_type_int(v, name, obj);
-     return v->type_int64(v, name, obj, errp);
- }
- 
-@@ -208,7 +208,7 @@ bool visit_type_uint8(Visitor *v, const char *name, uint8_t *obj,
-     uint64_t value;
-     bool ok;
- 
--    trace_visit_type_uint8(v, name, obj);
-+    //trace_visit_type_uint8(v, name, obj);
-     value = *obj;
-     ok = visit_type_uintN(v, &value, name, UINT8_MAX, "uint8_t", errp);
-     *obj = value;
-@@ -221,7 +221,7 @@ bool visit_type_uint16(Visitor *v, const char *name, uint16_t *obj,
-     uint64_t value;
-     bool ok;
- 
--    trace_visit_type_uint16(v, name, obj);
-+    //trace_visit_type_uint16(v, name, obj);
-     value = *obj;
-     ok = visit_type_uintN(v, &value, name, UINT16_MAX, "uint16_t", errp);
-     *obj = value;
-@@ -234,7 +234,7 @@ bool visit_type_uint32(Visitor *v, const char *name, uint32_t *obj,
-     uint64_t value;
-     bool ok;
- 
--    trace_visit_type_uint32(v, name, obj);
-+    //trace_visit_type_uint32(v, name, obj);
-     value = *obj;
-     ok = visit_type_uintN(v, &value, name, UINT32_MAX, "uint32_t", errp);
-     *obj = value;
-@@ -245,7 +245,7 @@ bool visit_type_uint64(Visitor *v, const char *name, uint64_t *obj,
-                        Error **errp)
- {
-     assert(obj);
--    trace_visit_type_uint64(v, name, obj);
-+    //trace_visit_type_uint64(v, name, obj);
-     return v->type_uint64(v, name, obj, errp);
- }
- 
-@@ -275,7 +275,7 @@ bool visit_type_int8(Visitor *v, const char *name, int8_t *obj, Error **errp)
-     int64_t value;
-     bool ok;
- 
--    trace_visit_type_int8(v, name, obj);
-+    //trace_visit_type_int8(v, name, obj);
-     value = *obj;
-     ok = visit_type_intN(v, &value, name, INT8_MIN, INT8_MAX, "int8_t", errp);
-     *obj = value;
-@@ -288,7 +288,7 @@ bool visit_type_int16(Visitor *v, const char *name, int16_t *obj,
-     int64_t value;
-     bool ok;
- 
--    trace_visit_type_int16(v, name, obj);
-+    //trace_visit_type_int16(v, name, obj);
-     value = *obj;
-     ok = visit_type_intN(v, &value, name, INT16_MIN, INT16_MAX, "int16_t",
-                          errp);
-@@ -302,7 +302,7 @@ bool visit_type_int32(Visitor *v, const char *name, int32_t *obj,
-     int64_t value;
-     bool ok;
- 
--    trace_visit_type_int32(v, name, obj);
-+    //trace_visit_type_int32(v, name, obj);
-     value = *obj;
-     ok = visit_type_intN(v, &value, name, INT32_MIN, INT32_MAX, "int32_t",
-                         errp);
-@@ -314,7 +314,7 @@ bool visit_type_int64(Visitor *v, const char *name, int64_t *obj,
-                       Error **errp)
- {
-     assert(obj);
--    trace_visit_type_int64(v, name, obj);
-+    //trace_visit_type_int64(v, name, obj);
-     return v->type_int64(v, name, obj, errp);
- }
- 
-@@ -322,7 +322,7 @@ bool visit_type_size(Visitor *v, const char *name, uint64_t *obj,
-                      Error **errp)
- {
-     assert(obj);
--    trace_visit_type_size(v, name, obj);
-+    //trace_visit_type_size(v, name, obj);
-     if (v->type_size) {
-         return v->type_size(v, name, obj, errp);
-     }
-@@ -332,7 +332,7 @@ bool visit_type_size(Visitor *v, const char *name, uint64_t *obj,
- bool visit_type_bool(Visitor *v, const char *name, bool *obj, Error **errp)
- {
-     assert(obj);
--    trace_visit_type_bool(v, name, obj);
-+    //trace_visit_type_bool(v, name, obj);
-     return v->type_bool(v, name, obj, errp);
- }
- 
-@@ -345,7 +345,7 @@ bool visit_type_str(Visitor *v, const char *name, char **obj, Error **errp)
-      * can enable:
-     assert(!(v->type & VISITOR_OUTPUT) || *obj);
-      */
--    trace_visit_type_str(v, name, obj);
-+    //trace_visit_type_str(v, name, obj);
-     ok = v->type_str(v, name, obj, errp);
-     if (v->type & VISITOR_INPUT) {
-         assert(ok != !*obj);
-@@ -357,7 +357,7 @@ bool visit_type_number(Visitor *v, const char *name, double *obj,
-                        Error **errp)
- {
-     assert(obj);
--    trace_visit_type_number(v, name, obj);
-+    //trace_visit_type_number(v, name, obj);
-     return v->type_number(v, name, obj, errp);
- }
- 
-@@ -367,7 +367,7 @@ bool visit_type_any(Visitor *v, const char *name, QObject **obj, Error **errp)
- 
-     assert(obj);
-     assert(v->type != VISITOR_OUTPUT || *obj);
--    trace_visit_type_any(v, name, obj);
-+    //trace_visit_type_any(v, name, obj);
-     ok = v->type_any(v, name, obj, errp);
-     if (v->type == VISITOR_INPUT) {
-         assert(ok != !*obj);
-@@ -378,7 +378,7 @@ bool visit_type_any(Visitor *v, const char *name, QObject **obj, Error **errp)
- bool visit_type_null(Visitor *v, const char *name, QNull **obj,
-                      Error **errp)
- {
--    trace_visit_type_null(v, name, obj);
-+    //trace_visit_type_null(v, name, obj);
-     return v->type_null(v, name, obj, errp);
- }
- 
-@@ -425,7 +425,7 @@ bool visit_type_enum(Visitor *v, const char *name, int *obj,
-                      const QEnumLookup *lookup, Error **errp)
- {
-     assert(obj && lookup);
--    trace_visit_type_enum(v, name, obj);
-+    //trace_visit_type_enum(v, name, obj);
-     switch (v->type) {
-     case VISITOR_INPUT:
-         return input_type_enum(v, name, obj, lookup, errp);
 diff --git a/qcow2/lib/qapi/qapi-visit-crypto.c b/qcow2/lib/qapi/qapi-visit-crypto.c
 index 09eab7e3..b616ccbc 100644
 --- a/qcow2/lib/qapi/qapi-visit-crypto.c
@@ -6368,30 +4291,10 @@ index f110a804..408ade81 100644
  }
 +#endif
 diff --git a/qcow2/lib/qcow2-cache.c b/qcow2/lib/qcow2-cache.c
-index 23d9588b..11453579 100644
+index 23d9588b..aa269daf 100644
 --- a/qcow2/lib/qcow2-cache.c
 +++ b/qcow2/lib/qcow2-cache.c
-@@ -26,7 +26,7 @@
- #include "block/block-io.h"
- #include "qemu/memalign.h"
- #include "qcow2.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- typedef struct Qcow2CachedTable {
-     int64_t  offset;
-@@ -189,8 +189,8 @@ qcow2_cache_entry_flush(BlockDriverState *bs, Qcow2Cache *c, int i)
-         return 0;
-     }
- 
--    trace_qcow2_cache_entry_flush(qemu_coroutine_self(),
--                                  c == s->l2_table_cache, i);
-+    //trace_qcow2_cache_entry_flush(qemu_coroutine_self(),
-+    //                              c == s->l2_table_cache, i);
- 
-     if (c->depends) {
-         ret = qcow2_cache_flush_dependency(bs, c);
-@@ -239,12 +239,12 @@ qcow2_cache_entry_flush(BlockDriverState *bs, Qcow2Cache *c, int i)
+@@ -239,7 +239,7 @@ qcow2_cache_entry_flush(BlockDriverState *bs, Qcow2Cache *c, int i)
  
  int qcow2_cache_write(BlockDriverState *bs, Qcow2Cache *c)
  {
@@ -6400,117 +4303,10 @@ index 23d9588b..11453579 100644
      int result = 0;
      int ret;
      int i;
- 
--    trace_qcow2_cache_flush(qemu_coroutine_self(), c == s->l2_table_cache);
-+    //trace_qcow2_cache_flush(qemu_coroutine_self(), c == s->l2_table_cache);
- 
-     for (i = 0; i < c->size; i++) {
-         ret = qcow2_cache_entry_flush(bs, c, i);
-@@ -333,8 +333,8 @@ qcow2_cache_do_get(BlockDriverState *bs, Qcow2Cache *c, uint64_t offset,
- 
-     assert(offset != 0);
- 
--    trace_qcow2_cache_get(qemu_coroutine_self(), c == s->l2_table_cache,
--                          offset, read_from_disk);
-+    //trace_qcow2_cache_get(qemu_coroutine_self(), c == s->l2_table_cache,
-+    //                      offset, read_from_disk);
- 
-     if (!QEMU_IS_ALIGNED(offset, c->table_size)) {
-         qcow2_signal_corruption(bs, true, -1, -1, "Cannot get entry from %s "
-@@ -367,16 +367,16 @@ qcow2_cache_do_get(BlockDriverState *bs, Qcow2Cache *c, uint64_t offset,
- 
-     /* Cache miss: write a table back and replace it */
-     i = min_lru_index;
--    trace_qcow2_cache_get_replace_entry(qemu_coroutine_self(),
--                                        c == s->l2_table_cache, i);
-+    //trace_qcow2_cache_get_replace_entry(qemu_coroutine_self(),
-+    //                                    c == s->l2_table_cache, i);
- 
-     ret = qcow2_cache_entry_flush(bs, c, i);
-     if (ret < 0) {
-         return ret;
-     }
- 
--    trace_qcow2_cache_get_read(qemu_coroutine_self(),
--                               c == s->l2_table_cache, i);
-+    //trace_qcow2_cache_get_read(qemu_coroutine_self(),
-+    //                           c == s->l2_table_cache, i);
-     c->entries[i].offset = 0;
-     if (read_from_disk) {
-         if (c == s->l2_table_cache) {
-@@ -397,8 +397,8 @@ found:
-     c->entries[i].ref++;
-     *table = qcow2_cache_get_table_addr(c, i);
- 
--    trace_qcow2_cache_get_done(qemu_coroutine_self(),
--                               c == s->l2_table_cache, i);
-+    //trace_qcow2_cache_get_done(qemu_coroutine_self(),
-+    //                           c == s->l2_table_cache, i);
- 
-     return 0;
- }
 diff --git a/qcow2/lib/qcow2-cluster.c b/qcow2/lib/qcow2-cluster.c
-index ce8c0076..f71ff791 100644
+index ce8c0076..ad484e0c 100644
 --- a/qcow2/lib/qcow2-cluster.c
 +++ b/qcow2/lib/qcow2-cluster.c
-@@ -30,7 +30,7 @@
- #include "qcow2.h"
- #include "qemu/bswap.h"
- #include "qemu/memalign.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- int coroutine_fn qcow2_shrink_l1_table(BlockDriverState *bs,
-                                        uint64_t exact_size)
-@@ -281,7 +281,7 @@ static int GRAPH_RDLOCK l2_allocate(BlockDriverState *bs, int l1_index)
- 
-     old_l2_offset = s->l1_table[l1_index];
- 
--    trace_qcow2_l2_allocate(bs, l1_index);
-+    //trace_qcow2_l2_allocate(bs, l1_index);
- 
-     /* allocate a new l2 entry */
- 
-@@ -312,7 +312,7 @@ static int GRAPH_RDLOCK l2_allocate(BlockDriverState *bs, int l1_index)
-     slice_size2 = s->l2_slice_size * l2_entry_size(s);
-     n_slices = s->cluster_size / slice_size2;
- 
--    trace_qcow2_l2_allocate_get_empty(bs, l1_index);
-+    //trace_qcow2_l2_allocate_get_empty(bs, l1_index);
-     for (slice = 0; slice < n_slices; slice++) {
-         ret = qcow2_cache_get_empty(bs, s->l2_table_cache,
-                                     l2_offset + slice * slice_size2,
-@@ -345,7 +345,7 @@ static int GRAPH_RDLOCK l2_allocate(BlockDriverState *bs, int l1_index)
-         /* write the l2 slice to the file */
-         BLKDBG_EVENT(bs->file, BLKDBG_L2_ALLOC_WRITE);
- 
--        trace_qcow2_l2_allocate_write_l2(bs, l1_index);
-+        //trace_qcow2_l2_allocate_write_l2(bs, l1_index);
-         qcow2_cache_entry_mark_dirty(s->l2_table_cache, l2_slice);
-         qcow2_cache_put(s->l2_table_cache, (void **) &l2_slice);
-     }
-@@ -356,18 +356,18 @@ static int GRAPH_RDLOCK l2_allocate(BlockDriverState *bs, int l1_index)
-     }
- 
-     /* update the L1 entry */
--    trace_qcow2_l2_allocate_write_l1(bs, l1_index);
-+    //trace_qcow2_l2_allocate_write_l1(bs, l1_index);
-     s->l1_table[l1_index] = l2_offset | QCOW_OFLAG_COPIED;
-     ret = qcow2_write_l1_entry(bs, l1_index);
-     if (ret < 0) {
-         goto fail;
-     }
- 
--    trace_qcow2_l2_allocate_done(bs, l1_index, 0);
-+    //trace_qcow2_l2_allocate_done(bs, l1_index, 0);
-     return 0;
- 
- fail:
--    trace_qcow2_l2_allocate_done(bs, l1_index, ret);
-+    //trace_qcow2_l2_allocate_done(bs, l1_index, ret);
-     if (l2_slice != NULL) {
-         qcow2_cache_put(s->l2_table_cache, (void **) &l2_slice);
-     }
 @@ -959,6 +959,7 @@ perform_cow(BlockDriverState *bs, QCowL2Meta *m)
          goto fail;
      }
@@ -6527,86 +4323,17 @@ index ce8c0076..f71ff791 100644
  
      /* And now we can write everything. If we have the guest data we
       * can write everything in one single operation */
-@@ -1033,7 +1035,7 @@ int coroutine_fn qcow2_alloc_cluster_link_l2(BlockDriverState *bs,
-     uint64_t *old_cluster, *l2_slice;
-     uint64_t cluster_offset = m->alloc_offset;
- 
--    trace_qcow2_cluster_link_l2(qemu_coroutine_self(), m->nb_clusters);
-+    //trace_qcow2_cluster_link_l2(qemu_coroutine_self(), m->nb_clusters);
-     assert(m->nb_clusters > 0);
- 
-     old_cluster = g_try_new(uint64_t, m->nb_clusters);
-@@ -1503,8 +1505,8 @@ handle_copied(BlockDriverState *bs, uint64_t guest_offset,
-     unsigned int keep_clusters;
-     int ret;
- 
--    trace_qcow2_handle_copied(qemu_coroutine_self(), guest_offset, *host_offset,
--                              *bytes);
-+    //trace_qcow2_handle_copied(qemu_coroutine_self(), guest_offset, *host_offset,
-+    //                          *bytes);
- 
-     assert(*host_offset == INV_OFFSET || offset_into_cluster(s, guest_offset)
-                                       == offset_into_cluster(s, *host_offset));
-@@ -1607,8 +1609,8 @@ do_alloc_cluster_offset(BlockDriverState *bs, uint64_t guest_offset,
- {
-     BDRVQcow2State *s = bs->opaque;
- 
--    trace_qcow2_do_alloc_clusters_offset(qemu_coroutine_self(), guest_offset,
--                                         *host_offset, *nb_clusters);
-+    //trace_qcow2_do_alloc_clusters_offset(qemu_coroutine_self(), guest_offset,
-+    //                                     *host_offset, *nb_clusters);
- 
-     if (has_data_file(bs)) {
-         assert(*host_offset == INV_OFFSET ||
-@@ -1618,7 +1620,7 @@ do_alloc_cluster_offset(BlockDriverState *bs, uint64_t guest_offset,
-     }
- 
-     /* Allocate new clusters */
--    trace_qcow2_cluster_alloc_phys(qemu_coroutine_self());
-+    //trace_qcow2_cluster_alloc_phys(qemu_coroutine_self());
-     if (*host_offset == INV_OFFSET) {
-         int64_t cluster_offset =
-             qcow2_alloc_clusters(bs, *nb_clusters * s->cluster_size);
-@@ -1670,8 +1672,8 @@ handle_alloc(BlockDriverState *bs, uint64_t guest_offset,
- 
-     uint64_t alloc_cluster_offset;
- 
--    trace_qcow2_handle_alloc(qemu_coroutine_self(), guest_offset, *host_offset,
--                             *bytes);
-+    //trace_qcow2_handle_alloc(qemu_coroutine_self(), guest_offset, *host_offset,
-+    //                         *bytes);
-     assert(*bytes > 0);
- 
-     /*
-@@ -1791,7 +1793,7 @@ int coroutine_fn qcow2_alloc_host_offset(BlockDriverState *bs, uint64_t offset,
-     uint64_t cur_bytes;
-     int ret;
- 
--    trace_qcow2_alloc_clusters_offset(qemu_coroutine_self(), offset, *bytes);
-+    //trace_qcow2_alloc_clusters_offset(qemu_coroutine_self(), offset, *bytes);
- 
- again:
-     start = offset;
 diff --git a/qcow2/lib/qcow2-refcount.c b/qcow2/lib/qcow2-refcount.c
-index 0266542c..9442522a 100644
+index 0266542c..f1895747 100644
 --- a/qcow2/lib/qcow2-refcount.c
 +++ b/qcow2/lib/qcow2-refcount.c
-@@ -30,7 +30,7 @@
- #include "qemu/bswap.h"
- #include "qemu/cutils.h"
- #include "qemu/memalign.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- static int64_t alloc_clusters_noref(BlockDriverState *bs, uint64_t size,
-                                     uint64_t max);
 @@ -745,8 +745,7 @@ void qcow2_process_discards(BlockDriverState *bs, int ret)
          if (ret >= 0) {
              int r2 = bdrv_pdiscard(bs->file, d->offset, d->bytes);
              if (r2 < 0) {
 -                trace_qcow2_process_discards_failed_region(d->offset, d->bytes,
 -                                                           r2);
-+                //trace_qcow2_process_discards_failed_region(d->offset, d->bytes, r2);
++                trace_qcow2_process_discards_failed_region(d->offset, d->bytes, r2);
              }
          }
  
@@ -6653,10 +4380,10 @@ index d6071a1e..f6de6e60 100644
  }
 +#endif
 diff --git a/qcow2/lib/qcow2.c b/qcow2/lib/qcow2.c
-index 70b19730..801042e0 100644
+index 70b19730..47c6032b 100644
 --- a/qcow2/lib/qcow2.c
 +++ b/qcow2/lib/qcow2.c
-@@ -31,17 +31,17 @@
+@@ -31,7 +31,7 @@
  #include "qcow2.h"
  #include "qemu/error-report.h"
  #include "qapi/error.h"
@@ -6664,11 +4391,8 @@ index 70b19730..801042e0 100644
 +//#include "qapi/qapi-events-block-core.h"
  #include "qapi/qmp/qdict.h"
  #include "qapi/qmp/qstring.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "qemu/option_int.h"
- #include "qemu/cutils.h"
- #include "qemu/bswap.h"
+ #include "trace.h"
+@@ -41,7 +41,7 @@
  #include "qemu/memalign.h"
  #include "qapi/qobject-input-visitor.h"
  #include "qapi/qapi-visit-block-core.h"
@@ -6870,21 +4594,6 @@ index 70b19730..801042e0 100644
  
  typedef struct Qcow2AioTask {
      AioTask task;
-@@ -2312,10 +2330,10 @@ static coroutine_fn int qcow2_add_task(BlockDriverState *bs,
-         .l2meta = l2meta,
-     };
- 
--    trace_qcow2_add_task(qemu_coroutine_self(), bs, pool,
--                         func == qcow2_co_preadv_task_entry ? "read" : "write",
--                         subcluster_type, host_offset, offset, bytes,
--                         qiov, qiov_offset);
-+    //trace_qcow2_add_task(qemu_coroutine_self(), bs, pool,
-+    //                     func == qcow2_co_preadv_task_entry ? "read" : "write",
-+    //                     subcluster_type, host_offset, offset, bytes,
-+    //                     qiov, qiov_offset);
- 
-     if (!pool) {
-         return func(&task->task);
 @@ -2353,8 +2371,10 @@ qcow2_co_preadv_task(BlockDriverState *bs, QCow2SubclusterType subc_type,
  
      case QCOW2_SUBCLUSTER_NORMAL:
@@ -6922,15 +4631,6 @@ index 70b19730..801042e0 100644
  
      for (m = l2meta; m != NULL; m = m->next) {
          int ret;
-@@ -2577,7 +2601,7 @@ handle_alloc_space(BlockDriverState *bs, QCowL2Meta *l2meta)
-             continue;
-         }
- 
--        trace_qcow2_skip_cow(qemu_coroutine_self(), m->offset, m->nb_clusters);
-+        //trace_qcow2_skip_cow(qemu_coroutine_self(), m->offset, m->nb_clusters);
-         m->skip_cow = true;
-     }
-     return 0;
 @@ -2596,9 +2620,10 @@ int qcow2_co_pwritev_task(BlockDriverState *bs, uint64_t host_offset,
  {
      int ret;
@@ -6952,55 +4652,12 @@ index 70b19730..801042e0 100644
  
      /* Try to efficiently initialize the physical space with zeroes */
      ret = handle_alloc_space(bs, l2meta);
-@@ -2633,7 +2659,7 @@ int qcow2_co_pwritev_task(BlockDriverState *bs, uint64_t host_offset,
-      */
-     if (!merge_cow(offset, bytes, qiov, qiov_offset, l2meta)) {
-         BLKDBG_CO_EVENT(bs->file, BLKDBG_WRITE_AIO);
--        trace_qcow2_writev_data(qemu_coroutine_self(), host_offset);
-+        //trace_qcow2_writev_data(qemu_coroutine_self(), host_offset);
-         ret = bdrv_co_pwritev_part(s->data_file, host_offset,
-                                    bytes, qiov, qiov_offset, 0);
-         if (ret < 0) {
 @@ -2653,7 +2679,7 @@ out_locked:
      qcow2_handle_l2meta(bs, &l2meta, false);
      qemu_co_mutex_unlock(&s->lock);
  
 -    qemu_vfree(crypt_buf);
 +    //qemu_vfree(crypt_buf);
- 
-     return ret;
- }
-@@ -2686,13 +2712,13 @@ qcow2_co_pwritev_part(BlockDriverState *bs, int64_t offset, int64_t bytes,
-     QCowL2Meta *l2meta = NULL;
-     AioTaskPool *aio = NULL;
- 
--    trace_qcow2_writev_start_req(qemu_coroutine_self(), offset, bytes);
-+    //trace_qcow2_writev_start_req(qemu_coroutine_self(), offset, bytes);
- 
-     while (bytes != 0 && aio_task_pool_status(aio) == 0) {
- 
-         l2meta = NULL;
- 
--        trace_qcow2_writev_start_part(qemu_coroutine_self());
-+        //trace_qcow2_writev_start_part(qemu_coroutine_self());
-         offset_in_cluster = offset_into_cluster(s, offset);
-         cur_bytes = MIN(bytes, INT_MAX);
-         if (bs->encrypted) {
-@@ -2731,7 +2757,7 @@ qcow2_co_pwritev_part(BlockDriverState *bs, int64_t offset, int64_t bytes,
-         bytes -= cur_bytes;
-         offset += cur_bytes;
-         qiov_offset += cur_bytes;
--        trace_qcow2_writev_done_part(qemu_coroutine_self(), cur_bytes);
-+        //trace_qcow2_writev_done_part(qemu_coroutine_self(), cur_bytes);
-     }
-     ret = 0;
- 
-@@ -2751,7 +2777,7 @@ fail_nometa:
-         g_free(aio);
-     }
- 
--    trace_qcow2_writev_done_req(qemu_coroutine_self(), ret);
-+    //trace_qcow2_writev_done_req(qemu_coroutine_self(), ret);
  
      return ret;
  }
@@ -7105,33 +4762,6 @@ index 70b19730..801042e0 100644
      blk_co_unref(blk);
      blk = NULL;
  
-@@ -4069,7 +4101,7 @@ qcow2_co_pwrite_zeroes(BlockDriverState *bs, int64_t offset, int64_t bytes,
-     uint32_t tail = ROUND_UP(offset + bytes, s->subcluster_size) -
-         (offset + bytes);
- 
--    trace_qcow2_pwrite_zeroes_start_req(qemu_coroutine_self(), offset, bytes);
-+    //trace_qcow2_pwrite_zeroes_start_req(qemu_coroutine_self(), offset, bytes);
-     if (offset + bytes == bs->total_sectors * BDRV_SECTOR_SIZE) {
-         tail = 0;
-     }
-@@ -4105,7 +4137,7 @@ qcow2_co_pwrite_zeroes(BlockDriverState *bs, int64_t offset, int64_t bytes,
-         qemu_co_mutex_lock(&s->lock);
-     }
- 
--    trace_qcow2_pwrite_zeroes(qemu_coroutine_self(), offset, bytes);
-+    //trace_qcow2_pwrite_zeroes(qemu_coroutine_self(), offset, bytes);
- 
-     /* Whatever is left can use real zero subclusters */
-     ret = qcow2_subcluster_zeroize(bs, offset, bytes, flags);
-@@ -4289,7 +4321,7 @@ fail:
- 
-     qemu_co_mutex_unlock(&s->lock);
- 
--    trace_qcow2_writev_done_req(qemu_coroutine_self(), ret);
-+    //trace_qcow2_writev_done_req(qemu_coroutine_self(), ret);
- 
-     return ret;
- }
 @@ -5023,7 +5055,7 @@ static int GRAPH_RDLOCK qcow2_make_empty(BlockDriverState *bs)
  
      if (s->qcow_version >= 3 && !s->snapshots && !s->nb_bitmaps &&
@@ -7382,10 +5012,10 @@ index 4a83bda2..0d2eba5b 100644
  /**
   * qdict_join(): Absorb the src QDict into the dest QDict, that is, move all
 diff --git a/qcow2/lib/qom/object.c b/qcow2/lib/qom/object.c
-index 157a45c5..728b6927 100644
+index 157a45c5..61b8556a 100644
 --- a/qcow2/lib/qom/object.c
 +++ b/qcow2/lib/qom/object.c
-@@ -14,17 +14,17 @@
+@@ -14,14 +14,14 @@
  #include "hw/qdev-core.h"
  #include "qapi/error.h"
  #include "qom/object.h"
@@ -7401,11 +5031,7 @@ index 157a45c5..728b6927 100644
 +//#include "qapi/forward-visitor.h"
  #include "qapi/qapi-builtin-visit.h"
  #include "qapi/qmp/qjson.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- /* TODO: replace QObject with a simpler visitor to avoid a dependency
-  * of the QOM core on QObject?  */
+ #include "trace.h"
 @@ -262,6 +262,7 @@ static size_t type_object_get_align(TypeImpl *ti)
      return 0;
  }
@@ -7486,29 +5112,7 @@ index 157a45c5..728b6927 100644
  
  
  Object *object_dynamic_cast(Object *obj, const char *typename)
-@@ -912,8 +922,10 @@ Object *object_dynamic_cast(Object *obj, const char *typename)
- Object *object_dynamic_cast_assert(Object *obj, const char *typename,
-                                    const char *file, int line, const char *func)
- {
-+#if 0
-     trace_object_dynamic_cast_assert(obj ? obj->class->type->name : "(null)",
-                                      typename, file, line, func);
-+#endif
- 
- #ifdef CONFIG_QOM_CAST_DEBUG
-     int i;
-@@ -1003,8 +1015,10 @@ ObjectClass *object_class_dynamic_cast_assert(ObjectClass *class,
- {
-     ObjectClass *ret;
- 
-+#if 0
-     trace_object_class_dynamic_cast_assert(class ? class->type->name : "(null)",
-                                            typename, file, line, func);
-+#endif
- 
- #ifdef CONFIG_QOM_CAST_DEBUG
-     int i;
-@@ -1051,16 +1065,19 @@ ObjectClass *object_get_class(Object *obj)
+@@ -1051,16 +1061,19 @@ ObjectClass *object_get_class(Object *obj)
      return obj->class;
  }
  
@@ -7528,7 +5132,7 @@ index 157a45c5..728b6927 100644
  ObjectClass *object_class_by_name(const char *typename)
  {
      TypeImpl *type = type_get_by_name(typename);
-@@ -1092,6 +1109,7 @@ ObjectClass *module_object_class_by_name(const char *typename)
+@@ -1092,6 +1105,7 @@ ObjectClass *module_object_class_by_name(const char *typename)
  #endif
      return oc;
  }
@@ -7536,7 +5140,7 @@ index 157a45c5..728b6927 100644
  
  ObjectClass *object_class_get_parent(ObjectClass *class)
  {
-@@ -1106,6 +1124,7 @@ ObjectClass *object_class_get_parent(ObjectClass *class)
+@@ -1106,6 +1120,7 @@ ObjectClass *object_class_get_parent(ObjectClass *class)
      return type->class;
  }
  
@@ -7544,7 +5148,7 @@ index 157a45c5..728b6927 100644
  typedef struct OCFData
  {
      void (*fn)(ObjectClass *klass, void *opaque);
-@@ -1217,6 +1236,7 @@ GSList *object_class_get_list_sorted(const char *implements_type,
+@@ -1217,6 +1232,7 @@ GSList *object_class_get_list_sorted(const char *implements_type,
      return g_slist_sort(object_class_get_list(implements_type, include_abstract),
                          object_class_cmp);
  }
@@ -7552,7 +5156,7 @@ index 157a45c5..728b6927 100644
  
  Object *object_ref(void *objptr)
  {
-@@ -1403,6 +1423,7 @@ ObjectProperty *object_class_property_find(ObjectClass *klass, const char *name)
+@@ -1403,6 +1419,7 @@ ObjectProperty *object_class_property_find(ObjectClass *klass, const char *name)
      return g_hash_table_lookup(klass->properties, name);
  }
  
@@ -7560,7 +5164,7 @@ index 157a45c5..728b6927 100644
  ObjectProperty *object_class_property_find_err(ObjectClass *klass,
                                                 const char *name,
                                                 Error **errp)
-@@ -1424,6 +1445,7 @@ void object_property_del(Object *obj, const char *name)
+@@ -1424,6 +1441,7 @@ void object_property_del(Object *obj, const char *name)
      }
      g_hash_table_remove(obj->properties, name);
  }
@@ -7568,7 +5172,7 @@ index 157a45c5..728b6927 100644
  
  bool object_property_get(Object *obj, const char *name, Visitor *v,
                           Error **errp)
-@@ -1464,6 +1486,7 @@ bool object_property_set(Object *obj, const char *name, Visitor *v,
+@@ -1464,6 +1482,7 @@ bool object_property_set(Object *obj, const char *name, Visitor *v,
      return !*errp;
  }
  
@@ -7576,7 +5180,7 @@ index 157a45c5..728b6927 100644
  bool object_property_set_str(Object *obj, const char *name,
                               const char *value, Error **errp)
  {
-@@ -1473,6 +1496,7 @@ bool object_property_set_str(Object *obj, const char *name,
+@@ -1473,6 +1492,7 @@ bool object_property_set_str(Object *obj, const char *name,
      qobject_unref(qstr);
      return ok;
  }
@@ -7584,7 +5188,7 @@ index 157a45c5..728b6927 100644
  
  char *object_property_get_str(Object *obj, const char *name,
                                Error **errp)
-@@ -1497,6 +1521,7 @@ char *object_property_get_str(Object *obj, const char *name,
+@@ -1497,6 +1517,7 @@ char *object_property_get_str(Object *obj, const char *name,
      return retval;
  }
  
@@ -7592,7 +5196,7 @@ index 157a45c5..728b6927 100644
  bool object_property_set_link(Object *obj, const char *name,
                                Object *value, Error **errp)
  {
-@@ -1665,6 +1690,7 @@ uint64_t object_property_get_uint(Object *obj, const char *name,
+@@ -1665,6 +1686,7 @@ uint64_t object_property_get_uint(Object *obj, const char *name,
      qobject_unref(ret);
      return retval;
  }
@@ -7600,7 +5204,7 @@ index 157a45c5..728b6927 100644
  
  typedef struct EnumProperty {
      const QEnumLookup *lookup;
-@@ -1829,6 +1855,7 @@ object_property_add_child(Object *obj, const char *name,
+@@ -1829,6 +1851,7 @@ object_property_add_child(Object *obj, const char *name,
      return object_property_try_add_child(obj, name, child, &error_abort);
  }
  
@@ -7608,7 +5212,7 @@ index 157a45c5..728b6927 100644
  void object_property_allow_set_link(const Object *obj, const char *name,
                                      Object *val, Error **errp)
  {
-@@ -2056,6 +2083,7 @@ object_property_add_const_link(Object *obj, const char *name,
+@@ -2056,6 +2079,7 @@ object_property_add_const_link(Object *obj, const char *name,
                                  object_get_typename(target), target,
                                  NULL, OBJ_PROP_LINK_DIRECT);
  }
@@ -7616,7 +5220,7 @@ index 157a45c5..728b6927 100644
  
  const char *object_get_canonical_path_component(const Object *obj)
  {
-@@ -2125,6 +2153,7 @@ Object *object_resolve_path_component(Object *parent, const char *part)
+@@ -2125,6 +2149,7 @@ Object *object_resolve_path_component(Object *parent, const char *part)
      }
  }
  
@@ -7624,7 +5228,7 @@ index 157a45c5..728b6927 100644
  static Object *object_resolve_abs_path(Object *parent,
                                            char **parts,
                                            const char *typename)
-@@ -2240,6 +2269,7 @@ Object *object_resolve_type_unambiguous(const char *typename, Error **errp)
+@@ -2240,6 +2265,7 @@ Object *object_resolve_type_unambiguous(const char *typename, Error **errp)
      }
      return o;
  }
@@ -7632,7 +5236,7 @@ index 157a45c5..728b6927 100644
  
  typedef struct StringProperty
  {
-@@ -2771,6 +2801,7 @@ object_class_property_add_uint64_ptr(ObjectClass *klass, const char *name,
+@@ -2771,6 +2797,7 @@ object_class_property_add_uint64_ptr(ObjectClass *klass, const char *name,
                                       getter, setter, NULL, (void *)v);
  }
  
@@ -7640,7 +5244,7 @@ index 157a45c5..728b6927 100644
  typedef struct {
      Object *target_obj;
      char *target_name;
-@@ -2849,6 +2880,7 @@ object_property_add_alias(Object *obj, const char *name,
+@@ -2849,6 +2876,7 @@ object_property_add_alias(Object *obj, const char *name,
                                      target_prop->description);
      return op;
  }
@@ -7649,10 +5253,10 @@ index 157a45c5..728b6927 100644
  void object_property_set_description(Object *obj, const char *name,
                                       const char *description)
 diff --git a/qcow2/lib/system/cpus.c b/qcow2/lib/system/cpus.c
-index 1c818ff6..81236835 100644
+index 1c818ff6..ed2b9ff5 100644
 --- a/qcow2/lib/system/cpus.c
 +++ b/qcow2/lib/system/cpus.c
-@@ -23,29 +23,29 @@
+@@ -23,28 +23,28 @@
   */
  
  #include "qemu/osdep.h"
@@ -7691,14 +5295,12 @@ index 1c818ff6..81236835 100644
 -#include "sysemu/whpx.h"
 -#include "hw/boards.h"
 -#include "hw/hw.h"
--#include "trace.h"
 +//#include "sysemu/whpx.h"
 +//#include "hw/boards.h"
 +//#include "hw/hw.h"
-+//#include "trace.h"
+ #include "trace.h"
  
  #ifdef CONFIG_LINUX
- 
 @@ -68,6 +68,7 @@
  /* The Big QEMU Lock (BQL) */
  static QemuMutex bql;
@@ -7753,57 +5355,18 @@ index 1c818ff6..81236835 100644
 +#endif
  
 diff --git a/qcow2/lib/util/aio-posix.c b/qcow2/lib/util/aio-posix.c
-index 266c9dd3..237951d9 100644
+index 266c9dd3..fe40072f 100644
 --- a/qcow2/lib/util/aio-posix.c
 +++ b/qcow2/lib/util/aio-posix.c
-@@ -19,9 +19,9 @@
+@@ -19,7 +19,7 @@
  #include "qemu/main-loop.h"
  #include "qemu/rcu.h"
  #include "qemu/rcu_queue.h"
 -#include "qemu/sockets.h"
 +//#include "qemu/sockets.h"
  #include "qemu/cutils.h"
--#include "trace.h"
-+//#include "trace.h"
+ #include "trace.h"
  #include "aio-posix.h"
- 
- /* Stop userspace polling on a handler if it isn't active for some time */
-@@ -338,7 +338,7 @@ static bool aio_dispatch_handler(AioContext *ctx, AioHandler *node)
-     if (!QLIST_IS_INSERTED(node, node_deleted) &&
-         !QLIST_IS_INSERTED(node, node_poll) &&
-         node->io_poll) {
--        trace_poll_add(ctx, node, node->pfd.fd, revents);
-+        //trace_poll_add(ctx, node, node->pfd.fd, revents);
-         if (ctx->poll_started && node->io_poll_begin) {
-             node->io_poll_begin(node->opaque);
-         }
-@@ -486,7 +486,7 @@ static bool remove_idle_poll_handlers(AioContext *ctx,
-         if (node->poll_idle_timeout == 0LL) {
-             node->poll_idle_timeout = now + POLL_IDLE_INTERVAL_NS;
-         } else if (now >= node->poll_idle_timeout) {
--            trace_poll_remove(ctx, node, node->pfd.fd);
-+            //trace_poll_remove(ctx, node, node->pfd.fd);
-             node->poll_idle_timeout = 0LL;
-             QLIST_SAFE_REMOVE(node, node_poll);
-             if (ctx->poll_started && node->io_poll_end) {
-@@ -527,7 +527,7 @@ static bool run_poll_handlers(AioContext *ctx, AioHandlerList *ready_list,
- 
-     assert(qemu_lockcnt_count(&ctx->list_lock) > 0);
- 
--    trace_run_poll_handlers_begin(ctx, max_ns, *timeout);
-+    //trace_run_poll_handlers_begin(ctx, max_ns, *timeout);
- 
-     /*
-      * Optimization: ->io_poll() handlers often contain RCU read critical
-@@ -561,7 +561,7 @@ static bool run_poll_handlers(AioContext *ctx, AioHandlerList *ready_list,
-         *timeout -= MIN(*timeout, elapsed_time);
-     }
- 
--    trace_run_poll_handlers_end(ctx, progress, *timeout);
-+    //trace_run_poll_handlers_end(ctx, progress, *timeout);
-     return progress;
- }
- 
 @@ -686,7 +686,7 @@ bool aio_poll(AioContext *ctx, bool blocking)
              /* This is the sweet spot, no adjustment needed */
          } else if (block_ns > ctx->poll_max_ns) {
@@ -7813,12 +5376,7 @@ index 266c9dd3..237951d9 100644
  
              if (ctx->poll_shrink) {
                  ctx->poll_ns /= ctx->poll_shrink;
-@@ -694,11 +694,11 @@ bool aio_poll(AioContext *ctx, bool blocking)
-                 ctx->poll_ns = 0;
-             }
- 
--            trace_poll_shrink(ctx, old, ctx->poll_ns);
-+            //trace_poll_shrink(ctx, old, ctx->poll_ns);
+@@ -698,7 +698,7 @@ bool aio_poll(AioContext *ctx, bool blocking)
          } else if (ctx->poll_ns < ctx->poll_max_ns &&
                     block_ns < ctx->poll_max_ns) {
              /* There is room to grow, poll longer */
@@ -7827,28 +5385,10 @@ index 266c9dd3..237951d9 100644
              int64_t grow = ctx->poll_grow;
  
              if (grow == 0) {
-@@ -715,7 +715,7 @@ bool aio_poll(AioContext *ctx, bool blocking)
-                 ctx->poll_ns = ctx->poll_max_ns;
-             }
- 
--            trace_poll_grow(ctx, old, ctx->poll_ns);
-+            //trace_poll_grow(ctx, old, ctx->poll_ns);
-         }
-     }
- 
 diff --git a/qcow2/lib/util/async.c b/qcow2/lib/util/async.c
-index 3e3e4fc7..bcc6dee9 100644
+index 3e3e4fc7..ce52d0a8 100644
 --- a/qcow2/lib/util/async.c
 +++ b/qcow2/lib/util/async.c
-@@ -35,7 +35,7 @@
- #include "qemu/coroutine_int.h"
- #include "qemu/coroutine-tls.h"
- #include "sysemu/cpu-timers.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- /***********************************************************/
- /* bottom halves (can be seen as timers which expire ASAP) */
 @@ -162,9 +162,11 @@ void aio_bh_call(QEMUBH *bh)
      MemReentrancyGuard *reentrancy_guard = bh->reentrancy_guard;
      if (reentrancy_guard) {
@@ -7860,24 +5400,6 @@ index 3e3e4fc7..bcc6dee9 100644
 +#endif
          reentrancy_guard->engaged_in_io = true;
      }
- 
-@@ -563,7 +565,7 @@ static void co_schedule_bh_cb(void *opaque)
-     while (!QSLIST_EMPTY(&straight)) {
-         Coroutine *co = QSLIST_FIRST(&straight);
-         QSLIST_REMOVE_HEAD(&straight, co_scheduled_next);
--        trace_aio_co_schedule_bh_cb(ctx, co);
-+        //trace_aio_co_schedule_bh_cb(ctx, co);
- 
-         /* Protected by write barrier in qemu_aio_coroutine_enter */
-         qatomic_set(&co->scheduled, NULL);
-@@ -628,7 +630,7 @@ fail:
- 
- void aio_co_schedule(AioContext *ctx, Coroutine *co)
- {
--    trace_aio_co_schedule(ctx, co);
-+    //trace_aio_co_schedule(ctx, co);
-     const char *scheduled = qatomic_cmpxchg(&co->scheduled, NULL,
-                                            __func__);
  
 diff --git a/qcow2/lib/util/bufferiszero.c b/qcow2/lib/util/bufferiszero.c
 index 522146da..b86b90a2 100644
@@ -8045,49 +5567,22 @@ index e5e24720..e84b4b16 100644
      if (err->hint) {
          error_printf("%s", err->hint->str);
 diff --git a/qcow2/lib/util/hbitmap.c b/qcow2/lib/util/hbitmap.c
-index 6d6e1b59..106be57b 100644
+index 6d6e1b59..37cb7bc7 100644
 --- a/qcow2/lib/util/hbitmap.c
 +++ b/qcow2/lib/util/hbitmap.c
-@@ -12,7 +12,7 @@
- #include "qemu/osdep.h"
- #include "qemu/hbitmap.h"
- #include "qemu/host-utils.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "crypto/hash.h"
+@@ -944,6 +944,7 @@ void hbitmap_merge(const HBitmap *a, const HBitmap *b, HBitmap *result)
+     result->count = hb_count_between(result, 0, result->size - 1);
+ }
  
- /* HBitmaps provides an array of bits.  The bits are stored as usual in an
-@@ -140,7 +140,7 @@ static unsigned long hbitmap_iter_skip_words(HBitmapIter *hbi)
-     }
++#if 0
+ char *hbitmap_sha256(const HBitmap *bitmap, Error **errp)
+ {
+     size_t size = bitmap->sizes[HBITMAP_LEVELS - 1] * sizeof(unsigned long);
+@@ -953,3 +954,4 @@ char *hbitmap_sha256(const HBitmap *bitmap, Error **errp)
  
-     hbi->pos = pos;
--    trace_hbitmap_iter_skip_words(hbi->hb, hbi, pos, cur);
-+    //trace_hbitmap_iter_skip_words(hbi->hb, hbi, pos, cur);
- 
-     assert(cur);
-     return cur;
-@@ -471,8 +471,8 @@ void hbitmap_set(HBitmap *hb, uint64_t start, uint64_t count)
-         return;
-     }
- 
--    trace_hbitmap_set(hb, start, count,
--                      start >> hb->granularity, last >> hb->granularity);
-+    //trace_hbitmap_set(hb, start, count,
-+    //                  start >> hb->granularity, last >> hb->granularity);
- 
-     first = start >> hb->granularity;
-     last >>= hb->granularity;
-@@ -569,8 +569,8 @@ void hbitmap_reset(HBitmap *hb, uint64_t start, uint64_t count)
-     assert(QEMU_IS_ALIGNED(start, gran));
-     assert(QEMU_IS_ALIGNED(count, gran) || (start + count == hb->orig_size));
- 
--    trace_hbitmap_reset(hb, start, count,
--                        start >> hb->granularity, last >> hb->granularity);
-+    //trace_hbitmap_reset(hb, start, count,
-+    //                    start >> hb->granularity, last >> hb->granularity);
- 
-     first = start >> hb->granularity;
-     last >>= hb->granularity;
+     return hash;
+ }
++#endif
 diff --git a/qcow2/lib/util/host-utils.c b/qcow2/lib/util/host-utils.c
 index fb91bcba..6d0e2825 100644
 --- a/qcow2/lib/util/host-utils.c
@@ -8143,91 +5638,6 @@ index 7e73948f..14eb3cd1 100644
              return false;
          }
  
-diff --git a/qcow2/lib/util/lockcnt.c b/qcow2/lib/util/lockcnt.c
-index 5da36946..69274a4a 100644
---- a/qcow2/lib/util/lockcnt.c
-+++ b/qcow2/lib/util/lockcnt.c
-@@ -9,7 +9,7 @@
- #include "qemu/osdep.h"
- #include "qemu/thread.h"
- #include "qemu/atomic.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- #ifdef CONFIG_LINUX
- #include "qemu/futex.h"
-@@ -60,10 +60,10 @@ static bool qemu_lockcnt_cmpxchg_or_wait(QemuLockCnt *lockcnt, int *val,
-     if ((*val & QEMU_LOCKCNT_STATE_MASK) == QEMU_LOCKCNT_STATE_FREE) {
-         int expected = *val;
- 
--        trace_lockcnt_fast_path_attempt(lockcnt, expected, new_if_free);
-+        //trace_lockcnt_fast_path_attempt(lockcnt, expected, new_if_free);
-         *val = qatomic_cmpxchg(&lockcnt->count, expected, new_if_free);
-         if (*val == expected) {
--            trace_lockcnt_fast_path_success(lockcnt, expected, new_if_free);
-+            //trace_lockcnt_fast_path_success(lockcnt, expected, new_if_free);
-             *val = new_if_free;
-             return true;
-         }
-@@ -80,7 +80,7 @@ static bool qemu_lockcnt_cmpxchg_or_wait(QemuLockCnt *lockcnt, int *val,
-             int expected = *val;
-             int new = expected - QEMU_LOCKCNT_STATE_LOCKED + QEMU_LOCKCNT_STATE_WAITING;
- 
--            trace_lockcnt_futex_wait_prepare(lockcnt, expected, new);
-+            //trace_lockcnt_futex_wait_prepare(lockcnt, expected, new);
-             *val = qatomic_cmpxchg(&lockcnt->count, expected, new);
-             if (*val == expected) {
-                 *val = new;
-@@ -90,10 +90,10 @@ static bool qemu_lockcnt_cmpxchg_or_wait(QemuLockCnt *lockcnt, int *val,
- 
-         if ((*val & QEMU_LOCKCNT_STATE_MASK) == QEMU_LOCKCNT_STATE_WAITING) {
-             *waited = true;
--            trace_lockcnt_futex_wait(lockcnt, *val);
-+            //trace_lockcnt_futex_wait(lockcnt, *val);
-             qemu_futex_wait(&lockcnt->count, *val);
-             *val = qatomic_read(&lockcnt->count);
--            trace_lockcnt_futex_wait_resume(lockcnt, *val);
-+            //trace_lockcnt_futex_wait_resume(lockcnt, *val);
-             continue;
-         }
- 
-@@ -104,7 +104,7 @@ static bool qemu_lockcnt_cmpxchg_or_wait(QemuLockCnt *lockcnt, int *val,
- 
- static void lockcnt_wake(QemuLockCnt *lockcnt)
- {
--    trace_lockcnt_futex_wake(lockcnt);
-+    //trace_lockcnt_futex_wake(lockcnt);
-     qemu_futex_wake(&lockcnt->count, 1);
- }
- 
-@@ -261,11 +261,11 @@ void qemu_lockcnt_inc_and_unlock(QemuLockCnt *lockcnt)
-     do {
-         expected = val;
-         new = (val + QEMU_LOCKCNT_COUNT_STEP) & ~QEMU_LOCKCNT_STATE_MASK;
--        trace_lockcnt_unlock_attempt(lockcnt, val, new);
-+        //trace_lockcnt_unlock_attempt(lockcnt, val, new);
-         val = qatomic_cmpxchg(&lockcnt->count, val, new);
-     } while (val != expected);
- 
--    trace_lockcnt_unlock_success(lockcnt, val, new);
-+    //trace_lockcnt_unlock_success(lockcnt, val, new);
-     if (val & QEMU_LOCKCNT_STATE_WAITING) {
-         lockcnt_wake(lockcnt);
-     }
-@@ -279,11 +279,11 @@ void qemu_lockcnt_unlock(QemuLockCnt *lockcnt)
-     do {
-         expected = val;
-         new = val & ~QEMU_LOCKCNT_STATE_MASK;
--        trace_lockcnt_unlock_attempt(lockcnt, val, new);
-+        //trace_lockcnt_unlock_attempt(lockcnt, val, new);
-         val = qatomic_cmpxchg(&lockcnt->count, val, new);
-     } while (val != expected);
- 
--    trace_lockcnt_unlock_success(lockcnt, val, new);
-+    //trace_lockcnt_unlock_success(lockcnt, val, new);
-     if (val & QEMU_LOCKCNT_STATE_WAITING) {
-         lockcnt_wake(lockcnt);
-     }
 diff --git a/qcow2/lib/util/main-loop.c b/qcow2/lib/util/main-loop.c
 index a0386cfe..817e65a6 100644
 --- a/qcow2/lib/util/main-loop.c
@@ -8294,19 +5704,10 @@ index a0386cfe..817e65a6 100644
  
      glib_pollfds_poll();
 diff --git a/qcow2/lib/util/memalign.c b/qcow2/lib/util/memalign.c
-index c199ae70..c8b526e5 100644
+index c199ae70..622e805c 100644
 --- a/qcow2/lib/util/memalign.c
 +++ b/qcow2/lib/util/memalign.c
-@@ -27,7 +27,7 @@
- #include "qemu/osdep.h"
- #include "qemu/host-utils.h"
- #include "qemu/memalign.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- void *qemu_try_memalign(size_t alignment, size_t size)
- {
-@@ -62,9 +62,10 @@ void *qemu_try_memalign(size_t alignment, size_t size)
+@@ -62,7 +62,8 @@ void *qemu_try_memalign(size_t alignment, size_t size)
  #elif defined(CONFIG_MEMALIGN)
      ptr = memalign(alignment, size);
  #else
@@ -8314,51 +5715,8 @@ index c199ae70..c8b526e5 100644
 +    ptr = aligned_alloc(alignment, size);
 +    //#error No function to allocate aligned memory available
  #endif
--    trace_qemu_memalign(alignment, size, ptr);
-+    //trace_qemu_memalign(alignment, size, ptr);
+     trace_qemu_memalign(alignment, size, ptr);
      return ptr;
- }
- 
-@@ -82,7 +83,7 @@ void *qemu_memalign(size_t alignment, size_t size)
- 
- void qemu_vfree(void *ptr)
- {
--    trace_qemu_vfree(ptr);
-+    //trace_qemu_vfree(ptr);
- #if !defined(CONFIG_POSIX_MEMALIGN) && defined(CONFIG_ALIGNED_MALLOC)
-     /* Only Windows _aligned_malloc needs a special free function */
-     _aligned_free(ptr);
-diff --git a/qcow2/lib/util/module.c b/qcow2/lib/util/module.c
-index 3eb0f06d..f0791505 100644
---- a/qcow2/lib/util/module.c
-+++ b/qcow2/lib/util/module.c
-@@ -25,7 +25,7 @@
- #ifdef CONFIG_MODULE_UPGRADES
- #include "qemu-version.h"
- #endif
--#include "trace.h"
-+//#include "trace.h"
- 
- typedef struct ModuleEntry
- {
-@@ -191,7 +191,7 @@ static bool module_load_dso(const char *fname, bool export_symbols,
-         e->init();
-         register_module_init(e->init, e->type);
-     }
--    trace_module_load_module(fname);
-+    //trace_module_load_module(fname);
-     QTAILQ_FOREACH_SAFE(e, &dso_init_list, node, next) {
-         QTAILQ_REMOVE(&dso_init_list, e, node);
-         g_free(e);
-@@ -327,7 +327,7 @@ int module_load_qom(const char *type, Error **errp)
-         return -1;
-     }
- 
--    trace_module_lookup_object_type(type);
-+    //trace_module_lookup_object_type(type);
-     for (modinfo = module_info; modinfo->name != NULL; modinfo++) {
-         if (!modinfo->objs) {
-             continue;
 diff --git a/qcow2/lib/util/osdep.c b/qcow2/lib/util/osdep.c
 index 77036983..f78d6cd3 100644
 --- a/qcow2/lib/util/osdep.c
@@ -8445,7 +5803,7 @@ index 77036983..f78d6cd3 100644
  #ifdef _WIN32
  static void socket_cleanup(void)
 diff --git a/qcow2/lib/util/oslib-posix.c b/qcow2/lib/util/oslib-posix.c
-index 11b35e48..23c378e9 100644
+index 11b35e48..ee979a44 100644
 --- a/qcow2/lib/util/oslib-posix.c
 +++ b/qcow2/lib/util/oslib-posix.c
 @@ -31,20 +31,20 @@
@@ -8453,9 +5811,8 @@ index 11b35e48..23c378e9 100644
  #include <glib/gprintf.h>
  
 -#include "sysemu/sysemu.h"
--#include "trace.h"
 +//#include "sysemu/sysemu.h"
-+//#include "trace.h"
+ #include "trace.h"
  #include "qapi/error.h"
  #include "qemu/error-report.h"
 -#include "qemu/madvise.h"
@@ -8556,151 +5913,6 @@ index 11b35e48..23c378e9 100644
      }
  }
 +#endif
-diff --git a/qcow2/lib/util/qemu-coroutine-lock.c b/qcow2/lib/util/qemu-coroutine-lock.c
-index 25344353..6afe27a0 100644
---- a/qcow2/lib/util/qemu-coroutine-lock.c
-+++ b/qcow2/lib/util/qemu-coroutine-lock.c
-@@ -31,7 +31,7 @@
- #include "qemu/processor.h"
- #include "qemu/queue.h"
- #include "block/aio.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- void qemu_co_queue_init(CoQueue *queue)
- {
-@@ -198,7 +198,7 @@ static void coroutine_fn qemu_co_mutex_lock_slowpath(AioContext *ctx,
-     CoWaitRecord w;
-     unsigned old_handoff;
- 
--    trace_qemu_co_mutex_lock_entry(mutex, self);
-+    //trace_qemu_co_mutex_lock_entry(mutex, self);
-     push_waiter(mutex, &w);
- 
-     /*
-@@ -230,7 +230,7 @@ static void coroutine_fn qemu_co_mutex_lock_slowpath(AioContext *ctx,
-     }
- 
-     qemu_coroutine_yield();
--    trace_qemu_co_mutex_lock_return(mutex, self);
-+    //trace_qemu_co_mutex_lock_return(mutex, self);
- }
- 
- void coroutine_fn qemu_co_mutex_lock(CoMutex *mutex)
-@@ -264,7 +264,7 @@ retry_fast_path:
- 
-     if (waiters == 0) {
-         /* Uncontended.  */
--        trace_qemu_co_mutex_lock_uncontended(mutex, self);
-+        //trace_qemu_co_mutex_lock_uncontended(mutex, self);
-         mutex->ctx = ctx;
-     } else {
-         qemu_co_mutex_lock_slowpath(ctx, mutex);
-@@ -277,7 +277,7 @@ void coroutine_fn qemu_co_mutex_unlock(CoMutex *mutex)
- {
-     Coroutine *self = qemu_coroutine_self();
- 
--    trace_qemu_co_mutex_unlock_entry(mutex, self);
-+    //trace_qemu_co_mutex_unlock_entry(mutex, self);
- 
-     assert(mutex->locked);
-     assert(mutex->holder == self);
-@@ -326,7 +326,7 @@ void coroutine_fn qemu_co_mutex_unlock(CoMutex *mutex)
-         }
-     }
- 
--    trace_qemu_co_mutex_unlock_return(mutex, self);
-+    //trace_qemu_co_mutex_unlock_return(mutex, self);
- }
- 
- struct CoRwTicket {
-diff --git a/qcow2/lib/util/qemu-coroutine.c b/qcow2/lib/util/qemu-coroutine.c
-index eb4eebef..3f9b9920 100644
---- a/qcow2/lib/util/qemu-coroutine.c
-+++ b/qcow2/lib/util/qemu-coroutine.c
-@@ -13,7 +13,7 @@
-  */
- 
- #include "qemu/osdep.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "qemu/thread.h"
- #include "qemu/atomic.h"
- #include "qemu/coroutine_int.h"
-@@ -265,7 +265,7 @@ void qemu_aio_coroutine_enter(AioContext *ctx, Coroutine *co)
- 
-         QSIMPLEQ_REMOVE_HEAD(&pending, co_queue_next);
- 
--        trace_qemu_aio_coroutine_enter(ctx, from, to, to->entry_arg);
-+        //trace_qemu_aio_coroutine_enter(ctx, from, to, to->entry_arg);
- 
-         /* if the Coroutine has already been scheduled, entering it again will
-          * cause us to enter it twice, potentially even after the coroutine has
-@@ -302,7 +302,7 @@ void qemu_aio_coroutine_enter(AioContext *ctx, Coroutine *co)
-             break;
-         case COROUTINE_TERMINATE:
-             assert(!to->locks_held);
--            trace_qemu_coroutine_terminate(to);
-+            //trace_qemu_coroutine_terminate(to);
-             coroutine_delete(to);
-             break;
-         default:
-@@ -328,7 +328,7 @@ void coroutine_fn qemu_coroutine_yield(void)
-     Coroutine *self = qemu_coroutine_self();
-     Coroutine *to = self->caller;
- 
--    trace_qemu_coroutine_yield(self, to);
-+    //trace_qemu_coroutine_yield(self, to);
- 
-     if (!to) {
-         fprintf(stderr, "Co-routine is yielding to no one\n");
-diff --git a/qcow2/lib/util/qemu-option.c b/qcow2/lib/util/qemu-option.c
-index 201f7a87..4ba11fa1 100644
---- a/qcow2/lib/util/qemu-option.c
-+++ b/qcow2/lib/util/qemu-option.c
-@@ -637,7 +637,7 @@ QemuOpts *qemu_opts_create(QemuOptsList *list, const char *id,
-     opts = g_malloc0(sizeof(*opts));
-     opts->id = g_strdup(id);
-     opts->list = list;
--    loc_save(&opts->loc);
-+    //loc_save(&opts->loc);
-     QTAILQ_INIT(&opts->head);
-     QTAILQ_INSERT_TAIL(&list->head, opts, next);
-     return opts;
-@@ -654,7 +654,7 @@ void qemu_opts_reset(QemuOptsList *list)
- 
- void qemu_opts_loc_restore(QemuOpts *opts)
- {
--    loc_restore(&opts->loc);
-+    //loc_restore(&opts->loc);
- }
- 
- const char *qemu_opts_id(QemuOpts *opts)
-@@ -1125,20 +1125,20 @@ bool qemu_opts_validate(QemuOpts *opts, const QemuOptDesc *desc, Error **errp)
- int qemu_opts_foreach(QemuOptsList *list, qemu_opts_loopfunc func,
-                       void *opaque, Error **errp)
- {
--    Location loc;
-+    //Location loc;
-     QemuOpts *opts, *next;
-     int rc = 0;
- 
--    loc_push_none(&loc);
-+    //loc_push_none(&loc);
-     QTAILQ_FOREACH_SAFE(opts, &list->head, next, next) {
--        loc_restore(&opts->loc);
-+        //loc_restore(&opts->loc);
-         rc = func(opaque, opts, errp);
-         if (rc) {
-             break;
-         }
-         assert(!errp || !*errp);
-     }
--    loc_pop(&loc);
-+    //loc_pop(&loc);
-     return rc;
- }
- 
 diff --git a/qcow2/lib/util/qemu-print.c b/qcow2/lib/util/qemu-print.c
 index 69ba612f..98ca5474 100644
 --- a/qcow2/lib/util/qemu-print.c
@@ -8740,7 +5952,7 @@ index 69ba612f..98ca5474 100644
  }
  
 diff --git a/qcow2/lib/util/qemu-sockets.c b/qcow2/lib/util/qemu-sockets.c
-index 60c44b2b..ea955c48 100644
+index 60c44b2b..a54af944 100644
 --- a/qcow2/lib/util/qemu-sockets.c
 +++ b/qcow2/lib/util/qemu-sockets.c
 @@ -21,7 +21,7 @@
@@ -8752,15 +5964,6 @@ index 60c44b2b..ea955c48 100644
  #include "qapi/clone-visitor.h"
  #include "qapi/error.h"
  #include "qapi/qapi-visit-sockets.h"
-@@ -30,7 +30,7 @@
- #include "qapi/qobject-input-visitor.h"
- #include "qapi/qobject-output-visitor.h"
- #include "qemu/cutils.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- #ifndef AI_ADDRCONFIG
- # define AI_ADDRCONFIG 0
 @@ -1137,21 +1137,23 @@ fail:
  
  static int socket_get_fd(const char *fdstr, Error **errp)
@@ -8799,15 +6002,6 @@ index 60c44b2b..ea955c48 100644
  
      case SOCKET_ADDRESS_TYPE_VSOCK:
          fd = vsock_connect_saddr(&addr->u.vsock, errp);
-@@ -1210,7 +1214,7 @@ int socket_listen(SocketAddress *addr, int num, Error **errp)
- {
-     int fd;
- 
--    trace_socket_listen(num);
-+    //trace_socket_listen(num);
-     switch (addr->type) {
-     case SOCKET_ADDRESS_TYPE_INET:
-         fd = inet_listen_saddr(&addr->u.inet, 0, num, errp);
 @@ -1220,6 +1224,7 @@ int socket_listen(SocketAddress *addr, int num, Error **errp)
          fd = unix_listen_saddr(&addr->u.q_unix, num, errp);
          break;
@@ -8837,48 +6031,8 @@ index 60c44b2b..ea955c48 100644
      return addr;
  }
 +#endif
-diff --git a/qcow2/lib/util/qemu-thread-common.h b/qcow2/lib/util/qemu-thread-common.h
-index 2af6b120..d09ade17 100644
---- a/qcow2/lib/util/qemu-thread-common.h
-+++ b/qcow2/lib/util/qemu-thread-common.h
-@@ -14,7 +14,7 @@
- #define QEMU_THREAD_COMMON_H
- 
- #include "qemu/thread.h"
--#include "trace.h"
-+//#include "trace.h"
- 
- static inline void qemu_mutex_post_init(QemuMutex *mutex)
- {
-@@ -28,7 +28,7 @@ static inline void qemu_mutex_post_init(QemuMutex *mutex)
- static inline void qemu_mutex_pre_lock(QemuMutex *mutex,
-                                        const char *file, int line)
- {
--    trace_qemu_mutex_lock(mutex, file, line);
-+    //trace_qemu_mutex_lock(mutex, file, line);
- }
- 
- static inline void qemu_mutex_post_lock(QemuMutex *mutex,
-@@ -38,7 +38,7 @@ static inline void qemu_mutex_post_lock(QemuMutex *mutex,
-     mutex->file = file;
-     mutex->line = line;
- #endif
--    trace_qemu_mutex_locked(mutex, file, line);
-+    //trace_qemu_mutex_locked(mutex, file, line);
- }
- 
- static inline void qemu_mutex_pre_unlock(QemuMutex *mutex,
-@@ -48,7 +48,7 @@ static inline void qemu_mutex_pre_unlock(QemuMutex *mutex,
-     mutex->file = NULL;
-     mutex->line = 0;
- #endif
--    trace_qemu_mutex_unlock(mutex, file, line);
-+    //trace_qemu_mutex_unlock(mutex, file, line);
- }
- 
- #endif
 diff --git a/qcow2/lib/util/qemu-thread-posix.c b/qcow2/lib/util/qemu-thread-posix.c
-index b2e26e21..8ea29d06 100644
+index b2e26e21..f02bf387 100644
 --- a/qcow2/lib/util/qemu-thread-posix.c
 +++ b/qcow2/lib/util/qemu-thread-posix.c
 @@ -15,7 +15,7 @@
@@ -8890,18 +6044,6 @@ index b2e26e21..8ea29d06 100644
  #include "qemu/bitmap.h"
  
  #ifdef CONFIG_PTHREAD_SET_NAME_NP
-@@ -235,9 +235,9 @@ qemu_cond_timedwait_ts(QemuCond *cond, QemuMutex *mutex, struct timespec *ts,
-     int err;
- 
-     assert(cond->initialized);
--    trace_qemu_mutex_unlock(mutex, file, line);
-+    //trace_qemu_mutex_unlock(mutex, file, line);
-     err = pthread_cond_timedwait(&cond->cond, &mutex->lock, ts);
--    trace_qemu_mutex_locked(mutex, file, line);
-+    //trace_qemu_mutex_locked(mutex, file, line);
-     if (err && err != ETIMEDOUT) {
-         error_exit(err, __func__);
-     }
 @@ -518,7 +518,7 @@ static void *qemu_thread_start(void *args)
          pthread_set_name_np(pthread_self(), qemu_thread_args->name);
  # endif
@@ -9055,48 +6197,6 @@ index 6b783e2e..5e54c4be 100644
      }
  }
 +#endif
-diff --git a/qcow2/lib/util/thread-pool.c b/qcow2/lib/util/thread-pool.c
-index 27eb777e..c0026baa 100644
---- a/qcow2/lib/util/thread-pool.c
-+++ b/qcow2/lib/util/thread-pool.c
-@@ -19,7 +19,7 @@
- #include "qemu/queue.h"
- #include "qemu/thread.h"
- #include "qemu/coroutine.h"
--#include "trace.h"
-+//#include "trace.h"
- #include "block/thread-pool.h"
- #include "qemu/main-loop.h"
- 
-@@ -184,8 +184,8 @@ restart:
-             continue;
-         }
- 
--        trace_thread_pool_complete(pool, elem, elem->common.opaque,
--                                   elem->ret);
-+        //trace_thread_pool_complete(pool, elem, elem->common.opaque,
-+        //                           elem->ret);
-         QLIST_REMOVE(elem, all);
- 
-         if (elem->common.cb) {
-@@ -220,7 +220,7 @@ static void thread_pool_cancel(BlockAIOCB *acb)
-     ThreadPoolElement *elem = (ThreadPoolElement *)acb;
-     ThreadPool *pool = elem->pool;
- 
--    trace_thread_pool_cancel(elem, elem->common.opaque);
-+    //trace_thread_pool_cancel(elem, elem->common.opaque);
- 
-     QEMU_LOCK_GUARD(&pool->lock);
-     if (elem->state == THREAD_QUEUED) {
-@@ -256,7 +256,7 @@ BlockAIOCB *thread_pool_submit_aio(ThreadPoolFunc *func, void *arg,
- 
-     QLIST_INSERT_HEAD(&pool->head, req, all);
- 
--    trace_thread_pool_submit(pool, req, arg);
-+    //trace_thread_pool_submit(pool, req, arg);
- 
-     qemu_mutex_lock(&pool->lock);
-     if (pool->idle_threads == 0 && pool->cur_threads < pool->max_threads) {
 diff --git a/qcow2/lib/util/yank.c b/qcow2/lib/util/yank.c
 index eaac5053..be696c91 100644
 --- a/qcow2/lib/util/yank.c

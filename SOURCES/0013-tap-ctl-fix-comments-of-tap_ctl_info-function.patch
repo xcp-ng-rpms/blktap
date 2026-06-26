@@ -1,4 +1,4 @@
-From 862a1d549ac9e5ce8750d31bd1ce3027b050d240 Mon Sep 17 00:00:00 2001
+From a74e38ffa8b049bd5a2bf2ef121737664eda3366 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Sat, 15 Mar 2025 12:26:27 +0100
 Subject: [PATCH] tap-ctl: fix comments of tap_ctl_info function

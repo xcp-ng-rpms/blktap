@@ -1,4 +1,4 @@
-From ea55c11cee3c9e77349c0fa7ea19e7e8202634b9 Mon Sep 17 00:00:00 2001
+From 636c4a76d8032b29e7f6b9299e602fd61bdd5811 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Fri, 14 Mar 2025 15:10:25 +0100
 Subject: [PATCH] tapdisk: check if RD macros are defined in ring.h (since

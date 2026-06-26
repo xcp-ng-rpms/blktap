@@ -1,4 +1,4 @@
-From bab444b5fd7f67fdcf3cdc4b5a91f506dd97f336 Mon Sep 17 00:00:00 2001
+From ae49a1d06ca20863062f21e3dd1cf2729e4a2432 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 5 Mar 2025 18:09:16 +0100
 Subject: [PATCH] tapdisk: support new cancel command
@@ -21,7 +21,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  10 files changed, 162 insertions(+)
 
 diff --git a/control/tap-ctl-commit.c b/control/tap-ctl-commit.c
-index eef6ea5f..1bc111a1 100644
+index 04985f69..56549deb 100644
 --- a/control/tap-ctl-commit.c
 +++ b/control/tap-ctl-commit.c
 @@ -105,3 +105,33 @@ tap_ctl_query_commit_job(const int id, const int minor)
@@ -222,10 +222,10 @@ index b3ff6e13..d4ddf4d6 100644
  void td_queue_write(td_image_t *, td_request_t);
  void td_queue_read(td_image_t *, td_request_t);
 diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
-index 7da25b6e..d082cc8d 100644
+index 9b6d4d84..345fba36 100644
 --- a/drivers/tapdisk-vbd.c
 +++ b/drivers/tapdisk-vbd.c
-@@ -1164,6 +1164,22 @@ tapdisk_vbd_query_commit_job(td_vbd_t *vbd, td_query_t *query)
+@@ -1165,6 +1165,22 @@ tapdisk_vbd_query_commit_job(td_vbd_t *vbd, td_query_t *query)
  	return err;
  }
  
@@ -249,7 +249,7 @@ index 7da25b6e..d082cc8d 100644
  tapdisk_vbd_request_ttl(td_vbd_request_t *vreq,
  			const struct timeval *now)
 diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
-index fb948255..415e0d1f 100644
+index af333736..bfac0c66 100644
 --- a/drivers/tapdisk-vbd.h
 +++ b/drivers/tapdisk-vbd.h
 @@ -232,6 +232,7 @@ void tapdisk_vbd_check_state(td_vbd_t *);
@@ -261,7 +261,7 @@ index fb948255..415e0d1f 100644
  void tapdisk_vbd_complete_td_request(td_request_t, int);
  int add_extent(tapdisk_extents_t *, td_request_t *);
 diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
-index 06891584..d32e36b5 100644
+index cf1adabc..2f74c957 100644
 --- a/drivers/tapdisk.h
 +++ b/drivers/tapdisk.h
 @@ -237,6 +237,7 @@ struct tap_disk {

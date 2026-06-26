@@ -1,4 +1,4 @@
-From b19df24862e0e322a10a13b186425a73fdfb712a Mon Sep 17 00:00:00 2001
+From 04283cb976ac46341687704b790cf571cb2d1680 Mon Sep 17 00:00:00 2001
 From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
 Date: Thu, 8 Jan 2026 19:06:03 +0100
 Subject: [PATCH] tapdisk: Fix a typo in util.h header

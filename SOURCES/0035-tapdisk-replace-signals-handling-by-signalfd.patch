@@ -1,4 +1,4 @@
-From 7cd6427151a6f9afbc04f93525b6a7b8751bb9e8 Mon Sep 17 00:00:00 2001
+From 2d8405db2f9aec38c0c4db856e2dbdc601a56eee Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Fri, 17 Oct 2025 18:10:41 +0200
 Subject: [PATCH] tapdisk: replace signals handling by signalfd

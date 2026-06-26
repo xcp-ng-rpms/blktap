@@ -1,4 +1,4 @@
-From 54c7fafd406c72c9f56893bc5e82af311b29de80 Mon Sep 17 00:00:00 2001
+From c889ec008cc58053db48262c8a9ee8730a5cd14a Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 18 Mar 2025 19:28:22 +0100
 Subject: [PATCH] tapdisk: Replace structure name in sizeof
