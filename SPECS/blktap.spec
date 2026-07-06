@@ -220,7 +220,7 @@ without requiring other libraries
 * Fri Jul 03 2026 Mathieu Labourier <mathieu.labourier@vates.tech> - 3.55.5-9.3
 - Pass error details up to tap-ctl.
   * The error printed by tap-ctl is now clearer and parsable for tools like SM.
-  * Also adds details relative to the tapdisk error that cuased the issue (if any).
+  * Also adds details relative to the tapdisk error that caused the issue (if any).
 
 * Thu Jun 18 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-9.2
 - Avoid concurrent access on vbd requests.
