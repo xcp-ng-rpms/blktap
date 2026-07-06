@@ -1,0 +1,1943 @@
+From d3bc87696afd92396a39de63a7302d2dcd9fe08f Mon Sep 17 00:00:00 2001
+From: Mathieu Labourier <mathieu.labourier@vates.tech>
+Date: Thu, 30 Apr 2026 11:20:20 +0200
+Subject: [PATCH] feat: pass error details up to tap-ctl
+
+Passing an error structure all the way through the
+functions and calls invoked by tap-ctl allows to have detailed errors
+
+This also paves the way for structured logging
+when calling tap-ctl using other program or scripts (e.g. SMAPI)
+
+(cherry picked from commit b6aba882df7ae943c874e5ca850b36186abc177a)
+
+Signed-off-by: Mathieu Labourier <mathieu.labourier@vates.tech>
+---
+ control/tap-ctl-unpause.c |  14 ++-
+ control/tap-ctl.c         | 255 ++++++++++++++++++++++++--------------
+ drivers/tapdisk-control.c | 116 ++++++++++-------
+ drivers/tapdisk-image.c   |  73 +++++++----
+ drivers/tapdisk-image.h   |   3 +-
+ drivers/tapdisk-stream.c  |   3 +-
+ drivers/tapdisk-vbd.c     |  26 ++--
+ drivers/tapdisk-vbd.h     |   4 +-
+ include/Makefile.am       |   1 +
+ include/tap-ctl.h         |   3 +-
+ include/tapdisk-err.h     | 182 +++++++++++++++++++++++++++
+ 11 files changed, 501 insertions(+), 179 deletions(-)
+ create mode 100644 include/tapdisk-err.h
+
+diff --git a/control/tap-ctl-unpause.c b/control/tap-ctl-unpause.c
+index 277ef88..a0d5868 100644
+--- a/control/tap-ctl-unpause.c
++++ b/control/tap-ctl-unpause.c
+@@ -44,7 +44,7 @@
+ 
+ int
+ tap_ctl_unpause(const int id, const int minor, const char *params, int flags,
+-		char *secondary, const char *logpath)
++		char *secondary, const char *logpath, td_err *error)
+ {
+ 	int err;
+ 	tapdisk_message_t message;
+@@ -54,6 +54,8 @@ tap_ctl_unpause(const int id, const int minor, const char *params, int flags,
+ 	message.cookie = minor;
+ 	message.u.params.flags = flags;
+ 
++	td_err_init_errno(error);
++
+ 	if (params)
+ 		safe_strncpy(message.u.params.path, params,
+ 			     sizeof(message.u.params.path));
+@@ -63,7 +65,7 @@ tap_ctl_unpause(const int id, const int minor, const char *params, int flags,
+ 			       secondary);
+ 		if (err >= sizeof(message.u.params.secondary)) {
+ 			EPRINTF("secondary image name too long\n");
+-			return -ENAMETOOLONG;
++			return td_err_set_errno(error, -ENAMETOOLONG);
+ 		}
+ 	}
+ 	if (logpath) {
+@@ -73,8 +75,10 @@ tap_ctl_unpause(const int id, const int minor, const char *params, int flags,
+ 		err = tap_ctl_connect_send_and_receive(id, &message, NULL);
+ 	}
+ 
++	if (message.u.response.message[0])
++		td_err_set_reason(error, message.u.response.message);
+ 	if (err)
+-		return err;
++		return td_err_set_errno(error, err);
+ 
+ 	if (message.type == TAPDISK_MESSAGE_RESUME_RSP
+ 			|| message.type == TAPDISK_MESSAGE_ERROR)
+@@ -87,6 +91,8 @@ tap_ctl_unpause(const int id, const int minor, const char *params, int flags,
+ 
+ 	if (err)
+ 		EPRINTF("unpause failed: %s\n", strerror(-err));
++	else
++		return td_err_set_success(error);
+ 
+-	return err;
++	return td_err_set_errno(error, err);
+ }
+diff --git a/control/tap-ctl.c b/control/tap-ctl.c
+index c5597c9..79bcbc6 100644
+--- a/control/tap-ctl.c
++++ b/control/tap-ctl.c
+@@ -44,13 +44,27 @@
+ 
+ #define MAX_AES_XTS_PLAIN_KEYSIZE 1024
+ 
+-typedef int (*tap_ctl_func_t) (int, char **);
++typedef int (*tap_ctl_func_t) (int, char **, td_err *);
+ 
+ struct command {
+ 	char                     *name;
+ 	tap_ctl_func_t            func;
+ };
+ 
++static void
++td_err_print_error(const td_err *error)
++{
++	if (!error) return;
++
++	fprintf(stderr, "%s [%d - %s]: %s. Reason: %s\n",
++		error->code == TD_SUCCESS ? "SUCCESS" : "ERROR",
++		error->code == TD_USE_ERRNO ? error->saved_errno : (int)error->code,
++		error->cmd[0] ? error->cmd : "<unknown cmd>",
++		error->code == TD_USE_ERRNO ? strerror(abs(error->saved_errno)) : td_err_code_to_string(error->code),
++		error->reason[0] ? error->reason : "No specific reason provided"
++	);
++}
++
+ static void
+ tap_cli_list_usage(FILE *stream)
+ {
+@@ -111,7 +125,7 @@ tap_cli_list_dict(tap_list_t *entry)
+ }
+ 
+ int
+-tap_cli_list(int argc, char **argv)
++tap_cli_list(int argc, char **argv, td_err *error)
+ {
+ 	struct list_head list = LIST_HEAD_INIT(list);
+ 	int c, minor, tty, err;
+@@ -123,6 +137,7 @@ tap_cli_list(int argc, char **argv)
+ 	minor = -1;
+ 	type  = NULL;
+ 	file  = NULL;
++	td_err_init_errno(error);
+ 
+ 	while ((c = getopt(argc, argv, "m:p:t:f:h")) != -1) {
+ 		switch (c) {
+@@ -142,7 +157,7 @@ tap_cli_list(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_list_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+@@ -151,7 +166,7 @@ tap_cli_list(int argc, char **argv)
+ 	else
+ 		err = tap_ctl_list(&list);
+ 	if (err)
+-		return -err;
++		return td_err_set_errno(error, -err);
+ 
+ 	tty = isatty(STDOUT_FILENO);
+ 
+@@ -186,11 +201,11 @@ tap_cli_list(int argc, char **argv)
+ 
+ 	tap_ctl_list_free(&list);
+ 
+-	return 0;
++	return td_err_set_success(error);
+ 
+ usage:
+ 	tap_cli_list_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -200,13 +215,14 @@ tap_cli_allocate_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_allocate(int argc, char **argv)
++tap_cli_allocate(int argc, char **argv, td_err *error)
+ {
+ 	char *devname;
+ 	int c, minor, err;
+ 	char d_flag = 0;
+ 
+ 	devname = NULL;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "d:h")) != -1) {
+@@ -219,22 +235,24 @@ tap_cli_allocate(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_allocate_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+ 	err = tap_ctl_allocate(&minor, &devname);
+-	if (!err)
++	if (!err) {
++		td_err_set_success(error);
+ 		printf("%s\n", devname);
++	}
+ 
+ 	if (!d_flag)
+ 		free(devname);
+ 
+-	return err;
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_allocate_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -244,11 +262,12 @@ tap_cli_free_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_free(int argc, char **argv)
++tap_cli_free(int argc, char **argv, td_err *error)
+ {
+-	int c, minor;
++	int c, minor, err;
+ 
+ 	minor = -1;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "m:h")) != -1) {
+@@ -260,18 +279,21 @@ tap_cli_free(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_free_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+ 	if (minor == -1)
+ 		goto usage;
+ 
+-	return tap_ctl_free(minor);
++	err = tap_ctl_free(minor);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_free_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -287,9 +309,9 @@ tap_cli_create_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_create(int argc, char **argv)
++tap_cli_create(int argc, char **argv, td_err *error)
+ {
+-	int c, err, flags, prt_minor, timeout;
++	int c, flags, prt_minor, timeout, err;
+ 	char *args, *devname, *secondary;
+ 	char d_flag = 0;
+ 	char *logpath = NULL;
+@@ -300,6 +322,7 @@ tap_cli_create(int argc, char **argv)
+ 	prt_minor = -1;
+ 	flags     = 0;
+ 	timeout   = 0;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "a:RDd:e:r2:st:C:h")) != -1) {
+@@ -342,7 +365,7 @@ tap_cli_create(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_create_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+@@ -351,17 +374,19 @@ tap_cli_create(int argc, char **argv)
+ 
+ 	err = tap_ctl_create(args, &devname, flags, prt_minor, secondary,
+ 			timeout, logpath);
+-	if (!err)
++	if (!err) {
++		td_err_set_success(error);
+ 		printf("%s\n", devname);
++	}
+ 
+ 	if (!d_flag)
+ 		free(devname);
+ 
+-	return err;
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_create_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -382,14 +407,15 @@ tap_cli_timeout(const char *optarg)
+ }
+ 
+ static int
+-tap_cli_destroy(int argc, char **argv)
++tap_cli_destroy(int argc, char **argv, td_err *error)
+ {
+-	int c, pid, minor;
++	int c, pid, minor, err;
+ 	struct timeval *timeout;
+ 
+ 	pid     = -1;
+ 	minor   = -1;
+ 	timeout = NULL;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "p:m:t:h")) != -1) {
+@@ -409,18 +435,21 @@ tap_cli_destroy(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_destroy_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+ 	if (pid == -1 || minor == -1)
+ 		goto usage;
+ 
+-	return tap_ctl_destroy(pid, minor, 0, timeout);
++	err = tap_ctl_destroy(pid, minor, 0, timeout);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_destroy_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -430,10 +459,11 @@ tap_cli_spawn_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_spawn(int argc, char **argv)
++tap_cli_spawn(int argc, char **argv, td_err *error)
+ {
+ 	int c, tty;
+ 	pid_t pid;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "h")) != -1) {
+@@ -442,13 +472,13 @@ tap_cli_spawn(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_spawn_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+ 	pid = tap_ctl_spawn();
+ 	if (pid < 0)
+-		return pid;
++		return td_err_set_errno(error, pid);
+ 
+ 	tty = isatty(STDOUT_FILENO);
+ 	if (tty)
+@@ -456,11 +486,11 @@ tap_cli_spawn(int argc, char **argv)
+ 	else
+ 		printf("%d\n", pid);
+ 
+-	return 0;
++	return td_err_set_success(error);
+ 
+ usage:
+ 	tap_cli_spawn_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -470,12 +500,13 @@ tap_cli_attach_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_attach(int argc, char **argv)
++tap_cli_attach(int argc, char **argv, td_err *error)
+ {
+-	int c, pid, minor;
++	int c, pid, minor, err;
+ 
+ 	pid   = -1;
+ 	minor = -1;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "p:m:h")) != -1) {
+@@ -490,18 +521,21 @@ tap_cli_attach(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_attach_usage(stderr);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+ 	if (pid == -1 || minor == -1)
+ 		goto usage;
+ 
+-	return tap_ctl_attach(pid, minor);
++	err = tap_ctl_attach(pid, minor);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_attach_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -511,12 +545,13 @@ tap_cli_detach_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_detach(int argc, char **argv)
++tap_cli_detach(int argc, char **argv, td_err *error)
+ {
+-	int c, pid, minor;
++	int c, pid, minor, err;
+ 
+ 	pid   = -1;
+ 	minor = -1;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "p:m:h")) != -1) {
+@@ -531,18 +566,21 @@ tap_cli_detach(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_detach_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+ 	if (pid == -1 || minor == -1)
+ 		goto usage;
+ 
+-	return tap_ctl_detach(pid, minor);
++	err = tap_ctl_detach(pid, minor);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_detach_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -552,15 +590,16 @@ tap_cli_close_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_close(int argc, char **argv)
++tap_cli_close(int argc, char **argv, td_err *error)
+ {
+-	int c, pid, minor, force;
++	int c, pid, minor, force, err;
+ 	struct timeval *timeout;
+ 
+ 	pid     = -1;
+ 	minor   = -1;
+ 	force   = 0;
+ 	timeout = NULL;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "p:m:ft:h")) != -1) {
+@@ -583,18 +622,21 @@ tap_cli_close(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_close_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+ 	if (pid == -1 || minor == -1)
+ 		goto usage;
+ 
+-	return tap_ctl_close(pid, minor, force, timeout);
++	err = tap_ctl_close(pid, minor, force, timeout);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_close_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -604,14 +646,15 @@ tap_cli_pause_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_pause(int argc, char **argv)
++tap_cli_pause(int argc, char **argv, td_err *error)
+ {
+-	int c, pid, minor;
++	int c, pid, minor, err;
+ 	struct timeval *timeout;
+ 
+ 	pid     = -1;
+ 	minor   = -1;
+ 	timeout = NULL;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "p:m:t:h")) != -1) {
+@@ -630,18 +673,21 @@ tap_cli_pause(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_pause_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+ 	if (pid == -1 || minor == -1)
+ 		goto usage;
+ 
+-	return tap_ctl_pause(pid, minor, timeout);
++	err = tap_ctl_pause(pid, minor, timeout);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_pause_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -653,11 +699,11 @@ tap_cli_unpause_usage(FILE *stream)
+ }
+ 
+ int
+-tap_cli_unpause(int argc, char **argv)
++tap_cli_unpause(int argc, char **argv, td_err *error)
+ {
+ 	const char *args, *logpath;
+ 	char *secondary;
+-	int c, pid, minor, flags;
++	int c, pid, minor, flags, err;
+ 
+ 	pid        = -1;
+ 	minor = -1;
+@@ -665,6 +711,7 @@ tap_cli_unpause(int argc, char **argv)
+ 	secondary  = NULL;
+ 	flags      = 0;
+ 	logpath	   = NULL;	
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "p:m:a:2:c:h")) != -1) {
+@@ -690,18 +737,21 @@ tap_cli_unpause(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_unpause_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+ 	if (pid == -1 || minor == -1)
+ 		goto usage;
+ 
+-	return tap_ctl_unpause(pid, minor, args, flags, secondary, logpath);
++	err = tap_ctl_unpause(pid, minor, args, flags, secondary, logpath, error);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_unpause_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -711,11 +761,12 @@ tap_cli_major_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_major(int argc, char **argv)
++tap_cli_major(int argc, char **argv, td_err *error)
+ {
+ 	int c, chr, major;
+ 
+ 	chr = 0;
++	td_err_init_errno(error);
+ 
+ 	while ((c = getopt(argc, argv, "bch")) != -1) {
+ 		switch (c) {
+@@ -729,7 +780,7 @@ tap_cli_major(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_major_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		default:
+ 			goto usage;
+ 		}
+@@ -740,16 +791,17 @@ tap_cli_major(int argc, char **argv)
+ 	else
+ 		major = tap_ctl_blk_major();
+ 
+-	if (major < 0)
+-		return -major;
++	if (major < 0) {
++		return td_err_set_errno(error, -major);
++	}
+ 
+ 	printf("%d\n", major);
+ 
+-	return 0;
++	return td_err_set_success(error);
+ 
+ usage:
+ 	tap_cli_major_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -766,10 +818,10 @@ tap_cli_open_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_open(int argc, char **argv)
++tap_cli_open(int argc, char **argv, td_err *error)
+ {
+ 	const char *args, *secondary, *logpath;
+-	int c, pid, minor, flags, prt_minor, timeout;
++	int c, pid, minor, flags, prt_minor, timeout, err;
+ 	uint8_t *encryption_key;
+ 	ssize_t key_size = 0;
+ 
+@@ -782,6 +834,7 @@ tap_cli_open(int argc, char **argv)
+ 	secondary  = NULL;
+ 	logpath    = NULL;
+ 	encryption_key = NULL;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "a:RDm:p:e:r2:st:C:Eh")) != -1) {
+@@ -848,22 +901,25 @@ tap_cli_open(int argc, char **argv)
+ 			if (encryption_key) {
+ 				free(encryption_key);
+ 			}
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+ 	if (pid == -1 || minor == -1 || !args)
+ 		goto usage;
+ 
+-	return tap_ctl_open(pid, minor, args, flags, prt_minor, secondary,
++	err = tap_ctl_open(pid, minor, args, flags, prt_minor, secondary,
+ 			    timeout, logpath, (uint8_t)key_size, encryption_key);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_open_usage(stderr);
+ 	if (encryption_key) {
+ 		free(encryption_key);
+ 	}
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -876,13 +932,14 @@ tap_cli_stats_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_stats(int argc, char **argv)
++tap_cli_stats(int argc, char **argv, td_err *error)
+ {
+ 	pid_t pid;
+ 	int c, minor, err;
+ 
+ 	pid  = -1;
+ 	minor   = -1;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "p:m:h")) != -1) {
+@@ -897,7 +954,7 @@ tap_cli_stats(int argc, char **argv)
+ 			goto usage;
+ 		case 'h':
+ 			tap_cli_stats_usage(stdout);
+-			return 0;
++			return td_err_set_success(error);
+ 		}
+ 	}
+ 
+@@ -906,15 +963,15 @@ tap_cli_stats(int argc, char **argv)
+ 
+ 	err = tap_ctl_stats_fwrite(pid, minor, stdout);
+ 	if (err)
+-		return err;
++		return td_err_set_errno(error, err);
+ 
+ 	fprintf(stdout, "\n");
+ 
+-	return 0;
++	return td_err_set_success(error);
+ 
+ usage:
+ 	tap_cli_stats_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -925,22 +982,25 @@ tap_cli_check_usage(FILE *stream)
+ }
+ 
+ static int
+-tap_cli_check(int argc, char **argv)
++tap_cli_check(int argc, char **argv, td_err *error)
+ {
+ 	int err;
+ 	const char *msg;
+ 
++	td_err_init_errno(error);
++
+ 	if (argc != 1)
+ 		goto usage;
+ 
+ 	err = tap_ctl_check(&msg);
+ 	printf("%s\n", msg);
+-
+-	return err;
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_check_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -950,14 +1010,15 @@ tap_cli_commit_usage(FILE *stream)
+ }
+ 
+ int
+-tap_cli_commit(int argc, char **argv)
++tap_cli_commit(int argc, char **argv, td_err *error)
+ {
+ 	const char *args;
+-	int c, pid, minor;
++	int c, pid, minor, err;
+ 
+ 	pid   = -1;
+ 	minor = -1;
+ 	args  = NULL;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "p:m:a:h")) != -1) {
+@@ -982,11 +1043,14 @@ tap_cli_commit(int argc, char **argv)
+ 	if (pid == -1 || minor == -1 || args == NULL)
+ 		goto usage;
+ 
+-	return tap_ctl_commit(pid, minor, args);
++	err = tap_ctl_commit(pid, minor, args);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_commit_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -996,12 +1060,13 @@ tap_cli_query_commit_job_usage(FILE *stream)
+ }
+ 
+ int
+-tap_cli_query_commit_job(int argc, char **argv)
++tap_cli_query_commit_job(int argc, char **argv, td_err *error)
+ {
+-	int c, pid, minor;
++	int c, pid, minor, err;
+ 
+ 	pid   = -1;
+ 	minor = -1;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "p:m:h")) != -1) {
+@@ -1023,11 +1088,14 @@ tap_cli_query_commit_job(int argc, char **argv)
+ 	if (pid == -1 || minor == -1)
+ 		goto usage;
+ 
+-	return tap_ctl_query_commit_job(pid, minor);
++	err = tap_ctl_query_commit_job(pid, minor);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_query_commit_job_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ static void
+@@ -1037,14 +1105,15 @@ tap_cli_cancel_commit_job_usage(FILE *stream)
+ }
+ 
+ int
+-tap_cli_cancel_commit_job(int argc, char **argv)
++tap_cli_cancel_commit_job(int argc, char **argv, td_err *error)
+ {
+-	int c, pid, minor;
++	int c, pid, minor, err;
+         bool wait;
+ 
+ 	pid   = -1;
+ 	minor = -1;
+         wait  = false;
++	td_err_init_errno(error);
+ 
+ 	optind = 0;
+ 	while ((c = getopt(argc, argv, "p:m:wh")) != -1) {
+@@ -1069,11 +1138,14 @@ tap_cli_cancel_commit_job(int argc, char **argv)
+ 	if (pid == -1 || minor == -1)
+ 		goto usage;
+ 
+-	return tap_ctl_cancel_commit_job(pid, minor, wait);
++	err = tap_ctl_cancel_commit_job(pid, minor, wait);
++	if (!err)
++		return td_err_set_success(error);
++	return td_err_set_errno(error, err);
+ 
+ usage:
+ 	tap_cli_cancel_commit_job_usage(stderr);
+-	return EINVAL;
++	return td_err_set_errno(error, EINVAL);
+ }
+ 
+ struct command commands[] = {
+@@ -1196,7 +1268,8 @@ main(int argc, char *argv[])
+ 		cargv[cnt++] = arg;
+ 	}
+ 
+-	ret = cmd->func(cnt, cargv);
++	td_err error = td_err_generate_success();
++	ret = cmd->func(cnt, cargv, &error);
+ 
+ 	free(cargv);
+ 	free(path);
+@@ -1205,5 +1278,7 @@ main(int argc, char *argv[])
+ 		/* FIXME errors are not always returned as negative numbers */
+ 		fprintf(stderr, "%s\n", strerror(abs(ret)));
+ 
++	if (error.code != TD_SUCCESS)
++		td_err_print_error(&error);
+ 	return (ret >= 0 ? ret : -ret);
+ }
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index 4b7aab2..d6fdf43 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -52,6 +52,7 @@
+ #include "tapdisk.h"
+ #include "tapdisk-vbd.h"
+ #include "tapdisk-blktap.h"
++#include "tapdisk-err.h"
+ #include "tapdisk-utils.h"
+ #include "tapdisk-server.h"
+ #include "tapdisk-message.h"
+@@ -129,7 +130,7 @@ struct tapdisk_ctl_conn {
+ 
+ struct tapdisk_control_info {
+ 	int (*handler)(struct tapdisk_ctl_conn *, tapdisk_message_t *,
+-			tapdisk_message_t * const);
++			tapdisk_message_t * const, td_err *);
+ 	int flags;
+ };
+ 
+@@ -548,7 +549,7 @@ tapdisk_control_validate_request(tapdisk_message_t *request)
+ 
+ static int
+ tapdisk_control_list(struct tapdisk_ctl_conn *conn,
+-		tapdisk_message_t *request, tapdisk_message_t * const response)
++		tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	td_vbd_t *vbd;
+ 	struct list_head *head;
+@@ -584,12 +585,12 @@ tapdisk_control_list(struct tapdisk_ctl_conn *conn,
+ 	response->u.list.minor   = -1;
+ 	response->u.list.path[0] = 0;
+ 
+-	return 0;
++	return td_err_set_success(error);
+ }
+ 
+ static int
+ tapdisk_control_get_pid(struct tapdisk_ctl_conn *conn,
+-			tapdisk_message_t *request, tapdisk_message_t * const response)
++			tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	ASSERT(response);
+ 
+@@ -597,12 +598,12 @@ tapdisk_control_get_pid(struct tapdisk_ctl_conn *conn,
+ 	response->cookie = request->cookie;
+ 	response->u.tapdisk_pid = getpid();
+ 
+-	return 0;
++	return td_err_set_success(error);
+ }
+ 
+ static int
+ tapdisk_control_attach_vbd(struct tapdisk_ctl_conn *conn,
+-			   tapdisk_message_t *request, tapdisk_message_t * const response)
++			   tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	char *devname = NULL;
+ 	td_vbd_t *vbd;
+@@ -612,6 +613,8 @@ tapdisk_control_attach_vbd(struct tapdisk_ctl_conn *conn,
+     ASSERT(request);
+     ASSERT(response);
+ 
++	td_err_init_errno(error);
++
+ 	/*
+ 	 * TODO: check for max vbds per process
+ 	 */
+@@ -656,9 +659,10 @@ out:
+ 	if (!err) {
+ 		response->type = TAPDISK_MESSAGE_ATTACH_RSP;
+ 		response->cookie = request->cookie;
++		return td_err_set_success(error);
+ 	}
+ 
+-	return err;
++	return td_err_set_errno(error, err);
+ 
+ fail_vbd:
+ 	tapdisk_vbd_detach(vbd);
+@@ -668,7 +672,7 @@ fail_vbd:
+ 
+ static int
+ tapdisk_control_detach_vbd(struct tapdisk_ctl_conn *conn,
+-			   tapdisk_message_t *request, tapdisk_message_t * const response)
++			   tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	td_vbd_t *vbd;
+ 	int err = 0;
+@@ -677,6 +681,8 @@ tapdisk_control_detach_vbd(struct tapdisk_ctl_conn *conn,
+     ASSERT(request);
+     ASSERT(response);
+ 
++	td_err_init_errno(error);
++
+ 	vbd = tapdisk_server_get_vbd(request->cookie);
+ 	if (!vbd) {
+ 		err = -ENODEV;
+@@ -699,16 +705,17 @@ out:
+ 	if (!err) {
+ 		response->type = TAPDISK_MESSAGE_DETACH_RSP;
+ 		response->cookie = request->cookie;
++		return td_err_set_success(error);
+ 	}
+ 
+-	return err;
++	return td_err_set_errno(error, err);
+ }
+ 
+ static int
+ tapdisk_control_open_image(struct tapdisk_ctl_conn *conn,
+-			   tapdisk_message_t *request, tapdisk_message_t * const response)
++			   tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+-	int err, ret;
++	int ret, err = 0;
+ 	td_vbd_t *vbd;
+ 	td_flag_t flags;
+ 
+@@ -716,6 +723,8 @@ tapdisk_control_open_image(struct tapdisk_ctl_conn *conn,
+     ASSERT(request);
+     ASSERT(response);
+ 
++	td_err_init_errno(error);
++
+ 	vbd = tapdisk_server_get_vbd(request->cookie);
+ 	if (!vbd) {
+ 		err = -EINVAL;
+@@ -811,7 +820,7 @@ tapdisk_control_open_image(struct tapdisk_ctl_conn *conn,
+ 	}
+ 
+ 	err = tapdisk_vbd_open_vdi(vbd, request->u.params.path, flags,
+-				   request->u.params.prt_devnum);
++				   request->u.params.prt_devnum, error);
+ 	if (err)
+ 		goto out;
+ 
+@@ -845,16 +854,15 @@ tapdisk_control_open_image(struct tapdisk_ctl_conn *conn,
+ 		goto fail_close;
+ 	}
+ 
+-	err = 0;
+-
+ out:
+     if (!err) {
+         response->u.image.sectors = vbd->disk_info.size;
+         response->u.image.sector_size = vbd->disk_info.sector_size;
+         response->u.image.info = vbd->disk_info.info;
+         response->type = TAPDISK_MESSAGE_OPEN_RSP;
++		return td_err_set_success(error);
+ 	}
+-	return err;
++	return td_err_set_errno(error, err);
+ 
+ fail_close:
+ 	tapdisk_vbd_close_vdi(vbd);
+@@ -869,7 +877,7 @@ fail_close:
+ 
+ static int
+ tapdisk_control_close_image(struct tapdisk_ctl_conn *conn,
+-			    tapdisk_message_t *request, tapdisk_message_t * const response)
++			    tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	td_vbd_t *vbd;
+ 	int err = 0;
+@@ -879,10 +887,12 @@ tapdisk_control_close_image(struct tapdisk_ctl_conn *conn,
+     ASSERT(request);
+     ASSERT(response);
+ 
++	td_err_init_errno(error);
++
+ 	vbd = tapdisk_server_get_vbd(request->cookie);
+  	if (!vbd) {
+         EPRINTF("VBD %d does not exist", request->cookie);
+- 		err = -ENODEV;
++		err = -ENODEV;
+  		goto out;
+  	}
+ 
+@@ -983,14 +993,16 @@ tapdisk_control_close_image(struct tapdisk_ctl_conn *conn,
+ 
+ out:
+ 	response->cookie = request->cookie;
+-	if (!err)
++	if (!err) {
+ 		response->type = TAPDISK_MESSAGE_CLOSE_RSP;
+-	return err;
++		return td_err_set_success(error);
++	}
++	return td_err_set_errno(error, err);
+ }
+ 
+ static int
+ tapdisk_control_pause_vbd(struct tapdisk_ctl_conn *conn,
+-			  tapdisk_message_t *request, tapdisk_message_t * const response)
++			  tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	struct timeval now, next = { 0, 0 }, interval = { 0, 10000 };
+ 	int err = 0;
+@@ -1000,6 +1012,8 @@ tapdisk_control_pause_vbd(struct tapdisk_ctl_conn *conn,
+ 	ASSERT(request);
+ 	ASSERT(response);
+ 
++	td_err_init_errno(error);
++
+ 	vbd = tapdisk_server_get_vbd(request->cookie);
+ 	if (!vbd) {
+ 		/* TODO log error */
+@@ -1033,12 +1047,12 @@ out:
+ 	response->cookie = request->cookie;
+ 	if (!err)
+ 		response->type = TAPDISK_MESSAGE_PAUSE_RSP;
+-	return err;
++	return td_err_set_errno(error, err);
+ }
+ 
+ static int
+ tapdisk_control_resume_vbd(struct tapdisk_ctl_conn *conn,
+-			   tapdisk_message_t *request, tapdisk_message_t * const response)
++			   tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	int err, ret;
+ 	td_vbd_t *vbd;
+@@ -1048,6 +1062,8 @@ tapdisk_control_resume_vbd(struct tapdisk_ctl_conn *conn,
+     ASSERT(request);
+     ASSERT(response);
+ 
++	td_err_init_errno(error);
++
+     /* TODO validate secondary */
+ 
+ 	INFO("resuming VBD %d, flags=0x%08x, secondary=%p\n", request->cookie,
+@@ -1099,17 +1115,19 @@ tapdisk_control_resume_vbd(struct tapdisk_ctl_conn *conn,
+ 	if (request->u.params.path[0])
+ 		desc = request->u.params.path;
+ 
+-	err = tapdisk_vbd_resume(vbd, desc);
++	err = tapdisk_vbd_resume(vbd, desc, error);
+ out:
+ 	response->cookie = request->cookie;
+-    if (!err)
+-		response->type = TAPDISK_MESSAGE_RESUME_RSP;
+-    return err;
++    if (!err) {
++	    response->type = TAPDISK_MESSAGE_RESUME_RSP;
++		return td_err_set_success(error);
++    }
++	return td_err_set_errno(error, err);
+ }
+ 
+ static int
+ tapdisk_control_stats(struct tapdisk_ctl_conn *conn,
+-		      tapdisk_message_t *request, tapdisk_message_t * const response)
++		      tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	td_stats_t _st, *st = &_st;
+ 	td_vbd_t *vbd;
+@@ -1121,6 +1139,8 @@ tapdisk_control_stats(struct tapdisk_ctl_conn *conn,
+     ASSERT(request);
+     ASSERT(response);
+ 
++	td_err_init_errno(error);
++
+ 	buf = malloc(TD_CTL_SEND_BUFSZ);
+ 	if (!buf) {
+ 		rv = -ENOMEM;
+@@ -1179,9 +1199,9 @@ out:
+         response->u.info.length = rv;
+ 		tapdisk_control_write_message(conn, response);
+ 		conn->out.prod += rv;
+-		return 0;
+-	} else
+-		return rv;
++		return td_err_set_success(error);
++	}
++	return td_err_set_errno(error, rv);
+ }
+ 
+ /**
+@@ -1193,7 +1213,7 @@ out:
+ static int
+ tapdisk_control_xenblkif_connect(
+         struct tapdisk_ctl_conn *conn __attribute__((unused)),
+-        tapdisk_message_t *request, tapdisk_message_t * const response)
++        tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+     /*
+      * Get the block interface parameters (domain ID, device ID, etc.).
+@@ -1210,6 +1230,7 @@ tapdisk_control_xenblkif_connect(
+     ASSERT(request);
+     ASSERT(response);
+ 
++	td_err_init_errno(error);
+ 	minor = request->cookie;
+ 
+     vbd = tapdisk_server_get_vbd(minor);
+@@ -1242,13 +1263,13 @@ out:
+ 		EPRINTF("VBD %d failed to connect to the shared ring: %s\n",
+ 				minor, strerror(-err));
+ 
+-    return err;
++    return td_err_set_errno(error, err);
+ }
+ 
+ static int
+ tapdisk_control_xenblkif_disconnect(
+         struct tapdisk_ctl_conn *conn __attribute__((unused)),
+-        tapdisk_message_t * request, tapdisk_message_t * const response)
++        tapdisk_message_t * request, tapdisk_message_t * const response, td_err *error)
+ {
+     tapdisk_message_blkif_t *blkif_msg;
+ 	int err;
+@@ -1256,6 +1277,7 @@ tapdisk_control_xenblkif_disconnect(
+     ASSERT(request);
+     ASSERT(response);
+ 
++	td_err_init_errno(error);
+     blkif_msg = &request->u.blkif;
+ 
+ 	ASSERT(blkif_msg);
+@@ -1270,13 +1292,13 @@ tapdisk_control_xenblkif_disconnect(
+ 		EPRINTF("failed to disconnect domid=%d, devid=%d from the "
+ 				"ring: %s\n", blkif_msg->domid, blkif_msg->devid,
+ 				strerror(-err));
+-    return err;
++    return td_err_set_errno(error, err);
+ }
+ 
+ static int
+ tapdisk_control_disk_info(
+         struct tapdisk_ctl_conn *conn __attribute__((unused)),
+-        tapdisk_message_t * request, tapdisk_message_t * const response)
++        tapdisk_message_t * request, tapdisk_message_t * const response, td_err *error)
+ {
+     tapdisk_message_image_t *image;
+     int err = 0;
+@@ -1286,6 +1308,7 @@ tapdisk_control_disk_info(
+     ASSERT(request);
+     ASSERT(response);
+ 
++	td_err_init_errno(error);
+     image = &response->u.image;
+ 
+     vbd = tapdisk_server_get_vbd(request->cookie);
+@@ -1304,12 +1327,12 @@ out:
+         image->sector_size = vbd->disk_info.sector_size;
+         image->info = vbd->disk_info.info;
+     }
+-    return err;
++    return td_err_set_errno(error, err);
+ }
+ 
+ static int
+ tapdisk_control_commit(struct tapdisk_ctl_conn *conn,
+-		       tapdisk_message_t *request, tapdisk_message_t * const response)
++		       tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	int err;
+ 	td_vbd_t *vbd;
+@@ -1319,6 +1342,7 @@ tapdisk_control_commit(struct tapdisk_ctl_conn *conn,
+ 	ASSERT(request);
+ 	ASSERT(response);
+ 
++	td_err_init_errno(error);
+ 	INFO("commit %d\n", request->cookie);
+ 
+ 	vbd = tapdisk_server_get_vbd(request->cookie);
+@@ -1336,12 +1360,12 @@ out:
+ 	response->cookie = request->cookie;
+ 	if (!err)
+ 		response->type = TAPDISK_MESSAGE_COMMIT_RSP;
+-	return err;
++	return td_err_set_errno(error, err);
+ }
+ 
+ static int
+ tapdisk_control_query_commit_job(struct tapdisk_ctl_conn *conn,
+-		       tapdisk_message_t *request, tapdisk_message_t * const response)
++		       tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	int err;
+ 	td_vbd_t *vbd;
+@@ -1351,6 +1375,7 @@ tapdisk_control_query_commit_job(struct tapdisk_ctl_conn *conn,
+ 	ASSERT(request);
+ 	ASSERT(response);
+ 
++	td_err_init_errno(error);
+ 	INFO("query commit job %d\n", request->cookie);
+ 
+ 	vbd = tapdisk_server_get_vbd(request->cookie);
+@@ -1373,12 +1398,12 @@ out:
+ 		response->u.query.current_progress = query.current_progress;
+ 		response->u.query.total_progress = query.total_progress;
+ 	}
+-	return err;
++	return td_err_set_errno(error, err);
+ }
+ 
+ static int
+ tapdisk_control_cancel_commit_job(struct tapdisk_ctl_conn *conn,
+-		       tapdisk_message_t *request, tapdisk_message_t * const response)
++		       tapdisk_message_t *request, tapdisk_message_t * const response, td_err *error)
+ {
+ 	int err;
+ 	td_vbd_t *vbd;
+@@ -1387,6 +1412,7 @@ tapdisk_control_cancel_commit_job(struct tapdisk_ctl_conn *conn,
+ 	ASSERT(request);
+ 	ASSERT(response);
+ 
++	td_err_init_errno(error);
+ 	INFO("cancel commit job %d\n", request->cookie);
+ 
+ 	vbd = tapdisk_server_get_vbd(request->cookie);
+@@ -1401,7 +1427,7 @@ out:
+ 	response->cookie = request->cookie;
+ 	if (!err)
+ 		response->type = TAPDISK_MESSAGE_CANCEL_COMMIT_JOB_RSP;
+-	return err;
++	return td_err_set_errno(error, err);
+ }
+ 
+ 
+@@ -1541,6 +1567,8 @@ tapdisk_control_process_request(event_id_t event_id,
+ 	ASSERT(conn);
+ 	ASSERT(event_id == conn->event_id);
+ 
++	td_err error = td_err_generate_errno_error(0);
++
+ 	if (conn->event_id)
+ 		tapdisk_server_unregister_event(conn->event_id);
+ 
+@@ -1553,11 +1581,13 @@ tapdisk_control_process_request(event_id_t event_id,
+ 	memset(&conn->response, 0, sizeof(conn->response));
+ 	conn->response.cookie = conn->request.cookie;
+ 
+-    err = conn->info->handler(conn, &conn->request, &conn->response);
++    err = conn->info->handler(conn, &conn->request, &conn->response, &error);
+     if (err) {
+         conn->response.type = TAPDISK_MESSAGE_ERROR;
+         conn->response.u.response.error = -err;
+     }
++	if (td_err_get_reason(&error)[0])
++		snprintf(conn->response.u.response.message, TAPDISK_MESSAGE_STRING_LENGTH, "%s", td_err_get_reason(&error));
+ 	if (err || conn->response.type != TAPDISK_MESSAGE_STATS_RSP)
+ 	    tapdisk_control_write_message(conn, &conn->response);
+ 
+diff --git a/drivers/tapdisk-image.c b/drivers/tapdisk-image.c
+index eca855a..1368188 100644
+--- a/drivers/tapdisk-image.c
++++ b/drivers/tapdisk-image.c
+@@ -231,45 +231,52 @@ fail:
+ 
+ static int
+ tapdisk_image_open_parent(td_image_t *image, struct td_vbd_encryption *encryption,
+-			  td_image_t **_parent)
++			  td_image_t **_parent, td_err *error)
+ {
+ 	td_image_t *parent = NULL;
+ 	td_disk_id_t id;
+ 	int err;
+ 
++	td_err_init_errno(error);
+ 	memset(&id, 0, sizeof(id));
+ 	id.flags = image->flags;
+ 
+ 	err = td_get_parent_id(image, &id);
+ 	if (err == TD_NO_PARENT) {
+-		err = 0;
++		td_err_set_success(error);
+ 		goto out;
+ 	}
+ 	if (err)
+-		return err;
++		return td_err_set_errno(error, err);
+ 
+ 	if (((id.flags & TD_OPEN_NO_O_DIRECT) == TD_OPEN_NO_O_DIRECT) &&
+             ((id.flags & TD_OPEN_LOCAL_CACHE) == TD_OPEN_LOCAL_CACHE))
+ 		id.flags &= ~TD_OPEN_NO_O_DIRECT;
+ 	err = tapdisk_image_open(id.type, id.name, id.flags, encryption, &parent);
++	if (err) {
++		td_err_set_reason(error, id.name);
++		free(id.name);
++		return td_err_set_errno(error, err);
++	}
++	td_err_set_success(error);
+ 	/* Name has been duped to driver_name */
+ 	free(id.name);
+-	if (err)
+-		return err;
+ 
+ out:
+ 	*_parent = parent;
+-	return err;
++	return td_err_get_errno(error);
+ }
+ 
+ static int
+-tapdisk_image_open_parents(td_image_t *image, struct td_vbd_encryption *encryption)
++tapdisk_image_open_parents(td_image_t *image, struct td_vbd_encryption *encryption, td_err *error)
+ {
+-	td_image_t *parent;
++	td_image_t *parent = NULL;
+ 	int err;
+ 
++	td_err_init_errno(error);
++
+ 	do {
+-		err = tapdisk_image_open_parent(image, encryption, &parent);
++		err = tapdisk_image_open_parent(image, encryption, &parent, error);
+ 		if (err)
+ 			break;
+ 
+@@ -279,7 +286,7 @@ tapdisk_image_open_parents(td_image_t *image, struct td_vbd_encryption *encrypti
+ 		}
+ 	} while (parent);
+ 
+-	return err;
++	return td_err_set_errno(error, err);
+ }
+ 
+ void
+@@ -347,16 +354,19 @@ done:
+ static int
+ __tapdisk_image_open_chain(int type, const char *name, int flags,
+ 			   struct td_vbd_encryption *encryption, struct list_head *_head,
+-			   int prt_devnum)
++			   int prt_devnum, td_err *error)
+ {
+ 	char *prt_nbd_path = NULL;
+ 	struct list_head head = LIST_HEAD_INIT(head);
+ 	td_image_t *image;
+ 	int err;
+ 
++	td_err_init_errno(error);
+ 	err = tapdisk_image_open(type, name, flags, encryption, &image);
+-	if (err)
++	if (err) {
++		td_err_set_reason(error, name);
+ 		goto fail;
++	}
+ 
+ 	list_add_tail(&image->next, &head);
+ 
+@@ -371,8 +381,10 @@ __tapdisk_image_open_chain(int type, const char *name, int flags,
+ 		err = tapdisk_image_open(DISK_TYPE_NBD, prt_nbd_path,
+ 					 flags | TD_OPEN_RDONLY,
+ 					 encryption, &image);
+-		if (err)
++		if (err) {
++			td_err_set_reason(error, prt_nbd_path);
+ 			goto fail;
++		}
+ 
+ 		free(prt_nbd_path);
+ 		prt_nbd_path = NULL;
+@@ -380,19 +392,19 @@ __tapdisk_image_open_chain(int type, const char *name, int flags,
+ 		goto done;
+ 	}
+ 
+-	err = tapdisk_image_open_parents(image, encryption);
++	err = tapdisk_image_open_parents(image, encryption, error);
+ 	if (err)
+ 		goto fail;
+ 
+ done:
+ 	list_splice(&head, _head);
+-	return 0;
++	return td_err_set_success(error);
+ 
+ fail:
+ 	free(prt_nbd_path);
+ 
+ 	tapdisk_image_close_chain(&head);
+-	return err;
++	return td_err_set_errno(error, err);
+ }
+ 
+ int
+@@ -434,7 +446,7 @@ fail:
+ 
+ static int
+ tapdisk_image_open_x_chain(const char *path, struct td_vbd_encryption *encryption,
+-			   struct list_head *_head)
++			   struct list_head *_head, td_err *error)
+ {
+ 	struct list_head head = LIST_HEAD_INIT(head);
+ 	td_image_t *image = NULL, *next;
+@@ -442,6 +454,8 @@ tapdisk_image_open_x_chain(const char *path, struct td_vbd_encryption *encryptio
+ 	FILE *s;
+ 	int err;
+ 
++	td_err_init_errno(error);
++
+ 	s = fopen(path, "r");
+ 	if (!s) {
+ 		err = -errno;
+@@ -506,8 +520,10 @@ tapdisk_image_open_x_chain(const char *path, struct td_vbd_encryption *encryptio
+ 		}
+ 
+ 		err = tapdisk_image_open(type, path, flags, encryption, &image);
+-		if (err)
++		if (err) {
++			td_err_set_reason(error, path);
+ 			goto fail;
++		}
+ 
+ 		list_add_tail(&image->next, &head);
+ 	} while (1);
+@@ -517,9 +533,10 @@ tapdisk_image_open_x_chain(const char *path, struct td_vbd_encryption *encryptio
+ 		goto fail;
+ 	}
+ 
+-	err = tapdisk_image_open_parents(image, encryption);
++	err = tapdisk_image_open_parents(image, encryption, error);
+ 	if (err)
+ 		goto fail;
++	td_err_set_success(error);
+ 
+ 	list_splice(&head, _head);
+ out:
+@@ -530,7 +547,7 @@ out:
+ 	if (s)
+ 		fclose(s);
+ 
+-	return err;
++	return td_err_get_errno(error);
+ 
+ fail:
+ 	tapdisk_for_each_image_safe(image, next, &head)
+@@ -541,15 +558,19 @@ fail:
+ 
+ int
+ tapdisk_image_open_chain(const char *desc, int flags, int prt_devnum,
+-			 struct td_vbd_encryption *encryption, struct list_head *head)
++			 struct td_vbd_encryption *encryption, struct list_head *head, td_err *error)
+ {
+ 	const char *name;
+ 	int type, err;
+ 
++	td_err_init_errno(error);
++
+ 	type = tapdisk_disktype_parse_params(desc, &name);
+-	if (type >= 0)
+-		return __tapdisk_image_open_chain(type, name, flags, encryption,
+-						  head, prt_devnum);
++	if (type >= 0) {
++		err = __tapdisk_image_open_chain(type, name, flags, encryption,
++						  head, prt_devnum, error);
++		return td_err_set_errno(error, err);
++	}
+ 
+ 	err = type;
+ 
+@@ -557,12 +578,12 @@ tapdisk_image_open_chain(const char *desc, int flags, int prt_devnum,
+ 		switch (desc[2]) {
+ 		case 'c':
+ 			if (!strncmp(desc, "x-chain", strlen("x-chain")))
+-				err = tapdisk_image_open_x_chain(name, encryption, head);
++				err = tapdisk_image_open_x_chain(name, encryption, head, error);
+ 			break;
+ 		}
+ 	}
+ 
+-	return err;
++	return td_err_set_errno(error, err);
+ }
+ 
+ int
+diff --git a/drivers/tapdisk-image.h b/drivers/tapdisk-image.h
+index dad72d4..bec01fe 100644
+--- a/drivers/tapdisk-image.h
++++ b/drivers/tapdisk-image.h
+@@ -32,6 +32,7 @@
+ #define _TAPDISK_IMAGE_H_
+ 
+ #include "tapdisk.h"
++#include "tapdisk-err.h"
+ 
+ struct td_image_handle {
+ 	int                          type;
+@@ -79,7 +80,7 @@ struct td_image_handle {
+ int tapdisk_image_open(int, const char *, int, struct td_vbd_encryption *, td_image_t **);
+ void tapdisk_image_close(td_image_t *);
+ 
+-int tapdisk_image_open_chain(const char *, int, int, struct td_vbd_encryption *, struct list_head *);
++int tapdisk_image_open_chain(const char *, int, int, struct td_vbd_encryption *, struct list_head *, td_err *);
+ void tapdisk_image_close_chain(struct list_head *);
+ int tapdisk_image_validate_chain(struct list_head *);
+ 
+diff --git a/drivers/tapdisk-stream.c b/drivers/tapdisk-stream.c
+index 29588d7..809386a 100644
+--- a/drivers/tapdisk-stream.c
++++ b/drivers/tapdisk-stream.c
+@@ -339,7 +339,8 @@ tapdisk_stream_open_image(struct tapdisk_stream *s, const char *name)
+ 		goto out;
+ 	}
+ 
+-	err = tapdisk_vbd_open_vdi(s->vbd, name, TD_OPEN_RDONLY, -1);
++	td_err error = td_err_generate_errno_error(0);
++	err = tapdisk_vbd_open_vdi(s->vbd, name, TD_OPEN_RDONLY, -1, &error);
+ 	if (err)
+ 		goto out;
+ 
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 345fba3..8fcabbb 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -605,11 +605,13 @@ unlock:
+ }
+ 
+ int 
+-tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_devnum)
++tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_devnum, td_err *error)
+ {
+ 	char *tmp = vbd->name;
+ 	int err;
+ 
++	td_err_init_errno(error);
++
+ 	if (!list_empty(&vbd->images)) {
+ 		err = -EBUSY;
+ 		goto fail;
+@@ -628,7 +630,7 @@ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_d
+ 		}
+ 	}
+ 
+-	err = tapdisk_image_open_chain(vbd->name, flags, prt_devnum, &vbd->encryption, &vbd->images);
++	err = tapdisk_image_open_chain(vbd->name, flags, prt_devnum, &vbd->encryption, &vbd->images, error);
+ 	if (err)
+ 		goto fail;
+ 
+@@ -681,7 +683,7 @@ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_d
+ 			if (vbd->nbd_mirror_failed != 1)
+ 				goto fail;
+ 			INFO("Ignoring failed NBD secondary attach\n");
+-			err = 0;
++			td_err_set_success(error);
+ 		}
+ 	}
+ 
+@@ -701,7 +703,7 @@ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_d
+ 	if (tmp != vbd->name)
+ 		free(tmp);
+ 
+-	return err;
++	return td_err_get_errno(error);
+ 
+ fail:
+ 	if (vbd->name != tmp) {
+@@ -722,7 +724,7 @@ fail:
+ 
+ 	vbd->flags = 0;
+ 
+-	return err;
++	return td_err_set_errno(error, err);
+ }
+ 
+ void
+@@ -1062,23 +1064,25 @@ tapdisk_vbd_pause(td_vbd_t *vbd)
+ }
+ 
+ int
+-tapdisk_vbd_resume(td_vbd_t *vbd, const char *name)
++tapdisk_vbd_resume(td_vbd_t *vbd, const char *name, td_err *error)
+ {
+-	int i, err;
++	int i, err = 0;
+     struct td_xenblkif *blkif;
+ 
++	td_err_init_errno(error);
++
+ 	DBG(TLOG_DBG, "resume requested\n");
+ 
+ 	pthread_mutex_lock(&vbd->mutex);
+ 	if (!td_flag_test(vbd->state, TD_VBD_PAUSED)) {
+ 		pthread_mutex_unlock(&vbd->mutex);
+ 		EPRINTF("resume request for unpaused vbd %s\n", vbd->name);
+-		return -EINVAL;
++		return td_err_set_errno(error, -EINVAL);
+ 	}
+ 	pthread_mutex_unlock(&vbd->mutex);
+ 
+ 	for (i = 0; i < TD_VBD_EIO_RETRIES; i++) {
+-		err = tapdisk_vbd_open_vdi(vbd, name, vbd->flags | TD_OPEN_STRICT, -1);
++		err = tapdisk_vbd_open_vdi(vbd, name, vbd->flags | TD_OPEN_STRICT, -1, error);
+ 		if (!err)
+ 			break;
+ 
+@@ -1107,7 +1111,7 @@ resume_failed:
+ 		td_flag_set(vbd->state, TD_VBD_RESUME_FAILED);
+ 		pthread_mutex_unlock(&vbd->mutex);
+ 		tapdisk_vbd_close_vdi(vbd);
+-		return err;
++		return td_err_set_errno(error, err);
+ 	}
+ 	td_flag_clear(vbd->state, TD_VBD_RESUME_FAILED);
+ 
+@@ -1130,7 +1134,7 @@ resume_failed:
+ 
+ 	DBG(TLOG_DBG, "state checked\n");
+ 
+-	return 0;
++	return td_err_set_success(error);
+ }
+ 
+ int
+diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
+index bfac0c6..0993007 100644
+--- a/drivers/tapdisk-vbd.h
++++ b/drivers/tapdisk-vbd.h
+@@ -209,7 +209,7 @@ int tapdisk_vbd_close(td_vbd_t *);
+  * @returns 0 on success
+  */
+ int tapdisk_vbd_open_vdi(td_vbd_t * vbd, const char *params, td_flag_t flags,
+-        int prt_devnum);
++        int prt_devnum, td_err *error);
+ void tapdisk_vbd_close_vdi(td_vbd_t *);
+ 
+ int tapdisk_vbd_attach(td_vbd_t *, const char *, int);
+@@ -226,7 +226,7 @@ int tapdisk_vbd_issue_requests(td_vbd_t *);
+ int tapdisk_vbd_kill_queue(td_vbd_t *);
+ int tapdisk_vbd_pause(td_vbd_t *);
+ void tapdisk_vbd_squash_pause_logging(bool squash);
+-int tapdisk_vbd_resume(td_vbd_t *, const char *);
++int tapdisk_vbd_resume(td_vbd_t *, const char *, td_err *);
+ void tapdisk_vbd_kick(td_vbd_t *, bool);
+ void tapdisk_vbd_check_state(td_vbd_t *);
+ void tapdisk_vbd_free(td_vbd_t *);
+diff --git a/include/Makefile.am b/include/Makefile.am
+index 91b3680..604128a 100644
+--- a/include/Makefile.am
++++ b/include/Makefile.am
+@@ -16,6 +16,7 @@ blktap_HEADERS += blktap3.h
+ blktap_HEADERS += xen_blkif.h
+ blktap_HEADERS += tapdisk-message.h
+ blktap_HEADERS += tap-ctl.h
++blktap_HEADERS += tapdisk-err.h
+ blktap_HEADERS += debug.h
+ blktap_HEADERS += util.h
+ blktap_HEADERS += ../drivers/tapdisk-metrics-stats.h
+diff --git a/include/tap-ctl.h b/include/tap-ctl.h
+index f093912..160ecfc 100644
+--- a/include/tap-ctl.h
++++ b/include/tap-ctl.h
+@@ -34,6 +34,7 @@
+ #include <syslog.h>
+ #include <errno.h>
+ #include <sys/time.h>
++#include <tapdisk-err.h>
+ #include <tapdisk-message.h>
+ #include <list.h>
+ 
+@@ -136,7 +137,7 @@ int tap_ctl_pause(const int id, const int minor, struct timeval *timeout);
+  * Unpauses the VBD
+  */
+ int tap_ctl_unpause(const int id, const int minor, const char *params,
+-		int flags, char *secondary, const char *logpath);
++		int flags, char *secondary, const char *logpath, td_err *error);
+ 
+ ssize_t tap_ctl_stats(pid_t pid, int minor, char *buf, size_t size);
+ int tap_ctl_stats_fwrite(pid_t pid, int minor, FILE *out);
+diff --git a/include/tapdisk-err.h b/include/tapdisk-err.h
+new file mode 100644
+index 0000000..b29530a
+--- /dev/null
++++ b/include/tapdisk-err.h
+@@ -0,0 +1,182 @@
++/*
++ * Copyright (c) 2026, Vates SAS
++ *
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *  3. Neither the name of the copyright holder nor the names of its
++ *     contributors may be used to endorse or promote products derived from
++ *     this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef _TAPDISK_ERR_H_
++#define _TAPDISK_ERR_H_
++
++#define td_err_init_errno(e) _td_err_init_errno((e), __func__)
++#define td_err_generate_success() _td_err_generate_success(__func__)
++#define td_err_generate_errno_error(e) _td_err_generate_errno_error((e), __func__)
++
++#include <stdio.h>
++#include <string.h>
++#include "debug.h"
++
++#define TAPDISK_ERR_STRING_LENGTH 256
++
++typedef enum _td_err_code_e {
++    TD_SUCCESS,
++    TD_USE_ERRNO,
++    TD_UNKNOWN
++} td_err_code;
++
++typedef struct _td_err_s {
++    char				    cmd[TAPDISK_ERR_STRING_LENGTH];
++    char				    reason[TAPDISK_ERR_STRING_LENGTH];
++    td_err_code             code;
++    int					    saved_errno;
++} td_err;
++
++static inline const char *
++td_err_code_to_string(const td_err_code code)
++{
++    switch (code) {
++        case TD_SUCCESS:
++            return "success";
++        case TD_USE_ERRNO:
++        case TD_UNKNOWN:
++            return "invalid error code";
++        default:
++            ASSERT(0);
++            return "unhandled code";
++    }
++}
++
++static inline const char *
++td_err_get_cmd(const td_err *err)
++{
++    ASSERT(err)
++    return err->cmd;
++}
++
++static inline const char *
++td_err_get_reason(const td_err *err)
++{
++    ASSERT(err)
++    return err->reason;
++}
++
++static inline td_err_code
++td_err_get_code(const td_err *err)
++{
++    ASSERT(err)
++    return err->code;
++}
++
++static inline int
++td_err_get_errno(const td_err *err)
++{
++    ASSERT(err)
++    return err->saved_errno;
++}
++
++static inline int
++td_err_set_cmd(td_err *err, const char *cmd)
++{
++    ASSERT(err)
++    if (!cmd) {
++        err->cmd[0] = '\0';
++        return 0;
++    }
++    return snprintf(err->cmd, TAPDISK_ERR_STRING_LENGTH, "%s", cmd);
++}
++
++static inline int
++td_err_set_reason(td_err *err, const char *reason)
++{
++    ASSERT(err)
++    if (!reason) {
++        err->reason[0] = '\0';
++        return 0;
++    }
++    return snprintf(err->reason, TAPDISK_ERR_STRING_LENGTH, "%s", reason);
++}
++
++static inline td_err_code
++td_err_set_code(td_err *err, const td_err_code code)
++{
++    ASSERT(err)
++    return err->code = code;
++}
++
++static inline int
++td_err_set_errno(td_err *err, const int saved_errno)
++{
++    ASSERT(err)
++    return err->saved_errno = saved_errno;
++}
++
++static inline void
++td_err_reset(td_err *err)
++{
++    ASSERT(err)
++    memset(err, 0, sizeof(*err));
++}
++
++static inline int
++td_err_set_success(td_err *err)
++{
++    td_err_set_code(err, TD_SUCCESS);
++    return td_err_set_errno(err, 0);
++}
++
++static inline void
++_td_err_init_errno(td_err *err, const char *cmd)
++{
++    td_err_set_cmd(err, cmd);
++    td_err_set_code(err, TD_USE_ERRNO);
++}
++
++static inline void
++td_err_init(td_err *err, const int saved_errno, const td_err_code code, const char *cmd)
++{
++    td_err_reset(err);
++    td_err_set_code(err, code);
++    td_err_set_errno(err, saved_errno);
++    td_err_set_cmd(err, cmd);
++}
++
++static inline td_err
++_td_err_generate_success(const char *cmd)
++{
++    td_err ret;
++    td_err_init(&ret, 0, TD_SUCCESS, cmd);
++    return ret;
++}
++
++static inline td_err
++_td_err_generate_errno_error(const int err, const char *cmd)
++{
++    td_err ret;
++    td_err_init(&ret, err, TD_USE_ERRNO, cmd);
++    return ret;
++}
++
++#endif //_TAPDISK_ERR_H_
