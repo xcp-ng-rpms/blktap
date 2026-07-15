@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.3%{?dist}
+Release: %{?xsrel}.4%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -217,6 +217,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Wed Jul 15 2026 Philippe Coval <philippe.coval@vates.tech> - 3.55.5-9.4
+- Rebuild on updated gnutls
+
 * Fri Jul 03 2026 Mathieu Labourier <mathieu.labourier@vates.tech> - 3.55.5-9.3
 - Pass error details up to tap-ctl.
   * The error printed by tap-ctl is now clearer and parsable for tools like SM.
