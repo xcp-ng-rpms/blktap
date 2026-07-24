@@ -1,0 +1,30 @@
+From bd9be44f943646dd063c353fb061dd9b6aa7bcc4 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Fri, 24 Jul 2026 16:13:52 +0200
+Subject: [PATCH] fixup! libqcow2: fix abort commit without crash
+
+---
+ qcow2/lib/block/commit.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/qcow2/lib/block/commit.c b/qcow2/lib/block/commit.c
+index e7a201f8..4393fa32 100644
+--- a/qcow2/lib/block/commit.c
++++ b/qcow2/lib/block/commit.c
+@@ -100,7 +100,7 @@ static void commit_abort(Job *job)
+     bdrv_graph_rdlock_main_loop();
+     if (!s->commit_top_bs->backing) {
+         bdrv_graph_rdunlock_main_loop();
+-        return;
++        goto cleanup;
+     }
+     commit_top_backing_bs = s->commit_top_bs->backing->bs;
+     bdrv_graph_rdunlock_main_loop();
+@@ -111,6 +111,7 @@ static void commit_abort(Job *job)
+     bdrv_graph_wrunlock();
+     bdrv_drained_end(commit_top_backing_bs);
+ 
++cleanup:
+     bdrv_unref(s->commit_top_bs);
+     bdrv_unref(top_bs);
+ }
