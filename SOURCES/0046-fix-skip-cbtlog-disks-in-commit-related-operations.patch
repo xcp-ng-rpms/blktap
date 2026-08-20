@@ -1,0 +1,64 @@
+From 2a0390b652f51aec438cef09232fc7b06afdd159 Mon Sep 17 00:00:00 2001
+From: Mathieu Labourier <mathieu.labourier@vates.tech>
+Date: Mon, 17 Aug 2026 15:08:15 +0200
+Subject: [PATCH] fix: skip cbtlog disks in commit related operations
+
+This prevents a bug where tapdisk will return a cbtlog
+disk in commit related operations, causing them to fail early
+since the cbtlog driver doesn't include a commit action
+
+Signed-off-by: Mathieu Labourier <mathieu.labourier@vates.tech>
+---
+ drivers/tapdisk-vbd.c | 18 +++++++++++++++---
+ 1 file changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 8fcabbbd..7b5171cd 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -167,6 +167,18 @@ tapdisk_vbd_first_image(td_vbd_t *vbd)
+ 	return image;
+ }
+ 
++static inline td_image_t *
++tapdisk_vbd_first_non_log_image(td_vbd_t *vbd)
++{
++	td_image_t *image = NULL, *tmp;
++
++	tapdisk_vbd_for_each_image(vbd, image, tmp)
++		if (image->type != DISK_TYPE_LOG)
++			return image;
++
++	return image;
++}
++
+ static inline td_image_t *
+ tapdisk_vbd_last_image(td_vbd_t *vbd)
+ {
+@@ -1146,7 +1158,7 @@ tapdisk_vbd_commit(td_vbd_t *vbd, const char *name)
+ 		INFO("commit %s\n", name);
+ 	}
+ 
+-	err = td_commit(tapdisk_vbd_first_image(vbd), name);
++	err = td_commit(tapdisk_vbd_first_non_log_image(vbd), name);
+ 
+ 	INFO("commit started (%d)\n", err);
+ 
+@@ -1162,7 +1174,7 @@ tapdisk_vbd_query_commit_job(td_vbd_t *vbd, td_query_t *query)
+ 		INFO("query commit job.\n");
+ 	}
+ 
+-	err = td_query_commit_job(tapdisk_vbd_first_image(vbd), query);
++	err = td_query_commit_job(tapdisk_vbd_first_non_log_image(vbd), query);
+ 
+ 	INFO("query commit job (%d)\n", err);
+ 
+@@ -1178,7 +1190,7 @@ tapdisk_vbd_cancel_commit_job(td_vbd_t *vbd, bool wait)
+ 		INFO("cancel commit job.\n");
+ 	}
+ 
+-	err = td_cancel_commit_job(tapdisk_vbd_first_image(vbd), wait);
++	err = td_cancel_commit_job(tapdisk_vbd_first_non_log_image(vbd), wait);
+ 
+ 	INFO("cancel commit job (%d)\n", err);
+ 
