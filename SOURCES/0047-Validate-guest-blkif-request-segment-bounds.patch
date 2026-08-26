@@ -1,0 +1,56 @@
+From 300f9321d17842f1cbd3d4f196d72e640483ebf0 Mon Sep 17 00:00:00 2001
+From: Mark Syms <mark.syms@citrix.com>
+Date: Wed, 26 Aug 2026 15:13:54 +0200
+Subject: [PATCH] Validate guest blkif request segment bounds
+
+first_sect/last_sect in a blkif request segment are guest-controlled 8-bit
+values, but each segment addresses at most a single page (8 sectors).
+tapdisk_xenblkif_parse_request() only checked last_sect >= first_sect, so a
+segment with last_sect > 7 yielded an oversized transfer length. That drives
+out-of-bounds pointer arithmetic against the per-request buffer and overflows
+the uint16_t gntdev grant-copy length in guest_copy2() (e.g. 68KB truncates to
+4KB, so stale buffer contents are transferred).
+
+Reject any segment whose sectors fall outside the page, replacing the
+long-standing TODO at the vectorisation loop.
+
+This is CVE-2026-79605, part of XSA-513.
+
+Signed-off-by: Mark Syms <mark.syms@citrix.com>
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+Reviewed-by: Tim Smith <tim.smith@citrix.com>
+---
+ drivers/td-req.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 4d901554..6874759f 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -657,8 +657,16 @@ tapdisk_xenblkif_parse_request_locked(struct td_xenblkif * const blkif,
+         /*
+          * Note that first and last may be equal, which means only one sector
+          * must be transferred.
++         *
++         * first_sect/last_sect are guest-controlled 8-bit values, but each
++         * segment addresses at most a single page. Reject any segment whose
++         * sectors fall outside the page: an out-of-range last_sect would
++         * produce an oversized transfer length (which also overflows the
++         * uint16_t gntdev grant-copy length) and drive out-of-bounds accesses
++         * to the per-request buffer.
+          */
+-        if (seg->last_sect < seg->first_sect) {
++        if (seg->last_sect < seg->first_sect ||
++            seg->last_sect >= (PAGE_SIZE >> SECTOR_SHIFT)) {
+             RING_ERR(blkif, "req %lu: invalid sectors %d-%d\n",
+                     req->msg.id, seg->first_sect, seg->last_sect);
+             err = EINVAL;
+@@ -683,7 +691,7 @@ tapdisk_xenblkif_parse_request_locked(struct td_xenblkif * const blkif,
+         struct blkif_request_segment *seg = &req->msg.seg[i];
+         size_t size;
+ 
+-        /* TODO check that first_sect/last_sect are within page */
++        /* first_sect/last_sect are already validated, above */
+ 
+         next = page + (seg->first_sect << SECTOR_SHIFT);
+         size = seg->last_sect - seg->first_sect + 1;

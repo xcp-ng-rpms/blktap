@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.4%{?dist}
+Release: %{?xsrel}.5%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -89,6 +89,8 @@ Patch1043: 0043-qcow2-support-cancel-command.patch
 Patch1044: 0044-libqcow2-fix-abort-commit-without-crash.patch
 Patch1045: 0045-feat-pass-error-details-up-to-tap-ctl.patch
 Patch1046: 0046-fix-skip-cbtlog-disks-in-commit-related-operations.patch
+Patch1047: 0047-Validate-guest-blkif-request-segment-bounds.patch
+Patch1048: 0048-Bound-nr_segments-by-seg-capacity-and-right-size-buf.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -218,6 +220,10 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Wed Aug 26 2026 Damien Thenot <damien.thenot@vates.tech> - 3.55.5-9.5
+- Fix a possible out of bound access with blkif sectors
+- Use the correct segments limit for blktap requests
+
 * Mon Aug 24 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-9.4
 - Filter cbtlog disk in coalesce commands to avoid ENOTSUPP error and un-coalescable VDIs.
 
