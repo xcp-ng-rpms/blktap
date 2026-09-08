@@ -1,6 +1,6 @@
-%global package_speccommit 1d5b417f6d4e9c36344bf92c5ab522615cd44e4e
+%global package_speccommit d2c254da7df3230addcd3fac888c79d7a0ddc29f
 %global usver 3.55.5
-%global xsver 10
+%global xsver 11
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
@@ -20,6 +20,9 @@ Patch4: fix_coalesced_size_conversion_in_vhd-util-coalesce.patch
 Patch5: ca-416464__return_blkif_rsp_eopnotsupp_for_eopnotsupp.patch
 Patch6: prevent_segfault_of_vhd-util_scan_on_vhd_with_corrupt_footer.patch
 Patch7: ca-431091__msync_cbt_log_before_munmap.patch
+Patch8: ca-429650__validate_guest_blkif_request_segment_bounds.patch
+Patch9: ca-429650__bound_nr_segments_by_seg_capacity_and_right-size_buffer-1.patch
+Patch10: ca-429650__add_unit_tests_for_blkif_request_segment_validation-1.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -177,6 +180,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Aug 27 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-11
+- CA-429650: fixes for XSI-513
+
 * Wed Aug 26 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-10
 - CA-431091: msync CBT log mapping before unmapping it
 
