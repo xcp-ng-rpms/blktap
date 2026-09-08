@@ -1,6 +1,6 @@
-%global package_speccommit 284310adc02e3a383ece9d885a11231c1cc56374
+%global package_speccommit 1d5b417f6d4e9c36344bf92c5ab522615cd44e4e
 %global usver 3.55.5
-%global xsver 9
+%global xsver 10
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
@@ -19,6 +19,7 @@ Patch3: CP-308382_fix_sign_conversion_in_coalesce
 Patch4: fix_coalesced_size_conversion_in_vhd-util-coalesce.patch
 Patch5: ca-416464__return_blkif_rsp_eopnotsupp_for_eopnotsupp.patch
 Patch6: prevent_segfault_of_vhd-util_scan_on_vhd_with_corrupt_footer.patch
+Patch7: ca-431091__msync_cbt_log_before_munmap.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -176,6 +177,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Wed Aug 26 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-10
+- CA-431091: msync CBT log mapping before unmapping it
+
 * Thu Apr 09 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-9
 - Remove old, obsolete, udev rule override.
 
