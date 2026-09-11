@@ -1,4 +1,4 @@
-From 00d0bf145a60535fa727947876b5ba6ef7207c85 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mathieu Labourier <mathieu.labourier@vates.tech>
 Date: Mon, 17 Aug 2026 15:08:15 +0200
 Subject: [PATCH] fix: skip cbtlog disks in commit related operations

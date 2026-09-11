@@ -1,4 +1,4 @@
-From 83254db5039b8a9e8a583fc043ac2ad87bb17bcb Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 15 Jan 2025 16:33:02 +0100
 Subject: [PATCH] tapdisk: use tapdisk_vbd_for_each_blkif abstraction

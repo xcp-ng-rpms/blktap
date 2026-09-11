@@ -1,4 +1,4 @@
-From 114ff18b935dd05e3ae003c0a22e8efb71f2ecc0 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 10 Sep 2026 10:16:31 +0200
 Subject: [PATCH] qcow2: only check overlap which can be done in constant time

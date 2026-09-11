@@ -1,4 +1,4 @@
-From b63a4ac30324be9ae02df0bd99c8f86765cc8f6a Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:28 +0100
 Subject: [PATCH] libqcow2: build qcow2 library for tapdisk

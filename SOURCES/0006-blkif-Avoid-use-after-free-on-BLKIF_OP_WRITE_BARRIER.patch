@@ -1,4 +1,4 @@
-From 4ec767abd453ff9d30dc72d70b2a604a8290e7a9 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 20 Jan 2025 18:22:07 +0100
 Subject: [PATCH] blkif: Avoid use-after-free on BLKIF_OP_WRITE_BARRIER request

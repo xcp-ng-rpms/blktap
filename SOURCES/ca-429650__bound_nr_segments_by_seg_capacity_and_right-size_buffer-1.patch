@@ -1,8 +1,7 @@
-From 569105dac0d357b17958a9f4f75ffc04f6e3a515 Mon Sep 17 00:00:00 2001
+CA-429650: bound nr_segments by seg[] capacity and right-size buffer
+
 From: Mark Syms <mark.syms@citrix.com>
-Date: Fri, 10 Jul 2026 04:52:07 +0100
-Subject: [PATCH] CA-429650: bound nr_segments by seg[] capacity and right-size
- buffer
+Date: Fri 10 Jul 2026 04:52:07 AM BST +0100
 
 Two constants were in play for the number of segments in a request:
 
@@ -37,13 +36,9 @@ This is part of XSA-513 / CVE-2026-79606
 
 Signed-off-by: Mark Syms <mark.syms@citrix.com>
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
----
- drivers/td-req.c |  9 ++++++---
- drivers/td-req.h | 13 ++++++++++---
- 2 files changed, 16 insertions(+), 6 deletions(-)
 
 diff --git a/drivers/td-req.c b/drivers/td-req.c
-index 4178b5a1..37e29a7f 100644
+index c3b2da9..0ca93be 100644
 --- a/drivers/td-req.c
 +++ b/drivers/td-req.c
 @@ -121,7 +121,7 @@ td_xenblkif_bufcache_free(struct td_xenblkif * const blkif)
@@ -55,7 +50,7 @@ index 4178b5a1..37e29a7f 100644
      }
  }
  
-@@ -791,11 +791,14 @@ tapdisk_xenblkif_make_vbd_request(struct td_xenblkif * const blkif,
+@@ -798,11 +798,14 @@ tapdisk_xenblkif_make_vbd_request(struct td_xenblkif * const blkif,
      gettimeofday(&tapreq->ts, NULL);
  
      /*
@@ -73,7 +68,7 @@ index 4178b5a1..37e29a7f 100644
                  tapreq->msg.id, tapreq->msg.nr_segments);
          err = EINVAL;
 diff --git a/drivers/td-req.h b/drivers/td-req.h
-index dad40f29..7279a935 100644
+index dad40f2..7279a93 100644
 --- a/drivers/td-req.h
 +++ b/drivers/td-req.h
 @@ -38,7 +38,14 @@

@@ -1,4 +1,4 @@
-From 2868efa570bde8db02075d5fcf513d0cb5edcd2c Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:50 +0100
 Subject: [PATCH] qcow2: driver: support qcow2 images in tapdisk

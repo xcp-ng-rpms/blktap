@@ -1,4 +1,4 @@
-From ec6fc4e17c5005ece6184b21aff8e7bfb0dcacb2 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Frediano Ziglio <frediano.ziglio@citrix.com>
 Date: Fri, 27 Feb 2026 13:46:22 +0000
 Subject: [PATCH] Update definitions to use ANSI style

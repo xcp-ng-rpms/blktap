@@ -1,4 +1,4 @@
-From 088add375454197c27dd86a2356162f27d395159 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 17 Mar 2026 16:52:55 +0100
 Subject: [PATCH] td-req: fix typo in a comment

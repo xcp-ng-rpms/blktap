@@ -1,4 +1,4 @@
-From 5f8d36316fe19c5271ba9beeb3e3a2b5b8acb5e7 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 9 Jun 2026 18:45:01 +0200
 Subject: [PATCH] tapdisk: fix warnings about discard qualifiers

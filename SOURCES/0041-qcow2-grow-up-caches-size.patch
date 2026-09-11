@@ -1,4 +1,4 @@
-From d1dfba62885bf07e6a1fcf12a96a0a9d1aad6128 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 10 Sep 2026 10:17:55 +0200
 Subject: [PATCH] qcow2: grow up caches size

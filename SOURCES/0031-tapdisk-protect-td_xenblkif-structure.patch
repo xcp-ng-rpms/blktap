@@ -1,4 +1,4 @@
-From b7dc3e6e6bcbc6fe0b3d15e9301e3f9063303696 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:47 +0100
 Subject: [PATCH] tapdisk: protect td_xenblkif structure

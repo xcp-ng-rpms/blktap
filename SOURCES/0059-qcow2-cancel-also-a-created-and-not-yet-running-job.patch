@@ -1,4 +1,4 @@
-From a637568ced013c2216371198ad30ead10a83a678 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 24 Aug 2026 16:40:44 +0200
 Subject: [PATCH] qcow2: cancel also a created and not yet running job

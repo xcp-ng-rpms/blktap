@@ -1,4 +1,4 @@
-From 82bbed94df09f310c1a1c853061e4242fb308f48 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 24 Aug 2026 15:25:34 +0200
 Subject: [PATCH] qcow2: join thread and clean on failed open.

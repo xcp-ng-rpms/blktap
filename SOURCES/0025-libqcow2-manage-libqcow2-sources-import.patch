@@ -1,4 +1,4 @@
-From 36730503a8ae8a483f847c11d42f86e615f589fc Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:16 +0100
 Subject: [PATCH] libqcow2: manage libqcow2 sources import

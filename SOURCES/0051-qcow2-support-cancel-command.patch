@@ -1,4 +1,4 @@
-From 0f8752ff71ddd4692603b919199a155ec762bdae Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 5 Mar 2025 18:22:56 +0100
 Subject: [PATCH] qcow2: support cancel command

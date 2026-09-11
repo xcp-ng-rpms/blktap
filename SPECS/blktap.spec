@@ -1,13 +1,13 @@
-%global package_speccommit 284310adc02e3a383ece9d885a11231c1cc56374
+%global package_speccommit d2c254da7df3230addcd3fac888c79d7a0ddc29f
 %global usver 3.55.5
-%global xsver 9
+%global xsver 11
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.6%{?dist}
+Release: %{?xsrel}.1%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -19,8 +19,10 @@ Patch3: CP-308382_fix_sign_conversion_in_coalesce
 Patch4: fix_coalesced_size_conversion_in_vhd-util-coalesce.patch
 Patch5: ca-416464__return_blkif_rsp_eopnotsupp_for_eopnotsupp.patch
 Patch6: prevent_segfault_of_vhd-util_scan_on_vhd_with_corrupt_footer.patch
-Patch7: 0047-Validate-guest-blkif-request-segment-bounds.patch
-Patch8: 0048-Bound-nr_segments-by-seg-capacity-and-right-size-buf.patch
+Patch7: ca-431091__msync_cbt_log_before_munmap.patch
+Patch8: ca-429650__validate_guest_blkif_request_segment_bounds.patch
+Patch9: ca-429650__bound_nr_segments_by_seg_capacity_and_right-size_buffer-1.patch
+Patch10: ca-429650__add_unit_tests_for_blkif_request_segment_validation-1.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -43,7 +45,7 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
-# git format-patch XS-v3.55.5-1..v3.55.5-qcow2 --no-signature --no-numbered
+# git format-patch XS-v3.55.5-11..v3.55.5-qcow2 --no-signature --no-numbered --zero-commit
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 Patch1002: 0002-tapdisk-deduplicate-double-assignment-code.patch
@@ -233,11 +235,19 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
-* Fri Sep 11 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-9.6
+* Fri Sep 11 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-11.1
+- Sync with 3.55.5-10 and 3.55.5-11
+- Drop patch 0047-Validate-guest-blkif-request-segment-bounds.patch, upstream now
+- Drop patch 0048-Bound-nr_segments-by-seg-capacity-and-right-size-buf.patch, upstream now
 - Fix a tapdisk crash trigger by an error on cancel commit job
 - Fix a race condition that miss a ring check request
 - Grow up qcow2 caches for better performance
 - Disable linear overlap checks for better performance
+- *** Upstream changelog ***
+  * Thu Aug 27 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-11
+  - CA-429650: fixes for XSI-513
+  * Wed Aug 26 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-10
+  - CA-431091: msync CBT log mapping before unmapping it
 
 * Wed Aug 26 2026 Damien Thenot <damien.thenot@vates.tech> - 3.55.5-9.5
 - Fix a possible out of bound access with blkif sectors

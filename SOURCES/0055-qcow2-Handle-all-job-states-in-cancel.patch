@@ -1,4 +1,4 @@
-From b72e010b1b6499107422194c2a6ca1a4c197af34 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 24 Aug 2026 15:20:05 +0200
 Subject: [PATCH] qcow2: Handle all job states in cancel.

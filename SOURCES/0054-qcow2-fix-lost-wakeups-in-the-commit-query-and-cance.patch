@@ -1,4 +1,4 @@
-From 708ab9205e2ec22b9698565a6afce68648621c93 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Olivier Lambert <olivier.lambert@vates.tech>
 Date: Sun, 2 Aug 2026 15:32:44 +0200
 Subject: [PATCH] qcow2: fix lost wakeups in the commit, query and cancel

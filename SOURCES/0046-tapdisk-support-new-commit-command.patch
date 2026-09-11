@@ -1,4 +1,4 @@
-From ee5ed41fb255c574359b98113197dd955ce81af2 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 10 Feb 2025 16:45:05 +0100
 Subject: [PATCH] tapdisk: support new commit command

@@ -1,4 +1,4 @@
-From fcc7a6fddbb07725632fe7cb50238a137cd36995 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Millefeuille <mathieu.labourier@vates.tech>
 Date: Mon, 6 Jul 2026 12:03:06 +0200
 Subject: [PATCH] feat: pass error details up to tap-ctl (#9)

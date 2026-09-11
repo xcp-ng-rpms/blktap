@@ -1,4 +1,4 @@
-From 58aea3c0285cbff0960d2a26eb66c854e65cac18 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 10 Feb 2025 18:54:25 +0100
 Subject: [PATCH] qcow2: support commit command

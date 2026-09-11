@@ -1,4 +1,4 @@
-From cd9ec4cbd61660e92f77775b932ef537b59ae008 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
 Date: Wed, 29 Jul 2026 11:45:01 +0200
 Subject: [PATCH] qcow2: stop a commit job from outliving driver close

@@ -1,7 +1,7 @@
-From dc85fad93790e57b6c4ffd66351651cde3de0d18 Mon Sep 17 00:00:00 2001
+CA-429650: validate guest blkif request segment bounds
+
 From: Mark Syms <mark.syms@citrix.com>
-Date: Fri, 10 Jul 2026 04:48:23 +0100
-Subject: [PATCH] CA-429650: validate guest blkif request segment bounds
+Date: Fri 10 Jul 2026 04:48:23 AM BST +0100
 
 first_sect/last_sect in a blkif request segment are guest-controlled 8-bit
 values, but each segment addresses at most a single page (8 sectors).
@@ -18,15 +18,12 @@ This is part of XSA-513 / CVE-2026-79605
 
 Signed-off-by: Mark Syms <mark.syms@citrix.com>
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
----
- drivers/td-req.c | 13 +++++++++++--
- 1 file changed, 11 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/td-req.c b/drivers/td-req.c
-index 45f44b8d..4178b5a1 100644
+index d09a03d..c3b2da9 100644
 --- a/drivers/td-req.c
 +++ b/drivers/td-req.c
-@@ -648,8 +648,17 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
+@@ -644,8 +644,17 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
          /*
           * Note that first and last may be equal, which means only one sector
           * must be transferred.
@@ -45,7 +42,7 @@ index 45f44b8d..4178b5a1 100644
              RING_ERR(blkif, "req %lu: invalid sectors %d-%d\n",
                      req->msg.id, seg->first_sect, seg->last_sect);
              err = EINVAL;
-@@ -674,7 +683,7 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
+@@ -670,7 +679,7 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
          struct blkif_request_segment *seg = &req->msg.seg[i];
          size_t size;
  

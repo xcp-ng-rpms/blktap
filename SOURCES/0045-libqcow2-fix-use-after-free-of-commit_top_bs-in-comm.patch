@@ -1,4 +1,4 @@
-From d324735c9564b11594292579e0448bde88e91448 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 12 Mar 2025 10:28:42 +0100
 Subject: [PATCH] libqcow2: fix use-after-free of commit_top_bs in

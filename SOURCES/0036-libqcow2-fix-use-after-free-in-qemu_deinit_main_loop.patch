@@ -1,4 +1,4 @@
-From 5a0f9371889c1d20e0de068242d7fdf69fc332be Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
 Date: Wed, 29 Jul 2026 10:49:12 +0200
 Subject: [PATCH] libqcow2: fix use-after-free in qemu_deinit_main_loop()

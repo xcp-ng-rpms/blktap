@@ -1,4 +1,4 @@
-From b45510089ed9ac96bb28e015c938234830f75c77 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 15 Oct 2025 14:35:21 +0200
 Subject: [PATCH] libqcow2: mask signals used by tapdisk

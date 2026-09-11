@@ -1,4 +1,4 @@
-From abc605a282ef5b365af6150aae95483291d25646 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
 Date: Fri, 28 Aug 2026 09:55:53 +0200
 Subject: [PATCH] tapdisk: blkif: never lose a ring check request
@@ -31,9 +31,10 @@ set.
 Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
 Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 ---
- drivers/td-blkif.c | 44 ++++++++++++++++++++++++++++++++++++++------
- drivers/td-blkif.h | 32 ++++++++++++++++++++++++++++----
- 2 files changed, 66 insertions(+), 10 deletions(-)
+ drivers/td-blkif.c               | 44 +++++++++++++++++++++++++++-----
+ drivers/td-blkif.h               | 32 ++++++++++++++++++++---
+ mockatests/drivers/test-td-req.c |  2 +-
+ 3 files changed, 67 insertions(+), 11 deletions(-)
 
 diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
 index 631f96d8..8cef4e8c 100644
@@ -190,3 +191,16 @@ index 2eaf080c..03e9cd92 100644
  
  /**
   * Tells whether a barrier request can be completed.
+diff --git a/mockatests/drivers/test-td-req.c b/mockatests/drivers/test-td-req.c
+index 7042b2c6..7c09eb7c 100644
+--- a/mockatests/drivers/test-td-req.c
++++ b/mockatests/drivers/test-td-req.c
+@@ -82,7 +82,7 @@ tapdisk_xenblkif_reqs_pending(const struct td_xenblkif * const blkif)
+ }
+ 
+ void
+-tapdisk_xenblkif_sched_chkrng(const struct td_xenblkif *blkif)
++tapdisk_xenblkif_sched_chkrng(struct td_xenblkif *blkif)
+ {
+ }
+ 
