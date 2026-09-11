@@ -1,4 +1,4 @@
-From d49e83a893bee7b183a697bdd4ef750c93d2ca5b Mon Sep 17 00:00:00 2001
+From cfec8858a7b7a6e7112b95e9f8355bd47f669cdf Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 27 Nov 2025 11:16:51 +0100
 Subject: [PATCH] td-req: remove unused field gref
@@ -12,10 +12,10 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  2 files changed, 2 deletions(-)
 
 diff --git a/drivers/td-req.c b/drivers/td-req.c
-index 7b421d87..52b014ba 100644
+index cc3cf677..e84a88bc 100644
 --- a/drivers/td-req.c
 +++ b/drivers/td-req.c
-@@ -645,7 +645,6 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
+@@ -647,7 +647,6 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
  
      for (i = 0; i < req->msg.nr_segments; i++) {
          struct blkif_request_segment *seg = &req->msg.seg[i];
@@ -24,14 +24,14 @@ index 7b421d87..52b014ba 100644
          /*
           * Note that first and last may be equal, which means only one sector
 diff --git a/drivers/td-req.h b/drivers/td-req.h
-index dad40f29..25eeb503 100644
+index 7279a935..bdf65180 100644
 --- a/drivers/td-req.h
 +++ b/drivers/td-req.h
-@@ -82,7 +82,6 @@ struct td_xenblkif_req {
+@@ -89,7 +89,6 @@ struct td_xenblkif_req {
       */
-     struct td_iovec iov[BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST];
+     struct td_iovec iov[BLKIF_MAX_SEGMENTS_PER_REQUEST];
  
--    grant_ref_t gref[BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST];
+-    grant_ref_t gref[BLKIF_MAX_SEGMENTS_PER_REQUEST];
      int prot;
  
  	struct gntdev_grant_copy_segment

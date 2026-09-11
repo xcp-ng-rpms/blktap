@@ -1,4 +1,4 @@
-From d97bbee2474337f722262e3366a86f71b6f1813e Mon Sep 17 00:00:00 2001
+From c7c857457f6fdf96ac212cf68dd16059ecec4e7e Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Fri, 28 Nov 2025 12:44:55 +0100
 Subject: [PATCH] td-req: remove old code
@@ -11,7 +11,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 15 deletions(-)
 
 diff --git a/drivers/td-req.c b/drivers/td-req.c
-index b271d3bf..68760dd0 100644
+index 225e37fd..eb192578 100644
 --- a/drivers/td-req.c
 +++ b/drivers/td-req.c
 @@ -375,7 +375,6 @@ guest_copy2(struct td_xenblkif * const blkif,

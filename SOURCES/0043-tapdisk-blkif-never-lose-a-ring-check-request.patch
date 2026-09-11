@@ -1,0 +1,192 @@
+From abc605a282ef5b365af6150aae95483291d25646 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Fri, 28 Aug 2026 09:55:53 +0200
+Subject: [PATCH] tapdisk: blkif: never lose a ring check request
+
+When we give up on the ring with requests still in it -- we stopped at a
+barrier request, or we ran out of free request slots -- we do not re-arm
+the ring for front-end notifications. The guest then goes silent, and the
+ring check we schedule for ourselves is the only thing that will ever bring
+us back to the ring. There is no periodic ring check to fall back on.
+
+While a barrier request is in flight this is even the only ring check that
+gets requested at all, since completions skip it, so it becomes a single
+point of failure.
+
+Requesting a ring check and cancelling one run on different threads: a
+completion in a driver thread (TD_DRIVER_THREADED, e.g. qcow2) requests
+one, while the scheduler thread cancels the one it has just run. Both call
+tapdisk_server_event_set_timeout() under the scheduler mutex, so their
+writes do not interleave, but they are two separate critical sections and
+the last writer simply wins. When that is the cancel, the request is gone
+and the ring stalls for good: reqs_outstanding drops to 0 while requests
+sit unconsumed in the ring, and only a manual sched_chkrng() or SIGUSR2
+recovers it.
+
+Record the request in a new chkrng_pending flag so that it cannot be
+cancelled before it has been served. Requesting posts the flag then arms
+the event; cancelling disarms the event only if chkrng_pending is not
+set.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/td-blkif.c | 44 ++++++++++++++++++++++++++++++++++++++------
+ drivers/td-blkif.h | 32 ++++++++++++++++++++++++++++----
+ 2 files changed, 66 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index 631f96d8..8cef4e8c 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -265,6 +265,8 @@ tapdisk_xenblkif_destroy(struct td_xenblkif * blkif)
+         err = 0;
+     }
+ 
++    pthread_mutex_destroy(&blkif->mutex_chkrng);
++
+     free(blkif);
+ 
+     return err;
+@@ -381,7 +383,17 @@ tapdisk_xenblkif_cb_stoppolling(event_id_t id __attribute__((unused)),
+         /* If there were no new requests this time, then stop polling */
+         blkif->in_polling = false;
+ 
+-        /* Stop obsessively checking the ring */
++        /*
++         * Stop obsessively checking the ring.
++         *
++         * NB. we may get here with requests still in the ring, left behind an
++         * in-flight barrier request: process_ring() gives up on the ring while
++         * a barrier is armed, and does not re-arm front-end notifications. The
++         * ring check requested by the barrier's completion is then the only
++         * thing that will bring us back to the ring, and the driver thread may
++         * request it right here, between the process_ring() above and this
++         * line. tapdisk_xenblkif_unsched_chkrng() is careful not to cancel it.
++         */
+         tapdisk_xenblkif_unsched_chkrng(blkif);
+ 
+         /* Make the 'stop polling' event not fire again */
+@@ -392,27 +404,40 @@ tapdisk_xenblkif_cb_stoppolling(event_id_t id __attribute__((unused)),
+ }
+ 
+ void
+-tapdisk_xenblkif_sched_chkrng(const struct td_xenblkif *blkif)
++tapdisk_xenblkif_sched_chkrng(struct td_xenblkif *blkif)
+ {
+ 	int err;
+ 
+ 	ASSERT(blkif);
+ 
++	/* Raise before arming */
++	pthread_mutex_lock(&blkif->mutex_chkrng);
++	blkif->chkrng_pending = true;
++	pthread_mutex_unlock(&blkif->mutex_chkrng);
++
+ 	err = tapdisk_server_event_set_timeout(
+ 			tapdisk_xenblkif_chkrng_event_id(blkif), TV_ZERO);
+ 	ASSERT(!err);
+ }
+ 
+ void
+-tapdisk_xenblkif_unsched_chkrng(const struct td_xenblkif *blkif)
++tapdisk_xenblkif_unsched_chkrng(struct td_xenblkif *blkif)
+ {
+ 	int err;
+ 
+ 	ASSERT(blkif);
+ 
+-	err = tapdisk_server_event_set_timeout(
+-			tapdisk_xenblkif_chkrng_event_id(blkif), TV_INF);
+-	ASSERT(!err);
++	/*
++         * A driver thread may have requested a ring check, do not disarm the
++         * event. That request may be the only one this ring will ever get.
++	 */
++	pthread_mutex_lock(&blkif->mutex_chkrng);
++	if (likely(!blkif->chkrng_pending)) {
++		err = tapdisk_server_event_set_timeout(
++				tapdisk_xenblkif_chkrng_event_id(blkif), TV_INF);
++		ASSERT(!err);
++	}
++	pthread_mutex_unlock(&blkif->mutex_chkrng);
+ }
+ 
+ static inline void
+@@ -423,6 +448,11 @@ tapdisk_xenblkif_cb_chkrng(event_id_t id __attribute__((unused)),
+ 
+     ASSERT(blkif);
+ 
++    /* We are about to look at the ring, acknowledge chkrng */
++    pthread_mutex_lock(&blkif->mutex_chkrng);
++    blkif->chkrng_pending = false;
++    pthread_mutex_unlock(&blkif->mutex_chkrng);
++
+     /*
+      * If we are polling, process the ring without setting the event counter.
+      * If we are not polling, unschedule this event, process the ring and set
+@@ -486,6 +516,8 @@ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t * grefs,
+ 	td_blkif->barrier.msg = NULL;
+ 	td_blkif->barrier.io_done = false;
+ 	td_blkif->barrier.io_err = 0;
++    td_blkif->chkrng_pending = false;
++    pthread_mutex_init(&td_blkif->mutex_chkrng, NULL);
+ 
+     td_blkif->xenvbd_stats.root = NULL;
+     shm_init(&td_blkif->xenvbd_stats.io_ring);
+diff --git a/drivers/td-blkif.h b/drivers/td-blkif.h
+index 2eaf080c..03e9cd92 100644
+--- a/drivers/td-blkif.h
++++ b/drivers/td-blkif.h
+@@ -198,6 +198,27 @@ struct td_xenblkif {
+ 	event_id_t chkrng_event;
+ 	event_id_t stoppolling_event;
+ 
++	/**
++	 * Tells whether a ring check has been requested but not performed yet.
++	 *
++	 * When we give up on the ring with requests still in it (we stopped at a
++	 * barrier request, or we ran out of free request slots) we do not re-arm
++	 * the ring for front-end notifications, so the guest goes silent. The ring
++	 * check requested at that point is then the only thing that will bring us
++	 * back to the ring, and losing it stalls the ring for good.
++	 *
++	 * Completions may run in a driver thread (see TD_DRIVER_THREADED, e.g.
++	 * qcow2) and request a ring check while the main thread is unscheduling
++	 * one, so this flag records the request and keeps the unschedule from
++	 * cancelling a request it has not honoured.
++	 *
++	 * Accessed with __atomic_* (SEQ_CST), not under @mutex: what makes the
++	 * request safe is its ordering against the arming of the event, and
++	 * sched/unsched are called both with and without @mutex held.
++	 */
++	bool chkrng_pending;
++	pthread_mutex_t mutex_chkrng;
++
+ 	bool in_polling;
+ 	int poll_duration; /* microseconds; 0 means no polling. */
+ 	int poll_idle_threshold;
+@@ -336,16 +357,19 @@ void
+ tapdisk_start_polling(struct td_xenblkif *blkif);
+ 
+ /**
+- * Schedules a ring check.
++ * Schedules a ring check. Safe to call from any thread: the request is recorded
++ * in @blkif->chkrng_pending so that a concurrent
++ * tapdisk_xenblkif_unsched_chkrng() cannot cancel it.
+  */
+ void
+-tapdisk_xenblkif_sched_chkrng(const struct td_xenblkif *blkif);
++tapdisk_xenblkif_sched_chkrng(struct td_xenblkif *blkif);
+ 
+ /**
+- * Unschedules the ring check.
++ * Unschedules the ring check, unless a ring check has been requested and not
++ * honoured yet, in which case the event is left armed.
+  */
+ void
+-tapdisk_xenblkif_unsched_chkrng(const struct td_xenblkif *blkif);
++tapdisk_xenblkif_unsched_chkrng(struct td_xenblkif *blkif);
+ 
+ /**
+  * Tells whether a barrier request can be completed.

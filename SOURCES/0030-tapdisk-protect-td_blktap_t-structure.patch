@@ -1,4 +1,4 @@
-From fbe5e855d2b3bc859653be445883f8c73b41b230 Mon Sep 17 00:00:00 2001
+From cc7b5c8bfbf9dab60ec00e2e4be4888c4a12dd7d Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:40 +0100
 Subject: [PATCH] tapdisk: protect td_blktap_t structure

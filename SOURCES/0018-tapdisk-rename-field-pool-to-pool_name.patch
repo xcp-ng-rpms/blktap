@@ -1,4 +1,4 @@
-From 2e4ee8039cc272d2abb0dbe589a98e6ed271a373 Mon Sep 17 00:00:00 2001
+From efe6e38ee2fbfa52eb2dbc351346b388c333af8a Mon Sep 17 00:00:00 2001
 From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
 Date: Mon, 5 Jan 2026 16:17:57 +0100
 Subject: [PATCH] tapdisk: rename field pool to pool_name

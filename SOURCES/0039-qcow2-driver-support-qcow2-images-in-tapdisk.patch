@@ -1,4 +1,4 @@
-From 7cce89a9e5a1456ebaa45586c982f22c01570032 Mon Sep 17 00:00:00 2001
+From 2868efa570bde8db02075d5fcf513d0cb5edcd2c Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:50 +0100
 Subject: [PATCH] qcow2: driver: support qcow2 images in tapdisk
@@ -928,7 +928,7 @@ index 00000000..99c0e7e2
 +	.td_debug           = qcow2_debug,
 +};
 diff --git a/drivers/tapdisk-disktype.c b/drivers/tapdisk-disktype.c
-index 8ab96c4f..71678045 100644
+index 5f5f8725..ffd9ea3b 100644
 --- a/drivers/tapdisk-disktype.c
 +++ b/drivers/tapdisk-disktype.c
 @@ -77,8 +77,8 @@ static const disk_info_t ram_disk = {

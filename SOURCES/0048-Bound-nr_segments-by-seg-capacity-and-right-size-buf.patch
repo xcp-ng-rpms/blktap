@@ -1,7 +1,8 @@
-From 596fa840de16c8bae61f909b2f5d1b62207a2359 Mon Sep 17 00:00:00 2001
+From 569105dac0d357b17958a9f4f75ffc04f6e3a515 Mon Sep 17 00:00:00 2001
 From: Mark Syms <mark.syms@citrix.com>
-Date: Wed, 26 Aug 2026 13:14:23 +0200
-Subject: [PATCH] Bound nr_segments by seg[] capacity and right-size buffer
+Date: Fri, 10 Jul 2026 04:52:07 +0100
+Subject: [PATCH] CA-429650: bound nr_segments by seg[] capacity and right-size
+ buffer
 
 Two constants were in play for the number of segments in a request:
 
@@ -19,12 +20,12 @@ unnecessary and unsafe:
    entries. A request with nr_segments in (11, 32] passed validation and then
    drove out-of-bounds reads of msg.seg[] in tapdisk_xenblkif_parse_request()
    and guest_copy2(), whose stale bytes were used as gref/first_sect/last_sect.
- - The per-request buffer and the iov[] array were over-allocated to 32
+ - The per-request buffer and the iov[]/gref[] arrays were over-allocated to 32
    pages/entries where only 11 are reachable (gcopy_segs[] was already 11).
 
 Bound nr_segments by BLKIF_MAX_SEGMENTS_PER_REQUEST and size the per-request
-buffer (TD_REQ_BUFFER_SIZE) and the iov[] array by the same constant, so the
-validation bound, the segment arrays, and the ring descriptor's seg[]
+buffer (TD_REQ_BUFFER_SIZE) and the iov[]/gref[] arrays by the same constant,
+so the validation bound, the segment arrays, and the ring descriptor's seg[]
 all agree. block-lcache.c inherits the corrected buffer size via
 TD_REQ_BUFFER_SIZE. Also derive the bufcache munmap size from TD_REQ_BUFFER_SIZE
 so the map and unmap sizes share one definition.
@@ -32,31 +33,20 @@ so the map and unmap sizes share one definition.
 The legacy blktap2 kernel-mmap macros in blktaplib.h (MMAP_PAGES / MMAP_VADDR)
 are a separate, kernel-shared layout and are intentionally left untouched.
 
-This is CVE-2026-79606, part of XSA-513.
+This is part of XSA-513 / CVE-2026-79606
 
 Signed-off-by: Mark Syms <mark.syms@citrix.com>
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
-Reviewed-by: Tim Smith <tim.smith@citrix.com>
-
-Backported from upstream blktap xsa513-2.patch
- ("Bound nr_segments by seg[] capacity and right-size buffer"),
- by Mark Syms <mark.syms@citrix.com>.
-
-Adapted to this branch: the upstream hunk that shrinks the
-td_xenblkif_req.gref[] array does not apply, because this branch has no
-gref[] member (grant copies use gcopy_segs[] only). The buffer/iov[]
-right-sizing already covers the equivalent over-allocation, so that single
-hunk is dropped.
 ---
  drivers/td-req.c |  9 ++++++---
- drivers/td-req.h | 11 +++++++++--
- 2 files changed, 15 insertions(+), 5 deletions(-)
+ drivers/td-req.h | 13 ++++++++++---
+ 2 files changed, 16 insertions(+), 6 deletions(-)
 
 diff --git a/drivers/td-req.c b/drivers/td-req.c
-index 6874759f..d4f4263e 100644
+index 4178b5a1..37e29a7f 100644
 --- a/drivers/td-req.c
 +++ b/drivers/td-req.c
-@@ -123,7 +123,7 @@ td_xenblkif_bufcache_free(struct td_xenblkif * const blkif)
+@@ -121,7 +121,7 @@ td_xenblkif_bufcache_free(struct td_xenblkif * const blkif)
  
      while (blkif->n_reqs_bufcache_free > TD_REQS_BUFCACHE_MIN){
          munmap(blkif->reqs_bufcache[--blkif->n_reqs_bufcache_free],
@@ -65,8 +55,8 @@ index 6874759f..d4f4263e 100644
      }
  }
  
-@@ -800,11 +800,14 @@ tapdisk_xenblkif_make_vbd_request(struct td_xenblkif * const blkif,
-     gettimeofday(&req->ts, NULL);
+@@ -791,11 +791,14 @@ tapdisk_xenblkif_make_vbd_request(struct td_xenblkif * const blkif,
+     gettimeofday(&tapreq->ts, NULL);
  
      /*
 -     * Check that the number of segments is sane.
@@ -75,15 +65,15 @@ index 6874759f..d4f4263e 100644
 +     * BLKIF_MAX_SEGMENTS_PER_REQUEST segments per request, which is how the
 +     * ring descriptor and our per-request buffers are sized.
       */
-     if (unlikely((req->msg.nr_segments == 0 &&
-                 req->msg.operation != BLKIF_OP_WRITE_BARRIER) ||
--            req->msg.nr_segments > BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST)) {
-+            req->msg.nr_segments > BLKIF_MAX_SEGMENTS_PER_REQUEST)) {
+     if (unlikely((tapreq->msg.nr_segments == 0 &&
+                 tapreq->msg.operation != BLKIF_OP_WRITE_BARRIER) ||
+-            tapreq->msg.nr_segments > BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST)) {
++            tapreq->msg.nr_segments > BLKIF_MAX_SEGMENTS_PER_REQUEST)) {
          RING_ERR(blkif, "req %lu: bad number of segments in request (%d)\n",
-                 req->msg.id, req->msg.nr_segments);
+                 tapreq->msg.id, tapreq->msg.nr_segments);
          err = EINVAL;
 diff --git a/drivers/td-req.h b/drivers/td-req.h
-index 4d0cb24b..f7f42c45 100644
+index dad40f29..7279a935 100644
 --- a/drivers/td-req.h
 +++ b/drivers/td-req.h
 @@ -38,7 +38,14 @@
@@ -102,12 +92,15 @@ index 4d0cb24b..f7f42c45 100644
  
  /**
   * Representation of the intermediate request used to retrieve a request from
-@@ -80,7 +87,7 @@ struct td_xenblkif_req {
+@@ -80,9 +87,9 @@ struct td_xenblkif_req {
      /**
       * The scatter/gather list td_vbd_request_t.iov points to.
       */
 -    struct td_iovec iov[BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST];
 +    struct td_iovec iov[BLKIF_MAX_SEGMENTS_PER_REQUEST];
  
+-    grant_ref_t gref[BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST];
++    grant_ref_t gref[BLKIF_MAX_SEGMENTS_PER_REQUEST];
      int prot;
  
+ 	struct gntdev_grant_copy_segment

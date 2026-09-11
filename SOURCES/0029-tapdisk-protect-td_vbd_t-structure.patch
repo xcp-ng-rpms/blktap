@@ -1,4 +1,4 @@
-From 37450a2c1d3c5b520c3f38ecb709b8e89b128803 Mon Sep 17 00:00:00 2001
+From 12d0fdc66e654cc267f4777c5cda2140ff6f1ddb Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:33 +0100
 Subject: [PATCH] tapdisk: protect td_vbd_t structure

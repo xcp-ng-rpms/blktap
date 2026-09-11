@@ -1,7 +1,7 @@
-From 638fa45ef2e12170997f50899ce1ebe42662d5f7 Mon Sep 17 00:00:00 2001
+From 4c063452daf77f60a788d5ba74d99b5d4524ac4f Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 8 Oct 2025 14:05:35 +0200
-Subject: [PATCH] vbd: wake-up scheduler to force check ring
+Subject: [PATCH] tapdisk: vbd: wake-up scheduler to force check ring
 
 In the case of a write barrier, the ring is only explore until the
 barrier lefting pending requests hereafter. The completion of a barrier
@@ -19,10 +19,10 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  5 files changed, 80 insertions(+), 5 deletions(-)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index 99c0e7e2..454c3bf5 100644
+index 78ece593..b876e41f 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
-@@ -588,7 +588,7 @@ signal_completion(struct qcow2_request *r)
+@@ -596,7 +596,7 @@ signal_completion(struct qcow2_request *r)
  	DBG(TLOG_DBG, "lsec: 0x%08"PRIx64", blk: 0x%04x, "
  		"err: %d\n", r->treq.sec, r->treq.secs, r->error);
  	if (r->error == 0) {
@@ -31,7 +31,7 @@ index 99c0e7e2..454c3bf5 100644
  		s->kick++;
  	}
  	free_qcow2_request(s, r);
-@@ -856,7 +856,7 @@ qcow2_debug(td_driver_t *driver)
+@@ -864,7 +864,7 @@ qcow2_debug(td_driver_t *driver)
  
  struct tap_disk tapdisk_qcow = {
  	.disk_type          = "tapdisk_qcow2",

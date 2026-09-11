@@ -1,0 +1,89 @@
+From d324735c9564b11594292579e0448bde88e91448 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Wed, 12 Mar 2025 10:28:42 +0100
+Subject: [PATCH] libqcow2: fix use-after-free of commit_top_bs in
+ commit_abort()
+
+commit_start() hands the CommitBlockJob only a borrowed pointer to
+commit_top_bs: the node is kept alive solely by its parents in the block
+graph. bdrv_drop_intermediate() reparents those parents onto `base` and
+then, on its exit path, drops the last reference to commit_top_bs --
+freeing the node even when it returns an error. commit_prepare() forwards
+that error, the job transaction rolls back, and commit_abort() then works
+on a dangling pointer.
+
+Take a reference of our own before the drop and release it in
+commit_clean(), which runs on every finalize path (commit and abort
+alike) whenever prepare ran. commit_top_bs then stays valid for the
+whole teardown.
+
+Note this bug is not fork-specific: QEMU upstream carries the same
+borrowed-pointer pattern (verified identical from v9.1.1 to v10.2.4,
+where commit_abort() dereferences s->commit_top_bs->backing->bs
+unguarded). It is simply never hit there, because reaching it needs
+bdrv_drop_intermediate() to fail *after* its point of no return.
+
+Reproduced deterministically on stock qemu-storage-daemon v9.1.1 + ASan
+by committing an intermediate node whose base image path exceeds 1023
+bytes, which makes qcow2_co_change_backing_file() reject the backing
+filename after the parents have already been reparented.
+
+Signed-off-by: Olivier Lambert <olivier.lambert@vates.tech>
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ qcow2/lib/block/commit.c | 23 ++++++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/qcow2/lib/block/commit.c b/qcow2/lib/block/commit.c
+index 7c3fdcb0..fe3f9163 100644
+--- a/qcow2/lib/block/commit.c
++++ b/qcow2/lib/block/commit.c
+@@ -124,6 +124,13 @@ static void commit_clean(Job *job)
+ 
+     g_free(s->backing_file_str);
+     blk_unref(s->top);
++
++    /*
++     * Release the reference taken in commit_start(). On the success path the
++     * filter node is already detached from its parents, so this is the last
++     * reference to it.
++     */
++    bdrv_unref(s->commit_top_bs);
+ }
+ 
+ static int coroutine_fn commit_run(Job *job, Error **errp)
+@@ -326,12 +333,21 @@ void commit_start(const char *job_id, BlockDriverState *bs,
+     commit_top_bs->total_sectors = top->total_sectors;
+ 
+     ret = bdrv_append(commit_top_bs, top, errp);
+-    bdrv_unref(commit_top_bs); /* referenced by new parents or failed */
+     if (ret < 0) {
++        bdrv_unref(commit_top_bs);
+         commit_top_bs = NULL;
+         goto fail;
+     }
+ 
++    /*
++     * Keep the creation reference for the whole lifetime of the job instead of
++     * relying on the parent links alone: bdrv_drop_intermediate() moves those
++     * parents to base and then drops the last reference, which deletes the
++     * node while s->commit_top_bs still points at it. commit_abort() would
++     * then run on freed memory.
++     * The reference is released in commit_clean() (or in the fail branch of
++     * this function if it fails).
++     */
+     s->commit_top_bs = commit_top_bs;
+ 
+     /*
+@@ -442,6 +458,11 @@ fail:
+         bdrv_replace_node(commit_top_bs, top, &error_abort);
+         bdrv_graph_wrunlock();
+         bdrv_drained_end(top);
++        /*
++         * commit_clean() does not run for a job that failed to start, so the
++         * reference kept for the job lifetime is released here.
++         */
++        bdrv_unref(commit_top_bs);
+     }
+ }
+ 

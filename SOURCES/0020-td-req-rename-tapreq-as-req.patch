@@ -1,4 +1,4 @@
-From 2e709e20086ab1b77d57a28c436b237d42dc7abd Mon Sep 17 00:00:00 2001
+From d90cb814a6510ae3ea0aab72606b258f27a2442e Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Fri, 28 Nov 2025 12:45:43 +0100
 Subject: [PATCH] td-req: rename tapreq as req
@@ -13,7 +13,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 75 insertions(+), 75 deletions(-)
 
 diff --git a/drivers/td-req.c b/drivers/td-req.c
-index 52b014ba..b271d3bf 100644
+index e84a88bc..225e37fd 100644
 --- a/drivers/td-req.c
 +++ b/drivers/td-req.c
 @@ -184,28 +184,28 @@ td_xenblkif_bufcache_put(struct td_xenblkif * const blkif, void *buf)
@@ -227,7 +227,7 @@ index 52b014ba..b271d3bf 100644
  			*ticks += interval;
  			if (interval > *max)
  				*max = interval;
-@@ -542,10 +542,10 @@ tapdisk_xenblkif_complete_request(struct td_xenblkif * const blkif,
+@@ -544,10 +544,10 @@ tapdisk_xenblkif_complete_request(struct td_xenblkif * const blkif,
  		else
  			_err = BLKIF_RSP_ERROR;
  
@@ -240,7 +240,7 @@ index 52b014ba..b271d3bf 100644
  
  	blkif->stats.reqs.out++;
  	if (final)
-@@ -601,13 +601,13 @@ static inline void
+@@ -603,13 +603,13 @@ static inline void
  __tapdisk_xenblkif_request_cb(struct td_vbd_request * const vreq,
          const int error, void * const token, const int final)
  {
@@ -256,7 +256,7 @@ index 52b014ba..b271d3bf 100644
  
      if (error) {
          if (likely(!blkif->dead)) {
-@@ -616,7 +616,7 @@ __tapdisk_xenblkif_request_cb(struct td_vbd_request * const vreq,
+@@ -618,7 +618,7 @@ __tapdisk_xenblkif_request_cb(struct td_vbd_request * const vreq,
          }
      }
  
@@ -265,7 +265,7 @@ index 52b014ba..b271d3bf 100644
  }
  
  
-@@ -659,7 +659,7 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
+@@ -670,7 +670,7 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
      }
  
      /*
@@ -274,7 +274,7 @@ index 52b014ba..b271d3bf 100644
       * describes each segment to be transferred. Also, merges consecutive
       * segments.
       *
-@@ -736,32 +736,32 @@ out:
+@@ -747,32 +747,32 @@ out:
   * processing.
   *
   * @param blkif the block interface
@@ -314,7 +314,7 @@ index 52b014ba..b271d3bf 100644
          vreq->op = TD_OP_READ;
          break;
      case BLKIF_OP_WRITE:
-@@ -770,32 +770,32 @@ tapdisk_xenblkif_make_vbd_request(struct td_xenblkif * const blkif,
+@@ -781,17 +781,17 @@ tapdisk_xenblkif_make_vbd_request(struct td_xenblkif * const blkif,
  			blkif->stats.xenvbd->st_wr_req++;
  	if (likely(blkif->vbd_stats.stats))
  		blkif->vbd_stats.stats->write_reqs_submitted++;
@@ -334,14 +334,17 @@ index 52b014ba..b271d3bf 100644
 +    gettimeofday(&req->ts, NULL);
  
      /*
-      * Check that the number of segments is sane.
+      * Check that the number of segments is sane. nr_segments is guest-
+@@ -799,17 +799,17 @@ tapdisk_xenblkif_make_vbd_request(struct td_xenblkif * const blkif,
+      * BLKIF_MAX_SEGMENTS_PER_REQUEST segments per request, which is how the
+      * ring descriptor and our per-request buffers are sized.
       */
 -    if (unlikely((tapreq->msg.nr_segments == 0 &&
 -                tapreq->msg.operation != BLKIF_OP_WRITE_BARRIER) ||
--            tapreq->msg.nr_segments > BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST)) {
+-            tapreq->msg.nr_segments > BLKIF_MAX_SEGMENTS_PER_REQUEST)) {
 +    if (unlikely((req->msg.nr_segments == 0 &&
 +                req->msg.operation != BLKIF_OP_WRITE_BARRIER) ||
-+            req->msg.nr_segments > BLKIF_MAX_BUFFER_SEGMENTS_PER_REQUEST)) {
++            req->msg.nr_segments > BLKIF_MAX_SEGMENTS_PER_REQUEST)) {
          RING_ERR(blkif, "req %lu: bad number of segments in request (%d)\n",
 -                tapreq->msg.id, tapreq->msg.nr_segments);
 +                req->msg.id, req->msg.nr_segments);
@@ -356,7 +359,7 @@ index 52b014ba..b271d3bf 100644
      /*
       * If we only got one request from the ring and that was a barrier one,
       * check whether the barrier requests completion conditions are satisfied
-@@ -820,32 +820,32 @@ out:
+@@ -834,32 +834,32 @@ out:
   *
   * @param blkif the block interface
   * @param msg the ring request
@@ -397,7 +400,7 @@ index 52b014ba..b271d3bf 100644
      if (unlikely(err)) {
          /* TODO log error */
          blkif->stats.errors.map++;
-@@ -853,7 +853,7 @@ tapdisk_xenblkif_queue_request(struct td_xenblkif * const blkif,
+@@ -867,7 +867,7 @@ tapdisk_xenblkif_queue_request(struct td_xenblkif * const blkif,
      }
  
  	if (likely(queue_request)) {
@@ -406,7 +409,7 @@ index 52b014ba..b271d3bf 100644
  		if (unlikely(err)) {
  			/* TODO log error */
  			blkif->stats.errors.vbd++;
-@@ -879,19 +879,19 @@ tapdisk_xenblkif_queue_requests(struct td_xenblkif * const blkif,
+@@ -893,19 +893,19 @@ tapdisk_xenblkif_queue_requests(struct td_xenblkif * const blkif,
  
      for (i = 0; i < nr_reqs; i++) { /* for each request in the ring... */
          blkif_request_t *msg = reqs[i];

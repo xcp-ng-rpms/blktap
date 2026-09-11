@@ -1,4 +1,4 @@
-From a7c7447ed112f6106cbd270ba8067b4df2378f08 Mon Sep 17 00:00:00 2001
+From 1f8651469392b8bc081cb06543ba0585bced7448 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 20 Jan 2025 14:48:57 +0100
 Subject: [PATCH] tapdisk-vbd: remove double assignment of error variable

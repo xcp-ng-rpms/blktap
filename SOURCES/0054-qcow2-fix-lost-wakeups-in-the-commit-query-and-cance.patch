@@ -1,0 +1,122 @@
+From 708ab9205e2ec22b9698565a6afce68648621c93 Mon Sep 17 00:00:00 2001
+From: Olivier Lambert <olivier.lambert@vates.tech>
+Date: Sun, 2 Aug 2026 15:32:44 +0200
+Subject: [PATCH] qcow2: fix lost wakeups in the commit, query and cancel
+ handshake
+
+The three control operations inserted their request into s->inflight and
+only then acquired commit_lock to wait on commit_cond. The qcow2 thread does
+not need the bottom half scheduled just below to run: it is already awake
+whenever a data request armed it, and qcow2_handle_requests() drops s->lock
+between iterations. It can therefore pick the control request up, run the
+handler and signal commit_cond before the caller reaches
+pthread_cond_wait(). The wakeup is then lost and, with no predicate to
+re-check, the tapdisk main thread blocks forever: no scheduler iteration, no
+ring polling, no control socket. The VBD is dead and only SIGKILL clears it.
+
+Signed-off-by: Olivier Lambert <olivier.lambert@vates.tech>
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/block-qcow2.c | 28 +++++++++++++++++++---------
+ 1 file changed, 19 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index 65ddbee8..4d088f0d 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -110,6 +110,7 @@ struct qcow2_request;
+ 
+ struct qcow2_request {
+ 	int                     error;
++	bool                    done;
+ 	enum qcow2_ops          op;
+ 	union {
+ 		/* OP_READ, OP_WRITE */
+@@ -924,15 +925,17 @@ qcow2_commit(td_driver_t *driver, const char *name)
+ 
+ 	req->top   = strdup(name);
+ 	req->op    = QCOW2_OP_COMMIT;
++	req->done  = false;
+ 
+ 	pthread_mutex_lock(&s->lock);
+ 	QSIMPLEQ_INSERT_TAIL(&s->inflight, req, list);
+ 	pthread_mutex_unlock(&s->lock);
+ 
+ 	pthread_mutex_lock(&s->commit_lock);
+-	qemu_bh_schedule(s->bh);
+-
+-	pthread_cond_wait(&s->commit_cond, &s->commit_lock);
++	if (!req->done) {
++		qemu_bh_schedule(s->bh);
++		pthread_cond_wait(&s->commit_cond, &s->commit_lock);
++	}
+ 	err = req->error;
+ 	pthread_mutex_unlock(&s->commit_lock);
+ 
+@@ -985,6 +988,7 @@ do_commit(struct qcow2_state *s, struct qcow2_request *req)
+ signal_commit:
+ 	pthread_mutex_lock(&s->commit_lock);
+ 	req->error = err;
++	req->done  = true;
+ 	pthread_cond_signal(&s->commit_cond);
+ 	pthread_mutex_unlock(&s->commit_lock);
+ }
+@@ -1003,15 +1007,17 @@ qcow2_query_commit_job(td_driver_t *driver, td_query_t *query)
+ 		return -EBUSY;
+ 
+ 	req->op    = QCOW2_OP_QUERY;
++	req->done  = false;
+ 
+ 	pthread_mutex_lock(&s->lock);
+ 	QSIMPLEQ_INSERT_TAIL(&s->inflight, req, list);
+ 	pthread_mutex_unlock(&s->lock);
+ 
+ 	pthread_mutex_lock(&s->commit_lock);
+-	qemu_bh_schedule(s->bh);
+-
+-	pthread_cond_wait(&s->commit_cond, &s->commit_lock);
++	if (!req->done) {
++		qemu_bh_schedule(s->bh);
++		pthread_cond_wait(&s->commit_cond, &s->commit_lock);
++	}
+ 
+ 	if (query) {
+ 		query->status = JobStatus_str(s->job_info.status);
+@@ -1079,6 +1085,7 @@ signal:
+ 	s->job_info.total_progress = total;
+ 
+ 	req->error = err;
++	req->done  = true;
+ 	pthread_cond_signal(&s->commit_cond);
+ 	pthread_mutex_unlock(&s->commit_lock);
+ }
+@@ -1099,15 +1106,17 @@ qcow2_cancel_commit_job(td_driver_t *driver, bool wait)
+ 
+ 	req->op   = QCOW2_OP_CANCEL_COMMIT;
+ 	req->sync = wait;
++	req->done = false;
+ 
+ 	pthread_mutex_lock(&s->lock);
+ 	QSIMPLEQ_INSERT_TAIL(&s->inflight, req, list);
+ 	pthread_mutex_unlock(&s->lock);
+ 
+ 	pthread_mutex_lock(&s->commit_lock);
+-	qemu_bh_schedule(s->bh);
+-
+-	pthread_cond_wait(&s->commit_cond, &s->commit_lock);
++	if (!req->done) {
++		qemu_bh_schedule(s->bh);
++		pthread_cond_wait(&s->commit_cond, &s->commit_lock);
++	}
+ 	err = req->error;
+ 	pthread_mutex_unlock(&s->commit_lock);
+ 
+@@ -1151,6 +1160,7 @@ do_cancel_commit_job(struct qcow2_state *s, struct qcow2_request *req)
+ signal:
+ 	pthread_mutex_lock(&s->commit_lock);
+ 	req->error = err;
++	req->done  = true;
+ 	pthread_cond_signal(&s->commit_cond);
+ 	pthread_mutex_unlock(&s->commit_lock);
+ }

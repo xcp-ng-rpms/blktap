@@ -1,4 +1,4 @@
-From 3ed6dd2c64cf0f1dfe45845e9279dd9e3b2a78b5 Mon Sep 17 00:00:00 2001
+From b4c3074d1cc2fb579905248b5cd4e55dd86a1924 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Fri, 17 Oct 2025 15:14:44 +0200
 Subject: [PATCH] tapdisk: protect td_nbdserver structures

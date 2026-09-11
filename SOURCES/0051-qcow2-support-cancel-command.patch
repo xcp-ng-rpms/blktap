@@ -1,4 +1,4 @@
-From 0a8a3097f67baa716a76ff773b3988ebf6d62586 Mon Sep 17 00:00:00 2001
+From 0f8752ff71ddd4692603b919199a155ec762bdae Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 5 Mar 2025 18:22:56 +0100
 Subject: [PATCH] qcow2: support cancel command
@@ -11,7 +11,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 96 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index 5c57233e..1dca89dd 100644
+index e9c1949e..65ddbee8 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -100,6 +100,7 @@ enum qcow2_ops {
@@ -50,7 +50,7 @@ index 5c57233e..1dca89dd 100644
  		}
  		pthread_mutex_lock(&s->lock);
  	}
-@@ -431,6 +439,18 @@ qcow2_open(void *opaque)
+@@ -439,6 +447,18 @@ qcow2_open(void *opaque)
  	}
  	pthread_mutex_unlock(&s->lock);
  
@@ -69,7 +69,7 @@ index 5c57233e..1dca89dd 100644
  	blk_set_aio_context(conf->blk, qemu_get_aio_context(), &error_abort);
  
  	blk_drain_all();
-@@ -516,6 +536,8 @@ _qcow2_close(td_driver_t *driver)
+@@ -524,6 +544,8 @@ _qcow2_close(td_driver_t *driver)
  	int err;
  	struct qcow2_state *s = (struct qcow2_state *)driver->data;
  
@@ -78,7 +78,7 @@ index 5c57233e..1dca89dd 100644
  	DBG(TLOG_WARN, "qcow2_close\n");
  
  	pthread_mutex_lock(&s->lock);
-@@ -1053,9 +1075,82 @@ signal:
+@@ -1061,9 +1083,82 @@ signal:
  	pthread_mutex_unlock(&s->commit_lock);
  }
  
@@ -161,7 +161,7 @@ index 5c57233e..1dca89dd 100644
  	struct qcow2_state *s = (struct qcow2_state *)driver->data;
  
  	DBG(TLOG_WARN, "Qcow2: %s: queued %lu, completed %lu, returned %lu, "
-@@ -1067,7 +1162,6 @@ qcow2_debug(td_driver_t *driver)
+@@ -1075,7 +1170,6 @@ qcow2_debug(td_driver_t *driver)
  		s->writes, (s->writes ? ((float)s->write_size / s->writes) : 0.0),
  		s->schedule, s->kick);
  
@@ -169,7 +169,7 @@ index 5c57233e..1dca89dd 100644
  	print_latencies(s);
  #endif
  }
-@@ -1085,5 +1179,6 @@ struct tap_disk tapdisk_qcow = {
+@@ -1093,5 +1187,6 @@ struct tap_disk tapdisk_qcow = {
  	.td_validate_parent = qcow2_validate_parent,
  	.td_commit          = qcow2_commit,
  	.td_query_commit_job = qcow2_query_commit_job,

@@ -1,4 +1,4 @@
-From ccbf8e59540ec8a477b309b5f0a10c3bf60c1a7a Mon Sep 17 00:00:00 2001
+From 375aa36813abb0f74079f945feead7fc579e6f8c Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 13 Feb 2025 08:54:48 +0100
 Subject: [PATCH] tapdisk: support new query command

@@ -1,4 +1,4 @@
-From 26429f3072a88c392ffade221422f2fc814d0bbf Mon Sep 17 00:00:00 2001
+From b63a4ac30324be9ae02df0bd99c8f86765cc8f6a Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:28 +0100
 Subject: [PATCH] libqcow2: build qcow2 library for tapdisk
@@ -90,13 +90,13 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  qcow2/lib/util/osdep.c                      |  22 +-
  qcow2/lib/util/oslib-posix.c                |  32 +-
  qcow2/lib/util/qemu-print.c                 |   6 +-
- qcow2/lib/util/qemu-sockets.c               |  14 +-
+ qcow2/lib/util/qemu-sockets.c               |  18 +-
  qcow2/lib/util/qemu-thread-posix.c          |   4 +-
  qcow2/lib/util/qemu-timer.c                 |  25 +-
  qcow2/lib/util/qsp.c                        |  10 +-
  qcow2/lib/util/yank.c                       |   2 +-
  qcow2/qemu-img.c                            |  76 +--
- 88 files changed, 1713 insertions(+), 286 deletions(-)
+ 88 files changed, 1715 insertions(+), 288 deletions(-)
  create mode 100644 include/block/trace.h
  create mode 100644 include/qemu/config-host.h
  create mode 100644 include/trace.h
@@ -105,7 +105,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  create mode 100644 qcow2/lib/Makefile.am
 
 diff --git a/.gitignore b/.gitignore
-index eb160772..c673495b 100644
+index e2a4cbb1..899aec74 100644
 --- a/.gitignore
 +++ b/.gitignore
 @@ -12,6 +12,7 @@
@@ -116,7 +116,7 @@ index eb160772..c673495b 100644
  cscope.*
  TAGS
  VERSION
-@@ -51,6 +52,7 @@ Makefile.in
+@@ -52,6 +53,7 @@ Makefile.in
  /vhd/vhd-util
  /vhd/lib/test/random-copy
  /vhd/lib/test/test-snapshot
@@ -124,7 +124,7 @@ index eb160772..c673495b 100644
  /tapback/tapback
  /test-driver
  
-@@ -73,6 +75,8 @@ Makefile.in
+@@ -74,6 +76,8 @@ Makefile.in
  /vhd/Makefile
  /vhd/lib/Makefile
  /vhd/lib/test/Makefile
@@ -5952,7 +5952,7 @@ index 69ba612f..98ca5474 100644
  }
  
 diff --git a/qcow2/lib/util/qemu-sockets.c b/qcow2/lib/util/qemu-sockets.c
-index 60c44b2b..a54af944 100644
+index 60c44b2b..cfc426c6 100644
 --- a/qcow2/lib/util/qemu-sockets.c
 +++ b/qcow2/lib/util/qemu-sockets.c
 @@ -21,7 +21,7 @@
@@ -5964,6 +5964,24 @@ index 60c44b2b..a54af944 100644
  #include "qapi/clone-visitor.h"
  #include "qapi/error.h"
  #include "qapi/qapi-visit-sockets.h"
+@@ -596,7 +596,7 @@ err:
+ static int inet_parse_flag(const char *flagname, const char *optstr, bool *val,
+                            Error **errp)
+ {
+-    char *end;
++    const char *end;
+     size_t len;
+ 
+     end = strstr(optstr, ",");
+@@ -627,7 +627,7 @@ int inet_parse(InetSocketAddress *addr, const char *str, Error **errp)
+     char port[33];
+     int to;
+     int pos;
+-    char *begin;
++    const char *begin;
+ 
+     memset(addr, 0, sizeof(*addr));
+ 
 @@ -1137,21 +1137,23 @@ fail:
  
  static int socket_get_fd(const char *fdstr, Error **errp)

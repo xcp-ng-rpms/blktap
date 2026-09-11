@@ -1,4 +1,4 @@
-From badd991784d27dc6cb07b0cc034bf31a0f07de93 Mon Sep 17 00:00:00 2001
+From ece6c69e663c5f5ce42db53247ddf600f33d1dcf Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 27 Feb 2025 17:41:36 +0100
 Subject: [PATCH] blkif: add a comment on memory barrier usage

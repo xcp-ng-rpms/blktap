@@ -1,4 +1,4 @@
-From 45658a3d9f323a6f1bc512297bebf487287d5f67 Mon Sep 17 00:00:00 2001
+From 7e43e9ca9730794255f15633c8038edb355520a2 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:11 +0100
 Subject: [PATCH] blktap: fix a typo in libaio-backend.h header

@@ -1,4 +1,4 @@
-From 625aab02193c7af95edc4ba99dfd12d0b0b6b8c1 Mon Sep 17 00:00:00 2001
+From e407ec2cd1ea5f02e412b424168436cabb6b438b Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Wed, 12 Mar 2025 13:46:25 +0100
 Subject: [PATCH] libqcow2: prepare proper cleanup of libqcow2 on close

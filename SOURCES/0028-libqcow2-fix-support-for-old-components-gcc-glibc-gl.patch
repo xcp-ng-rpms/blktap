@@ -1,4 +1,4 @@
-From 844e8cb3a6c61f4ad805982caf3b62470e080b95 Mon Sep 17 00:00:00 2001
+From 2bea63a0c0c00a3f6aed0f4474f3668c84925a52 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 14 Jan 2025 11:41:26 +0100
 Subject: [PATCH] libqcow2: fix support for old components (gcc, glibc, glib,

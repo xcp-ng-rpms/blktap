@@ -1,4 +1,4 @@
-From c889ec008cc58053db48262c8a9ee8730a5cd14a Mon Sep 17 00:00:00 2001
+From a9c895cafa9c5d4a29f1b51e09346b6fa43be1df Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 18 Mar 2025 19:28:22 +0100
 Subject: [PATCH] tapdisk: Replace structure name in sizeof
@@ -14,10 +14,10 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/drivers/td-req.c b/drivers/td-req.c
-index c35b02c6..7b421d87 100644
+index 1cf8d213..cc3cf677 100644
 --- a/drivers/td-req.c
 +++ b/drivers/td-req.c
-@@ -943,7 +943,7 @@ tapdisk_xenblkif_reqs_init(struct td_xenblkif *td_blkif)
+@@ -957,7 +957,7 @@ tapdisk_xenblkif_reqs_init(struct td_xenblkif *td_blkif)
      }
  
      td_blkif->reqs_free =

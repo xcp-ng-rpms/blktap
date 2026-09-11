@@ -1,4 +1,4 @@
-From 2c453575368fef852682fbd90047e6a5390cfb47 Mon Sep 17 00:00:00 2001
+From 58aea3c0285cbff0960d2a26eb66c854e65cac18 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 10 Feb 2025 18:54:25 +0100
 Subject: [PATCH] qcow2: support commit command
@@ -11,7 +11,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 120 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index 454c3bf5..4e242237 100644
+index b876e41f..f6e1d7c1 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -60,6 +60,8 @@
@@ -76,7 +76,7 @@ index 454c3bf5..4e242237 100644
  		}
  		pthread_mutex_lock(&s->lock);
  	}
-@@ -466,6 +484,12 @@ _qcow2_open(td_driver_t *driver, const char *name,
+@@ -474,6 +492,12 @@ _qcow2_open(td_driver_t *driver, const char *name,
  		return err;
  	}
  	pthread_mutex_init(&s->lock, NULL);
@@ -89,7 +89,7 @@ index 454c3bf5..4e242237 100644
  
  	pthread_mutex_lock(&s->lock);
  	s->driver_opened = true;
-@@ -497,6 +521,17 @@ _qcow2_close(td_driver_t *driver)
+@@ -505,6 +529,17 @@ _qcow2_close(td_driver_t *driver)
  	// Ignore return, qcow2_open() always return NULL; or will abort
  	qemu_thread_join(&s->thread);
  
@@ -107,7 +107,7 @@ index 454c3bf5..4e242237 100644
  	err = pthread_cond_destroy(&s->cond);
  	if (err) {
  		EPRINTF("failed to destroy thread condition %d\n", err);
-@@ -835,6 +870,89 @@ qcow2_queue_write(td_driver_t *driver, td_request_t treq)
+@@ -843,6 +878,89 @@ qcow2_queue_write(td_driver_t *driver, td_request_t treq)
  	qcow2_queue(driver, &treq, QCOW2_OP_WRITE);
  }
  
@@ -197,7 +197,7 @@ index 454c3bf5..4e242237 100644
  void
  qcow2_debug(td_driver_t *driver)
  {
-@@ -865,5 +983,6 @@ struct tap_disk tapdisk_qcow = {
+@@ -873,5 +991,6 @@ struct tap_disk tapdisk_qcow = {
  	.td_queue_write     = qcow2_queue_write,
  	.td_get_parent_id   = qcow2_get_parent_id,
  	.td_validate_parent = qcow2_validate_parent,

@@ -1,4 +1,4 @@
-From b2f29e6773ec00179fdfb5a2bb020b41fcdffeab Mon Sep 17 00:00:00 2001
+From cb57344340beca5fb16cef02442320f3dec10066 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 13 Feb 2025 08:56:22 +0100
 Subject: [PATCH] qcow2: support query command
@@ -11,7 +11,7 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 101 insertions(+)
 
 diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
-index 4e242237..5c57233e 100644
+index f6e1d7c1..e9c1949e 100644
 --- a/drivers/block-qcow2.c
 +++ b/drivers/block-qcow2.c
 @@ -61,6 +61,7 @@
@@ -48,7 +48,7 @@ index 4e242237..5c57233e 100644
  		}
  		pthread_mutex_lock(&s->lock);
  	}
-@@ -953,6 +959,100 @@ signal_commit:
+@@ -961,6 +967,100 @@ signal_commit:
  	pthread_mutex_unlock(&s->commit_lock);
  }
  
@@ -149,7 +149,7 @@ index 4e242237..5c57233e 100644
  void
  qcow2_debug(td_driver_t *driver)
  {
-@@ -984,5 +1084,6 @@ struct tap_disk tapdisk_qcow = {
+@@ -992,5 +1092,6 @@ struct tap_disk tapdisk_qcow = {
  	.td_get_parent_id   = qcow2_get_parent_id,
  	.td_validate_parent = qcow2_validate_parent,
  	.td_commit          = qcow2_commit,

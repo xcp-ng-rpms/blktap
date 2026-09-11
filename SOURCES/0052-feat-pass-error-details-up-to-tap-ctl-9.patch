@@ -1,7 +1,7 @@
-From d3bc87696afd92396a39de63a7302d2dcd9fe08f Mon Sep 17 00:00:00 2001
-From: Mathieu Labourier <mathieu.labourier@vates.tech>
-Date: Thu, 30 Apr 2026 11:20:20 +0200
-Subject: [PATCH] feat: pass error details up to tap-ctl
+From fcc7a6fddbb07725632fe7cb50238a137cd36995 Mon Sep 17 00:00:00 2001
+From: Millefeuille <mathieu.labourier@vates.tech>
+Date: Mon, 6 Jul 2026 12:03:06 +0200
+Subject: [PATCH] feat: pass error details up to tap-ctl (#9)
 
 Passing an error structure all the way through the
 functions and calls invoked by tap-ctl allows to have detailed errors
@@ -28,7 +28,7 @@ Signed-off-by: Mathieu Labourier <mathieu.labourier@vates.tech>
  create mode 100644 include/tapdisk-err.h
 
 diff --git a/control/tap-ctl-unpause.c b/control/tap-ctl-unpause.c
-index 277ef88..a0d5868 100644
+index 277ef88e..a0d58682 100644
 --- a/control/tap-ctl-unpause.c
 +++ b/control/tap-ctl-unpause.c
 @@ -44,7 +44,7 @@
@@ -81,7 +81,7 @@ index 277ef88..a0d5868 100644
 +	return td_err_set_errno(error, err);
  }
 diff --git a/control/tap-ctl.c b/control/tap-ctl.c
-index c5597c9..79bcbc6 100644
+index c5597c94..79bcbc69 100644
 --- a/control/tap-ctl.c
 +++ b/control/tap-ctl.c
 @@ -44,13 +44,27 @@
@@ -892,7 +892,7 @@ index c5597c9..79bcbc6 100644
  	return (ret >= 0 ? ret : -ret);
  }
 diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
-index 4b7aab2..d6fdf43 100644
+index 4b7aab20..d6fdf434 100644
 --- a/drivers/tapdisk-control.c
 +++ b/drivers/tapdisk-control.c
 @@ -52,6 +52,7 @@
@@ -1339,7 +1339,7 @@ index 4b7aab2..d6fdf43 100644
  	    tapdisk_control_write_message(conn, &conn->response);
  
 diff --git a/drivers/tapdisk-image.c b/drivers/tapdisk-image.c
-index eca855a..1368188 100644
+index eca855a7..1368188e 100644
 --- a/drivers/tapdisk-image.c
 +++ b/drivers/tapdisk-image.c
 @@ -231,45 +231,52 @@ fail:
@@ -1561,7 +1561,7 @@ index eca855a..1368188 100644
  
  int
 diff --git a/drivers/tapdisk-image.h b/drivers/tapdisk-image.h
-index dad72d4..bec01fe 100644
+index dad72d44..bec01fe9 100644
 --- a/drivers/tapdisk-image.h
 +++ b/drivers/tapdisk-image.h
 @@ -32,6 +32,7 @@
@@ -1582,7 +1582,7 @@ index dad72d4..bec01fe 100644
  int tapdisk_image_validate_chain(struct list_head *);
  
 diff --git a/drivers/tapdisk-stream.c b/drivers/tapdisk-stream.c
-index 29588d7..809386a 100644
+index 29588d7a..809386af 100644
 --- a/drivers/tapdisk-stream.c
 +++ b/drivers/tapdisk-stream.c
 @@ -339,7 +339,8 @@ tapdisk_stream_open_image(struct tapdisk_stream *s, const char *name)
@@ -1596,7 +1596,7 @@ index 29588d7..809386a 100644
  		goto out;
  
 diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
-index 345fba3..8fcabbb 100644
+index 345fba36..8fcabbbd 100644
 --- a/drivers/tapdisk-vbd.c
 +++ b/drivers/tapdisk-vbd.c
 @@ -605,11 +605,13 @@ unlock:
@@ -1699,7 +1699,7 @@ index 345fba3..8fcabbb 100644
  
  int
 diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
-index bfac0c6..0993007 100644
+index bfac0c66..09930075 100644
 --- a/drivers/tapdisk-vbd.h
 +++ b/drivers/tapdisk-vbd.h
 @@ -209,7 +209,7 @@ int tapdisk_vbd_close(td_vbd_t *);
@@ -1721,7 +1721,7 @@ index bfac0c6..0993007 100644
  void tapdisk_vbd_check_state(td_vbd_t *);
  void tapdisk_vbd_free(td_vbd_t *);
 diff --git a/include/Makefile.am b/include/Makefile.am
-index 91b3680..604128a 100644
+index 91b36807..604128a5 100644
 --- a/include/Makefile.am
 +++ b/include/Makefile.am
 @@ -16,6 +16,7 @@ blktap_HEADERS += blktap3.h
@@ -1733,7 +1733,7 @@ index 91b3680..604128a 100644
  blktap_HEADERS += util.h
  blktap_HEADERS += ../drivers/tapdisk-metrics-stats.h
 diff --git a/include/tap-ctl.h b/include/tap-ctl.h
-index f093912..160ecfc 100644
+index f093912d..160ecfc4 100644
 --- a/include/tap-ctl.h
 +++ b/include/tap-ctl.h
 @@ -34,6 +34,7 @@
@@ -1755,7 +1755,7 @@ index f093912..160ecfc 100644
  int tap_ctl_stats_fwrite(pid_t pid, int minor, FILE *out);
 diff --git a/include/tapdisk-err.h b/include/tapdisk-err.h
 new file mode 100644
-index 0000000..b29530a
+index 00000000..b29530a1
 --- /dev/null
 +++ b/include/tapdisk-err.h
 @@ -0,0 +1,182 @@
