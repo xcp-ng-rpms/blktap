@@ -1,0 +1,46 @@
+CA-431091 msync CBT log mapping before unmapping it
+
+bitmap_init() maps the whole CBT log file MAP_SHARED from offset 0, so the
+48-byte cbt_log_metadata header shares page 0 with the first 4048 bytes of
+the bitmap - the low ~2GiB of the disk. Any guest write in that range
+dirties the page holding the consistency flag.
+
+bitmap_free() then dropped the mapping without flushing it. On a shared file
+SR that leaves the dirty pages queued in this host's page cache after
+tap-ctl pause has returned. The SR master renames the log onto the snapshot
+and rewrites the header (cbt-util set -f 1) in that window, and our later
+writeback pushes the whole of page 0 back, reinstating the stale header and
+silently discarding the master's update. SM sees the log as inconsistent on
+the next writable attach, deletes it and clears cbt_enabled, which fails the
+subsequent VDI.data_destroy with VDI_NO_CBT_METADATA and breaks the CBT
+chain.
+
+Only hosts other than the SR master are affected: when the tapdisk is
+co-located with cbt-util the two share a page cache and the header update
+survives.
+
+msync(MS_SYNC) before munmap() completes our writeback before pause returns,
+restoring the ordering SM already assumes.
+
+diff --git a/drivers/block-log.c b/drivers/block-log.c
+index 31481f5..a85aa8b 100644
+--- a/drivers/block-log.c
++++ b/drivers/block-log.c
+@@ -115,6 +115,17 @@ static int bitmap_free(struct tdlog_data *data)
+ 	int rc;
+ 	bmsize = bitmap_size(data->size * SECTOR_SIZE) + sizeof(struct cbt_log_metadata);
+ 	if (data->bitmap) {
++		/* The mapping covers the log header as well as the bitmap, and
++		 * writeback is per page, so page 0 carries both. On a shared file
++		 * SR the SR master stamps the header as soon as we are paused; if
++		 * our dirty pages are still queued then, the eventual writeback
++		 * reinstates the stale header and discards that update. Flush
++		 * synchronously so we are written back before pause completes. */
++		rc = msync(data->bitmap, bmsize, MS_SYNC);
++		if (rc != 0) {
++			EPRINTF("Failed to sync the bitmap block");
++		}
++
+ 		rc = munmap(data->bitmap, bmsize);
+ 		if (rc != 0) {
+ 			EPRINTF("Failed to unmap the bitmap block");

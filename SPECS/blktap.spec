@@ -1,13 +1,13 @@
-%global package_speccommit 284310adc02e3a383ece9d885a11231c1cc56374
+%global package_speccommit d2c254da7df3230addcd3fac888c79d7a0ddc29f
 %global usver 3.55.5
-%global xsver 9
+%global xsver 11
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.5%{?dist}
+Release: %{?xsrel}.1%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -19,6 +19,10 @@ Patch3: CP-308382_fix_sign_conversion_in_coalesce
 Patch4: fix_coalesced_size_conversion_in_vhd-util-coalesce.patch
 Patch5: ca-416464__return_blkif_rsp_eopnotsupp_for_eopnotsupp.patch
 Patch6: prevent_segfault_of_vhd-util_scan_on_vhd_with_corrupt_footer.patch
+Patch7: ca-431091__msync_cbt_log_before_munmap.patch
+Patch8: ca-429650__validate_guest_blkif_request_segment_bounds.patch
+Patch9: ca-429650__bound_nr_segments_by_seg_capacity_and_right-size_buffer-1.patch
+Patch10: ca-429650__add_unit_tests_for_blkif_request_segment_validation-1.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -41,7 +45,7 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
-# git format-patch XS-v3.55.5-1..v3.55.5-qcow2 --no-signature --no-numbered
+# git format-patch XS-v3.55.5-11..v3.55.5-qcow2 --no-signature --no-numbered --zero-commit
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 Patch1002: 0002-tapdisk-deduplicate-double-assignment-code.patch
@@ -65,32 +69,43 @@ Patch1019: 0019-td-req-remove-unused-field-gref.patch
 Patch1020: 0020-td-req-rename-tapreq-as-req.patch
 Patch1021: 0021-td-req-remove-old-code.patch
 Patch1022: 0022-td-req-fix-typo-in-a-comment.patch
-Patch1023: 0023-libqcow2-manage-libqcow2-sources-import.patch
-Patch1024: 0024-libqcow2-import-vanilla-sources-from-qemu-9.1.1.patch
-Patch1025: 0025-libqcow2-build-qcow2-library-for-tapdisk.patch
-Patch1026: 0026-libqcow2-fix-support-for-old-components-gcc-glibc-gl.patch
-Patch1027: 0027-tapdisk-protect-td_vbd_t-structure.patch
-Patch1028: 0028-tapdisk-protect-td_blktap_t-structure.patch
-Patch1029: 0029-tapdisk-protect-td_xenblkif-structure.patch
-Patch1030: 0030-tapdisk-protect-scheduler-structure.patch
-Patch1031: 0031-mocka-fix-scheduler-tests-according-mutex-protection.patch
-Patch1032: 0032-tapdisk-protect-td_nbdserver-structures.patch
-Patch1033: 0033-libqcow2-prepare-proper-cleanup-of-libqcow2-on-close.patch
-Patch1034: 0034-libqcow2-mask-signals-used-by-tapdisk.patch
-Patch1035: 0035-tapdisk-replace-signals-handling-by-signalfd.patch
-Patch1036: 0036-qcow2-driver-support-qcow2-images-in-tapdisk.patch
-Patch1037: 0037-vbd-wake-up-scheduler-to-force-check-ring.patch
-Patch1038: 0038-tapdisk-support-new-commit-command.patch
-Patch1039: 0039-qcow2-support-commit-command.patch
-Patch1040: 0040-tapdisk-support-new-query-command.patch
-Patch1041: 0041-qcow2-support-query-command.patch
-Patch1042: 0042-tapdisk-support-new-cancel-command.patch
-Patch1043: 0043-qcow2-support-cancel-command.patch
-Patch1044: 0044-libqcow2-fix-abort-commit-without-crash.patch
-Patch1045: 0045-feat-pass-error-details-up-to-tap-ctl.patch
-Patch1046: 0046-fix-skip-cbtlog-disks-in-commit-related-operations.patch
-Patch1047: 0047-Validate-guest-blkif-request-segment-bounds.patch
-Patch1048: 0048-Bound-nr_segments-by-seg-capacity-and-right-size-buf.patch
+Patch1023: 0023-tapdisk-fix-warnings-about-discard-qualifiers.patch
+Patch1024: 0024-Update-definitions-to-use-ANSI-style.patch
+Patch1025: 0025-libqcow2-manage-libqcow2-sources-import.patch
+Patch1026: 0026-libqcow2-import-vanilla-sources-from-qemu-9.1.1.patch
+Patch1027: 0027-libqcow2-build-qcow2-library-for-tapdisk.patch
+Patch1028: 0028-libqcow2-fix-support-for-old-components-gcc-glibc-gl.patch
+Patch1029: 0029-tapdisk-protect-td_vbd_t-structure.patch
+Patch1030: 0030-tapdisk-protect-td_blktap_t-structure.patch
+Patch1031: 0031-tapdisk-protect-td_xenblkif-structure.patch
+Patch1032: 0032-tapdisk-protect-scheduler-structure.patch
+Patch1033: 0033-mocka-fix-scheduler-tests-according-mutex-protection.patch
+Patch1034: 0034-tapdisk-protect-td_nbdserver-structures.patch
+Patch1035: 0035-libqcow2-prepare-proper-cleanup-of-libqcow2-on-close.patch
+Patch1036: 0036-libqcow2-fix-use-after-free-in-qemu_deinit_main_loop.patch
+Patch1037: 0037-libqcow2-mask-signals-used-by-tapdisk.patch
+Patch1038: 0038-tapdisk-replace-signals-handling-by-signalfd.patch
+Patch1039: 0039-qcow2-driver-support-qcow2-images-in-tapdisk.patch
+Patch1040: 0040-qcow2-only-check-overlap-which-can-be-done-in-consta.patch
+Patch1041: 0041-qcow2-grow-up-caches-size.patch
+Patch1042: 0042-tapdisk-vbd-wake-up-scheduler-to-force-check-ring.patch
+Patch1043: 0043-tapdisk-blkif-never-lose-a-ring-check-request.patch
+Patch1044: 0044-tapdisk-blkif-check-the-ring-every-8-seconds.patch
+Patch1045: 0045-libqcow2-fix-use-after-free-of-commit_top_bs-in-comm.patch
+Patch1046: 0046-tapdisk-support-new-commit-command.patch
+Patch1047: 0047-qcow2-support-commit-command.patch
+Patch1048: 0048-tapdisk-support-new-query-command.patch
+Patch1049: 0049-qcow2-support-query-command.patch
+Patch1050: 0050-tapdisk-support-new-cancel-command.patch
+Patch1051: 0051-qcow2-support-cancel-command.patch
+Patch1052: 0052-feat-pass-error-details-up-to-tap-ctl-9.patch
+Patch1053: 0053-fix-skip-cbtlog-disks-in-commit-related-operations.patch
+Patch1054: 0054-qcow2-fix-lost-wakeups-in-the-commit-query-and-cance.patch
+Patch1055: 0055-qcow2-Handle-all-job-states-in-cancel.patch
+Patch1056: 0056-qcow2-join-thread-and-clean-on-failed-open.patch
+Patch1057: 0057-qcow2-fix-use-after-free-of-s-bh-when-a-commit-races.patch
+Patch1058: 0058-qcow2-stop-a-commit-job-from-outliving-driver-close.patch
+Patch1059: 0059-qcow2-cancel-also-a-created-and-not-yet-running-job.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -220,6 +235,20 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Sep 11 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-11.1
+- Sync with 3.55.5-10 and 3.55.5-11
+- Drop patch 0047-Validate-guest-blkif-request-segment-bounds.patch, upstream now
+- Drop patch 0048-Bound-nr_segments-by-seg-capacity-and-right-size-buf.patch, upstream now
+- Fix a tapdisk crash trigger by an error on cancel commit job
+- Fix a race condition that miss a ring check request
+- Grow up qcow2 caches for better performance
+- Disable linear overlap checks for better performance
+- *** Upstream changelog ***
+  * Thu Aug 27 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-11
+  - CA-429650: fixes for XSI-513
+  * Wed Aug 26 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-10
+  - CA-431091: msync CBT log mapping before unmapping it
+
 * Wed Aug 26 2026 Damien Thenot <damien.thenot@vates.tech> - 3.55.5-9.5
 - Fix a possible out of bound access with blkif sectors
 - Use the correct segments limit for blktap requests

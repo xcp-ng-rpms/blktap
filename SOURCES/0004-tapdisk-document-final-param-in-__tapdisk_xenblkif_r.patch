@@ -1,4 +1,4 @@
-From 2de5a44347e224ec3be404860d5d98e6fba1b1ff Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Mon, 20 Jan 2025 14:45:35 +0100
 Subject: [PATCH] tapdisk: document final param in
@@ -12,10 +12,10 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/drivers/td-req.c b/drivers/td-req.c
-index e1ce9fd7..178985f3 100644
+index 37e29a7f..47e18435 100644
 --- a/drivers/td-req.c
 +++ b/drivers/td-req.c
-@@ -591,7 +591,7 @@ out:
+@@ -593,7 +593,7 @@ out:
   * @param vreq the completed request
   * @param error status of the request
   * @param token token previously associated with this request

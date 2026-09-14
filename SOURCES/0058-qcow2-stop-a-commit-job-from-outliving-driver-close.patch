@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Wed, 29 Jul 2026 11:45:01 +0200
+Subject: [PATCH] qcow2: stop a commit job from outliving driver close
+
+Closing an image while a commit job was in flight left the job running into
+the teardown. Its data copies were still queued in the AioContext's thread
+pool when aio_ctx_finalize() called thread_pool_free(), which asserts the
+pool is empty:
+
+  util/thread-pool.c: thread_pool_free:
+      Assertion `QLIST_EMPTY(&pool->head)' failed.
+
+(aio_ctx_finalize() frees the thread pool *before* draining ctx->bh_list, so
+any completion bottom half still pending at that point is fatal.)
+
+Instrumenting the pool showed the straggler was a 512 KiB write --
+COMMIT_BUFFER_SIZE, i.e. commit_run() still copying:
+
+  thread_pool_submit_aio <- raw_thread_pool_submit <- raw_co_pwritev
+    <- bdrv_co_pwritev_part <- qcow2_co_pwritev_task <- qcow2_add_task
+
+qcow2_handle_requests() is re-entrant. The QMP calls made from the
+request handlers pump this AioContext's bottom halves internally
+(qmp_block_commit -> commit_start -> block_job_create ->
+bdrv_graph_wrunlock -> aio_bh_poll), which re-enters block_bh() and lets
+a queued request run in the middle of another one. Cancelling a commit
+job between block_job_create() (commit.c:347) and the point where
+commit_start() fills in its BlockBackends (commit.c:455) made
+commit_abort() dereference a NULL s->top.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/block-qcow2.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index 18592247..5ea8ddb2 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -166,6 +166,7 @@ struct qcow2_state {
+ 	pthread_mutex_t           lock;
+ 	pthread_cond_t            cond;
+ 	bool                      driver_opened;
++	bool                      handling_requests;
+ 	int                       open_status;
+ 	MemReentrancyGuard        mem_reentrancy_guard;
+ 
+@@ -249,6 +250,13 @@ static void qcow2_handle_requests(struct qcow2_state *s)
+ 	struct qcow2_request *req;
+ 
+ 	pthread_mutex_lock(&s->lock);
++	if (s->handling_requests) {
++		/* Re-entered from inside a request handler: leave the
++		 * queue untouched, the outer loop below will drain it. */
++		pthread_mutex_unlock(&s->lock);
++		return;
++	}
++	s->handling_requests = true;
+ 	while ((req = QSIMPLEQ_FIRST(&s->inflight))) {
+ 		QSIMPLEQ_REMOVE_HEAD(&s->inflight, list);
+ 		pthread_mutex_unlock(&s->lock);
+@@ -272,6 +280,7 @@ static void qcow2_handle_requests(struct qcow2_state *s)
+ 		}
+ 		pthread_mutex_lock(&s->lock);
+ 	}
++	s->handling_requests = false;
+ 	pthread_mutex_unlock(&s->lock);
+ }
+ 

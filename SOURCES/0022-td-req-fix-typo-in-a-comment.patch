@@ -1,4 +1,4 @@
-From 462b92fa2c2d64ce558c6a3dd5ce3dcf7456e09c Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Tue, 17 Mar 2026 16:52:55 +0100
 Subject: [PATCH] td-req: fix typo in a comment
@@ -13,10 +13,10 @@ Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/drivers/td-req.c b/drivers/td-req.c
-index 68760dd0..028e4bf6 100644
+index eb192578..045f9645 100644
 --- a/drivers/td-req.c
 +++ b/drivers/td-req.c
-@@ -669,7 +669,7 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
+@@ -680,7 +680,7 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
              iov++;
              iov->base = next;
              iov->secs = size;

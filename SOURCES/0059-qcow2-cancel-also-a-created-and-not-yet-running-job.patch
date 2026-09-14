@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 24 Aug 2026 16:40:44 +0200
+Subject: [PATCH] qcow2: cancel also a created and not yet running job
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/block-qcow2.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index 5ea8ddb2..2e6eaeac 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -477,6 +477,7 @@ qcow2_open(void *opaque)
+ 		 * everything it references is destroyed below.
+ 		 */
+ 		switch (bjob->job.status) {
++		case JOB_STATUS_CREATED:
+ 		case JOB_STATUS_RUNNING:
+ 		case JOB_STATUS_PAUSED:
+ 		case JOB_STATUS_READY:
+@@ -1223,6 +1224,7 @@ do_cancel_commit_job(struct qcow2_state *s, struct qcow2_request *req)
+ 	 * runs on half-initialized or already-cleaned job state.
+ 	 */
+ 	switch (bjob->job.status) {
++	case JOB_STATUS_CREATED:
+ 	case JOB_STATUS_RUNNING:
+ 	case JOB_STATUS_PAUSED:
+ 	case JOB_STATUS_READY:

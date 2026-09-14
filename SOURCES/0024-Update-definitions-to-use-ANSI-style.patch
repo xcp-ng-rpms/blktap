@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Frediano Ziglio <frediano.ziglio@citrix.com>
+Date: Fri, 27 Feb 2026 13:46:22 +0000
+Subject: [PATCH] Update definitions to use ANSI style
+
+Some compiler nowadays complain about the old K&R syntax.
+
+Signed-off-by: Frediano Ziglio <frediano.ziglio@citrix.com>
+---
+ drivers/atomicio.c | 6 +-----
+ vhd/lib/atomicio.c | 6 +-----
+ 2 files changed, 2 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/atomicio.c b/drivers/atomicio.c
+index b390ee32..fef04201 100644
+--- a/drivers/atomicio.c
++++ b/drivers/atomicio.c
+@@ -36,11 +36,7 @@
+  * ensure all of data on socket comes through. f==read || f==vwrite
+  */
+ size_t
+-atomicio(f, fd, _s, n)
+-	ssize_t (*f) (int, void *, size_t);
+-	int fd;
+-	void *_s;
+-	size_t n;
++atomicio(ssize_t (*f) (int, void *, size_t), int fd, void *_s, size_t n)
+ {
+ 	char *s = _s;
+ 	size_t pos = 0;
+diff --git a/vhd/lib/atomicio.c b/vhd/lib/atomicio.c
+index b390ee32..fef04201 100644
+--- a/vhd/lib/atomicio.c
++++ b/vhd/lib/atomicio.c
+@@ -36,11 +36,7 @@
+  * ensure all of data on socket comes through. f==read || f==vwrite
+  */
+ size_t
+-atomicio(f, fd, _s, n)
+-	ssize_t (*f) (int, void *, size_t);
+-	int fd;
+-	void *_s;
+-	size_t n;
++atomicio(ssize_t (*f) (int, void *, size_t), int fd, void *_s, size_t n)
+ {
+ 	char *s = _s;
+ 	size_t pos = 0;

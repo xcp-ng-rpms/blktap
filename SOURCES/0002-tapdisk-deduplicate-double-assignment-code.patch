@@ -1,4 +1,4 @@
-From da68419a7008aa37563ffe5b3c7fce5b455edb62 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
 Date: Thu, 16 Jan 2025 14:09:07 +0100
 Subject: [PATCH] tapdisk: deduplicate double assignment code

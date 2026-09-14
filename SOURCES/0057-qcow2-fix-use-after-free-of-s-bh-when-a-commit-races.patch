@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 24 Aug 2026 15:28:16 +0200
+Subject: [PATCH] qcow2: fix use-after-free of s->bh when a commit races driver
+ close
+
+s->lock only protected the insertion into s->inflight, not the
+qemu_bh_schedule(s->bh) that immediately followed it. Nothing stopped
+_qcow2_close() from running concurrently on another thread and freeing
+s->bh (the worker thread's teardown deletes it, and the memory is actually
+released later by an aio_bh_poll() inside blk_unref()) while a
+commit-family caller was still reading it.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/block-qcow2.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index 6b5a3da4..18592247 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -596,11 +596,15 @@ _qcow2_close(td_driver_t *driver)
+ 
+ 	DBG(TLOG_WARN, "qcow2_close\n");
+ 
++        /*
++         * Kick while still holding the lock: the thread only checks
++         * driver_opened after taking s->lock, so kicking after unlock
++         * risks the bh/AioContext already being torn down.
++         */
+ 	pthread_mutex_lock(&s->lock);
+ 	s->driver_opened = false;
+-	pthread_mutex_unlock(&s->lock);
+-
+ 	qemu_bh_schedule(s->bh);
++	pthread_mutex_unlock(&s->lock);
+ 
+ 	// Ignore return, qcow2_open() always return NULL; or will abort
+ 	qemu_thread_join(&s->thread);

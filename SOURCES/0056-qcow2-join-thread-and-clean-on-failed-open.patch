@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 24 Aug 2026 15:25:34 +0200
+Subject: [PATCH] qcow2: join thread and clean on failed open.
+
+A failed open never joined the thread. Tapdisk frees the driver state
+and retries the open, so a retry can re-initialize the QEMU globals
+(BQL, main loop, AIO context, signal fd) while the previous thread is
+still destroying them, and every failed open leaks a joinable thread.
+Join before returning the error.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/block-qcow2.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index 43fc3c7d..6b5a3da4 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -570,6 +570,19 @@ _qcow2_open(td_driver_t *driver, const char *name,
+ 	s->open_status = 0;
+ 	pthread_mutex_unlock(&s->lock);
+ 
++	if (err) {
++		/*
++                 * Join the teardown thread before returning so a retried
++                 * open doesn't reinit QEMU globals while it's still running.
++		 */
++		qemu_thread_join(&s->thread);
++
++		pthread_cond_destroy(&s->commit_cond);
++		pthread_mutex_destroy(&s->commit_lock);
++		pthread_cond_destroy(&s->cond);
++		pthread_mutex_destroy(&s->lock);
++	}
++
+ 	return err;
+ }
+ 

@@ -1,4 +1,4 @@
-From d8cda8eb7a7404102b10a05e1226129e5c424d0e Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Ronan Abhamon <ronan.abhamon@vates.tech>
 Date: Wed, 18 Dec 2024 16:55:26 +0100
 Subject: [PATCH] Add an option to use backup footer when vhd-util query is
