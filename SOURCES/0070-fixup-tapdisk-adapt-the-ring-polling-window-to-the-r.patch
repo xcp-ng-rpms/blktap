@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Thu, 1 Oct 2026 11:47:06 +0200
+Subject: [PATCH] fixup! tapdisk: adapt the ring polling window to the request
+ inter-arrival time
+
+---
+ mockatests/drivers/test-td-req.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/mockatests/drivers/test-td-req.c b/mockatests/drivers/test-td-req.c
+index dd3147a6..d91b4c8f 100644
+--- a/mockatests/drivers/test-td-req.c
++++ b/mockatests/drivers/test-td-req.c
+@@ -104,6 +104,16 @@ tapdisk_server_mem_mode(void)
+ 	return NORMAL_MEMORY_MODE;
+ }
+ 
++int tapdisk_server_event_set_timeout(event_id_t, struct timeval timeo)
++{
++	return 0;
++}
++
++float tapdisk_server_system_idle_cpu(void)
++{
++	return 50.0;
++}
++
+ /* --- helpers --- */
+ 
+ static void

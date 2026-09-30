@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Wed, 30 Sep 2026 14:59:02 +0200
+Subject: [PATCH] tapdisk: don't re-arm req_event while polling in process_ring
+
+tapdisk_xenio_ctx_process_ring() unconditionally set final=1,
+requesting a further notification (req_event re-arm) at the end of
+each processed batch. While the ring is being polled, the event
+channel is masked and the stop-polling callback already performs
+this final check before going back to sleep.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/td-ctx.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/td-ctx.c b/drivers/td-ctx.c
+index d54d8457..a67fec01 100644
+--- a/drivers/td-ctx.c
++++ b/drivers/td-ctx.c
+@@ -328,7 +328,15 @@ tapdisk_xenio_ctx_process_ring(struct td_xenblkif *blkif,
+         blkif->n_reqs_free -= n_reqs;
+ 		ASSERT(blkif->n_reqs_free <= blkif->ring_size);
+ 		limit -= n_reqs;
+-        final = 1;
++        /*
++         * While polling, the ring's event channel is masked and the
++         * stop-polling callback performs the final check (re-arming
++         * req_event) before we go back to sleep. Re-arming here would only
++         * make the frontend issue a notification hypercall per request that
++         * nobody waits for.
++         */
++        if (!blkif->in_polling)
++            final = 1;
+ 
+ 		if (unlikely(reqs[(n_reqs - 1)]->operation ==
+ 					BLKIF_OP_WRITE_BARRIER)) {

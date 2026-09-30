@@ -1,0 +1,386 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Wed, 30 Sep 2026 15:31:34 +0200
+Subject: [PATCH] tapdisk: defer the ring kick while other requests are in
+ flight
+
+Each completed request group pushed its responses and notified the
+front-end right away. Under load this makes the guest take one
+interrupt per completion and fall into lockstep with tapdisk.
+
+While other requests of the ring are still in flight, hold the push
+and the notification until kick_defer_max_held responses are ready or
+a kick_defer_max_usecs deadline fires. With nothing else in flight the
+kick is sent immediately, so QD1 latency is unchanged.
+
+Optional modes (bit mask):
+- TD_KICK_DEFER_POLL_ONLY: defer only while the ring is being polled;
+- TD_KICK_DEFER_ADAPTIVE: size the deadline from a smoothed
+  inter-group interval (4x EWMA, clamped to the configured maximum);
+- TD_KICK_DEFER_LOAD_AWARE: quarter the deadline while dom0 idle CPU
+  is below the polling idle threshold.
+
+This is a prototype: settings are read at connect time from
+/etc/tapdisk-kick-defer.conf ("<usecs> <count> [<mode>]"), and the
+feature is off when the file is absent. Counters are exposed in the
+blkif stats under "kick_defer".
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/td-blkif.c |  55 +++++++++++++++++++
+ drivers/td-blkif.h |  31 +++++++++++
+ drivers/td-req.c   | 128 ++++++++++++++++++++++++++++++++++++++++-----
+ drivers/td-stats.c |  14 +++++
+ drivers/td-stats.h |  11 ++++
+ 5 files changed, 226 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index b0d5af93..49617f22 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -33,6 +33,7 @@
+ #include <sys/mman.h>
+ #include <unistd.h>
+ #include <stdio.h>
++#include <sys/prctl.h>
+ #include <libgen.h>
+ #include <zlib.h>
+ 
+@@ -231,6 +232,11 @@ tapdisk_xenblkif_destroy(struct td_xenblkif * blkif)
+         blkif->stoppolling_event = -1;
+     }
+ 
++    if (blkif->kick_defer_event >= 0) {
++        tapdisk_server_unregister_event(blkif->kick_defer_event);
++        blkif->kick_defer_event = -1;
++    }
++
+     tapdisk_xenblkif_reqs_free(blkif);
+ 
+     if (blkif->ctx) {
+@@ -466,6 +472,43 @@ tapdisk_xenblkif_cb_chkrng(event_id_t id __attribute__((unused)),
+ }
+ 
+ 
++/*
++ * Prototype knob: /etc/tapdisk-kick-defer.conf holds "<usecs> <count> [<mode>]".
++ * Absent or unreadable = kick deferral off. A product version would take this
++ * from the VBD other-config like polling-duration.
++ */
++static void
++tapdisk_xenblkif_kick_defer_config(struct td_xenblkif *blkif)
++{
++    FILE *f = fopen("/etc/tapdisk-kick-defer.conf", "r");
++    unsigned int usecs = 0, count = 0, mode = 0;
++
++    if (f) {
++        int n = fscanf(f, "%u %u %u", &usecs, &count, &mode);
++        if (n < 2)
++            usecs = count = 0;
++        if (n < 3)
++            mode = 0;
++        fclose(f);
++    }
++    blkif->kick_defer_max_usecs = usecs;
++    blkif->kick_defer_max_held = count ? count : 8;
++    blkif->kick_defer_mode = mode;
++    blkif->kick_defer_last_ns = 0;
++    blkif->kick_defer_ewma_ns = (long long)usecs * 1000 / 4;
++    if (usecs) {
++        static bool slack_set;
++
++        /* select() timeouts honour the timer slack; make it small (once). */
++        if (!slack_set) {
++            prctl(PR_SET_TIMERSLACK, 5000);
++            slack_set = true;
++        }
++        RING_DEBUG(blkif, "deferred kick: %u us, %u responses, mode %u\n",
++                usecs, blkif->kick_defer_max_held, mode);
++    }
++}
++
+ int
+ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t * grefs,
+         int order, evtchn_port_t port, int proto, int poll_duration,
+@@ -511,6 +554,9 @@ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t * grefs,
+ 	td_blkif->chkrng_event = -1;
+ 	td_blkif->stoppolling_event = -1;
+ 	td_blkif->in_polling = false;
++	td_blkif->kick_defer_event = -1;
++	td_blkif->kick_defer_armed = false;
++	tapdisk_xenblkif_kick_defer_config(td_blkif);
+ 	td_blkif->poll_duration = poll_duration;
+ 	td_blkif->poll_idle_threshold = poll_idle_threshold;
+ 	td_blkif->barrier.msg = NULL;
+@@ -636,6 +682,15 @@ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t * grefs,
+         goto fail;
+     }
+ 
++    td_blkif->kick_defer_event = tapdisk_server_register_event(
++			SCHEDULER_POLL_TIMEOUT,	-1, TV_INF,
++			tapdisk_xenblkif_cb_kick_deadline, td_blkif);
++    if (unlikely(td_blkif->kick_defer_event < 0)) {
++        err = td_blkif->kick_defer_event;
++        RING_ERR(td_blkif, "failed to register event: %s\n", strerror(-err));
++        goto fail;
++    }
++
+     err = tapdisk_xenblkif_stats_create(td_blkif);
+     if (unlikely(err))
+         goto fail;
+diff --git a/drivers/td-blkif.h b/drivers/td-blkif.h
+index 03e9cd92..078f66b1 100644
+--- a/drivers/td-blkif.h
++++ b/drivers/td-blkif.h
+@@ -52,6 +52,11 @@ struct td_xenio_ctx;
+ struct td_vbd_handle;
+ struct td_xenblkif_stats;
+ 
++/* Deferred kick modes (bit mask). */
++#define TD_KICK_DEFER_POLL_ONLY  1 /* defer only while the ring is being polled */
++#define TD_KICK_DEFER_ADAPTIVE   2 /* deadline = 4 x smoothed inter-group interval, clamped */
++#define TD_KICK_DEFER_LOAD_AWARE 4 /* deadline / 4 while dom0 idle < polling idle threshold */
++
+ struct td_xenblkif {
+ 
+     /**
+@@ -221,6 +226,21 @@ struct td_xenblkif {
+ 
+ 	bool in_polling;
+ 	int poll_duration; /* microseconds; 0 means no polling. */
++
++	/*
++	 * Deferred kick: hold the response push while other requests are in
++	 * flight, until kick_defer_max_held responses are ready or
++	 * kick_defer_max_usecs elapsed since the first held one. 0 = off.
++	 * Prototype knob: read from /etc/tapdisk-kick-defer.conf
++	 * ("usecs count mode") at connect.
++	 */
++	unsigned int kick_defer_max_usecs;
++	unsigned int kick_defer_max_held;
++	unsigned int kick_defer_mode; /* TD_KICK_DEFER_* */
++	long long kick_defer_last_ns;
++	long long kick_defer_ewma_ns;
++	event_id_t kick_defer_event;
++	bool kick_defer_armed;
+ 	int poll_idle_threshold;
+ };
+ 
+@@ -313,6 +333,17 @@ tapdisk_xenblkif_chkrng_event_id(const struct td_xenblkif * const blkif);
+ extern event_id_t
+ tapdisk_xenblkif_stoppolling_event_id(const struct td_xenblkif * const blkif);
+ 
++/**
++ * Pushes the produced responses to the front-end and notifies it if it
++ * asked for it; disarms a pending kick deadline. blkif->mutex held.
++ */
++int
++tapdisk_xenblkif_notify_now(struct td_xenblkif * const blkif);
++
++/** Deferred kick deadline callback (td-req.c); registered in td-blkif.c. */
++void
++tapdisk_xenblkif_cb_kick_deadline(event_id_t id, char mode, void *private);
++
+ /**
+  * Updates ring stats.
+  */
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 3d4177a3..201256a1 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -36,6 +36,7 @@
+ #include <sys/mman.h>
+ #include <unistd.h>
+ #include <sys/ioctl.h>
++#include <time.h>
+ 
+ #ifdef __linux__
+ #include <linux/version.h>
+@@ -306,27 +307,128 @@ xenio_blkif_put_response(struct td_xenblkif * const blkif,
+     }
+ 
+     if (final) {
+-        int notify;
+-        RING_PUSH_RESPONSES_AND_CHECK_NOTIFY(ring, notify);
+-        if (notify) {
+-            int err = xenevtchn_notify(blkif->ctx->xce_handle, blkif->port);
+-            if (err < 0) {
+-                err = -errno;
+-                if (req) {
+-                    RING_ERR(blkif, "req %lu: failed to notify event channel: "
+-                            "%s\n", req->msg.id, strerror(-err));
+-                } else {
+-                    RING_ERR(blkif, "failed to notify event channel: %s\n",
+-                            strerror(-err));
++        /* Responses produced but not yet pushed to the front-end. */
++        const RING_IDX held = ring->rsp_prod_pvt - ring->sring->rsp_prod;
++
++        /*
++         * Deferred kick. While other requests of this ring are still in
++         * flight (the caller's own request is still counted as pending
++         * here), hold the push and the notification until
++         * kick_defer_max_held responses are ready or the
++         * kick_defer_max_usecs deadline fires, so the guest takes one
++         * interrupt per group instead of falling into lockstep. With nothing
++         * else in flight, notify now: QD1 and tail latency are untouched.
++         * (stats.kicks.out keeps counting group ends;
++         * stats.kick_defer.notifies counts the notifications actually sent.)
++         */
++        if (blkif->kick_defer_mode & TD_KICK_DEFER_ADAPTIVE) {
++            /*
++             * Smoothed interval between completion groups (EWMA, 1/8), used
++             * by the adaptive mode to size the hold: a few group intervals
++             * are enough to gather a batch, more only adds latency.
++             */
++            struct timespec ts;
++            long long now, dt;
++
++            clock_gettime(CLOCK_MONOTONIC, &ts);
++            now = (long long)ts.tv_sec * 1000000000LL + ts.tv_nsec;
++            dt = now - blkif->kick_defer_last_ns;
++            if (blkif->kick_defer_last_ns && dt > 0 && dt < 100000000LL) /* ignore idle gaps > 100 ms */
++                blkif->kick_defer_ewma_ns += (dt - blkif->kick_defer_ewma_ns) / 8;
++            blkif->kick_defer_last_ns = now;
++        }
++
++        if (blkif->kick_defer_max_usecs && held && held < blkif->kick_defer_max_held
++                && tapdisk_xenblkif_reqs_pending(blkif) > 1
++                && (!(blkif->kick_defer_mode & TD_KICK_DEFER_POLL_ONLY) || blkif->in_polling)) {
++            blkif->stats.kick_defer.held++;
++            if (!blkif->kick_defer_armed) {
++                unsigned int usecs = blkif->kick_defer_max_usecs;
++                if (blkif->kick_defer_mode & TD_KICK_DEFER_ADAPTIVE) {
++                    long long u = 4 * (blkif->kick_defer_ewma_ns / 1000);
++
++                    if (u < 5)
++                        usecs = 5;
++                    else if (u < blkif->kick_defer_max_usecs)
++                        usecs = (unsigned int)u;
+                 }
+-                return err;
++                if ((blkif->kick_defer_mode & TD_KICK_DEFER_LOAD_AWARE)
++                        && tapdisk_server_system_idle_cpu() < (float)blkif->poll_idle_threshold) {
++                    /* dom0 is contended (polling would be refused): hold a quarter as long */
++                    usecs = usecs / 4 < 5 ? 5 : usecs / 4;
++                    blkif->stats.kick_defer.arms_short++;
++                }
++                blkif->kick_defer_armed = true;
++                blkif->stats.kick_defer.deadline_us_sum += usecs;
++                blkif->stats.kick_defer.arms++;
++                tapdisk_server_event_set_timeout(blkif->kick_defer_event,
++                        TV_USECS(usecs));
+             }
++            return 0;
++        }
++        return tapdisk_xenblkif_notify_now(blkif);
++    }
++
++    return 0;
++}
++
++/**
++ * Pushes the produced responses to the front-end and notifies it if it asked
++ * for it. Disarms a pending kick deadline. Must hold blkif->mutex.
++ */
++int
++tapdisk_xenblkif_notify_now(struct td_xenblkif * const blkif)
++{
++    blkif_common_back_ring_t * const ring = &blkif->rings.common;
++    int notify;
++
++    ASSERT(blkif);
++
++    if (blkif->kick_defer_armed) {
++        blkif->kick_defer_armed = false;
++        tapdisk_server_event_set_timeout(blkif->kick_defer_event, TV_INF);
++    }
++
++    RING_PUSH_RESPONSES_AND_CHECK_NOTIFY(ring, notify);
++    blkif->stats.kick_defer.pushes++;
++    if (notify) {
++        int err = xenevtchn_notify(blkif->ctx->xce_handle, blkif->port);
++        blkif->stats.kick_defer.notifies++;
++        if (err < 0) {
++            err = -errno;
++            RING_ERR(blkif, "failed to notify event channel: %s\n",
++                    strerror(-err));
++            return err;
+         }
+     }
+ 
+     return 0;
+ }
+ 
++/**
++ * Deferred kick deadline: push whatever responses are held.
++ */
++void
++tapdisk_xenblkif_cb_kick_deadline(event_id_t id __attribute__((unused)),
++        char mode __attribute__((unused)), void *private)
++{
++    struct td_xenblkif *blkif = private;
++
++    ASSERT(blkif);
++
++    pthread_mutex_lock(&blkif->mutex);
++    blkif->stats.kick_defer.deadlines++;
++    /*
++     * Scheduler timeouts are periodic: disarm explicitly here, whatever
++     * the state, or the callback would keep firing every kick_defer_max_usecs.
++     */
++    blkif->kick_defer_armed = false;
++    tapdisk_server_event_set_timeout(blkif->kick_defer_event, TV_INF);
++    if (likely(!blkif->dead))
++        tapdisk_xenblkif_notify_now(blkif);
++    pthread_mutex_unlock(&blkif->mutex);
++}
++
+ 
+ /**
+  * Tells whether the request requires data to be read.
+diff --git a/drivers/td-stats.c b/drivers/td-stats.c
+index f8982624..2fd9c611 100644
+--- a/drivers/td-stats.c
++++ b/drivers/td-stats.c
+@@ -62,4 +62,18 @@ tapdisk_xenblkif_stats(struct td_xenblkif * blkif, td_stats_t * st)
+     tapdisk_stats_field(st, "vbd", "llu", blkif->stats.errors.vbd);
+     tapdisk_stats_field(st, "img", "llu", blkif->stats.errors.img);
+     tapdisk_stats_leave(st, '}');
++
++    tapdisk_stats_field(st, "kick_defer", "{");
++    tapdisk_stats_field(st, "max_usecs", "u", blkif->kick_defer_max_usecs);
++    tapdisk_stats_field(st, "max_held", "u", blkif->kick_defer_max_held);
++    tapdisk_stats_field(st, "pushes", "llu", blkif->stats.kick_defer.pushes);
++    tapdisk_stats_field(st, "notifies", "llu", blkif->stats.kick_defer.notifies);
++    tapdisk_stats_field(st, "held", "llu", blkif->stats.kick_defer.held);
++    tapdisk_stats_field(st, "deadlines", "llu", blkif->stats.kick_defer.deadlines);
++    tapdisk_stats_field(st, "mode", "u", blkif->kick_defer_mode);
++    tapdisk_stats_field(st, "arms", "llu", blkif->stats.kick_defer.arms);
++    tapdisk_stats_field(st, "deadline_us_sum", "llu", blkif->stats.kick_defer.deadline_us_sum);
++    tapdisk_stats_field(st, "ewma_ns", "lld", blkif->kick_defer_ewma_ns);
++    tapdisk_stats_field(st, "arms_short", "llu", blkif->stats.kick_defer.arms_short);
++    tapdisk_stats_leave(st, '}');
+ }
+diff --git a/drivers/td-stats.h b/drivers/td-stats.h
+index 652644de..e7dc70d1 100644
+--- a/drivers/td-stats.h
++++ b/drivers/td-stats.h
+@@ -49,6 +49,17 @@ struct td_xenblkif_stats {
+         unsigned long long img;
+     } errors;
+ 
++	/* deferred kick */
++	struct {
++		unsigned long long pushes;
++		unsigned long long notifies;
++		unsigned long long held;
++		unsigned long long deadlines;
++		unsigned long long arms;
++		unsigned long long arms_short;
++		unsigned long long deadline_us_sum;
++	} kick_defer;
++
+ 	struct blkback_stats *xenvbd;
+ };
+ 

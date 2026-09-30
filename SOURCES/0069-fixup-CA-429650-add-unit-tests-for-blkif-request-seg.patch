@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Thu, 1 Oct 2026 11:36:57 +0200
+Subject: [PATCH] fixup! CA-429650: add unit tests for blkif request segment
+ validation
+
+---
+ mockatests/drivers/test-td-req.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/mockatests/drivers/test-td-req.c b/mockatests/drivers/test-td-req.c
+index 7c09eb7c..dd3147a6 100644
+--- a/mockatests/drivers/test-td-req.c
++++ b/mockatests/drivers/test-td-req.c
+@@ -98,6 +98,12 @@ xenevtchn_notify(xenevtchn_handle *xce, evtchn_port_t port)
+ 	return 0;
+ }
+ 
++enum memory_mode_t
++tapdisk_server_mem_mode(void)
++{
++	return NORMAL_MEMORY_MODE;
++}
++
+ /* --- helpers --- */
+ 
+ static void

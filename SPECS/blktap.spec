@@ -7,11 +7,12 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.1%{?dist}
+Release: %{?xsrel}.perf.1%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
 Source0: blktap-3.55.5.tar.gz
+Source1: tapdisk-kick-defer.conf
 Patch0: ca-404370__enable_nbd_client_only_after_completing_handshake.patch
 Patch1: cp_54256_log_eopnotsupp
 Patch2: ca-408175__distinguish_logging_for_long_nbd_operations.patch
@@ -106,6 +107,17 @@ Patch1056: 0056-qcow2-join-thread-and-clean-on-failed-open.patch
 Patch1057: 0057-qcow2-fix-use-after-free-of-s-bh-when-a-commit-races.patch
 Patch1058: 0058-qcow2-stop-a-commit-job-from-outliving-driver-close.patch
 Patch1059: 0059-qcow2-cancel-also-a-created-and-not-yet-running-job.patch
+Patch1060: 0060-tapdisk-vbd-fix-image-lookup-when-there-is-no-image.patch
+Patch1061: 0061-qcow2-force-thread-naming.patch
+Patch1062: 0062-tapdisk-narrow-blkif-locking-to-the-buffer-cache-whe.patch
+Patch1063: 0063-tapdisk-don-t-re-arm-req_event-while-polling-in-proc.patch
+Patch1064: 0064-tapdisk-defer-the-ring-kick-while-other-requests-are.patch
+Patch1065: 0065-fixup-tapdisk-defer-the-ring-kick-while-other-reques.patch
+Patch1066: 0066-fixup-tapdisk-defer-the-ring-kick-while-other-reques.patch
+Patch1067: 0067-fixup-tapdisk-defer-the-ring-kick-while-other-reques.patch
+Patch1068: 0068-tapdisk-adapt-the-ring-polling-window-to-the-request.patch
+Patch1070: 0070-fixup-tapdisk-adapt-the-ring-polling-window-to-the-r.patch
+
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -156,6 +168,7 @@ rm -rf %{buildroot}
 make install DESTDIR=%{buildroot}
 %{?_cov_install}
 mkdir -p %{buildroot}%{_localstatedir}/log/blktap
+install -D -m 0644 %{SOURCE1} %{buildroot}%{_sysconfdir}/tapdisk-kick-defer.conf
 %if 0%{?coverage:1}
 cd ../ && find -name "*.gcno" | grep -v '.libs/' | xargs -d "\n" tar -cvjSf %{buildroot}/%{name}-%{version}.gcno.tar.bz2
 %endif
@@ -180,6 +193,7 @@ rm -f %{buildroot}%{_libdir}/*.a
 %{_sbindir}/td-util
 %{_sbindir}/td-rated
 %{_libexecdir}/tapdisk
+%config(noreplace) %{_sysconfdir}/tapdisk-kick-defer.conf
 %{_sysconfdir}/logrotate.d/blktap
 %{_sysconfdir}/cron.daily/prune_tapdisk_logs
 %{_sysconfdir}/xensource/bugtool/tapdisk-logs.xml
@@ -235,6 +249,13 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Oct 1 2026 Emmanuel Varagnat <emmanuel.varagnat@vates.tech> - 3.55.5-11.perf.1
+- Performance improvments:
+  * narrow a lock, which should improve writes for QCOW2
+  * avoid guest to notify us of new requets while polling
+  * defer notification to guest while requests are in-flight
+  * adaptive polling time
+
 * Fri Sep 11 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-11.1
 - Sync with 3.55.5-10 and 3.55.5-11
 - Drop patch 0047-Validate-guest-blkif-request-segment-bounds.patch, upstream now
