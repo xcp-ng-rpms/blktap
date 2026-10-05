@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.1%{?dist}
+Release: %{?xsrel}.2%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -106,6 +106,7 @@ Patch1056: 0056-qcow2-join-thread-and-clean-on-failed-open.patch
 Patch1057: 0057-qcow2-fix-use-after-free-of-s-bh-when-a-commit-races.patch
 Patch1058: 0058-qcow2-stop-a-commit-job-from-outliving-driver-close.patch
 Patch1059: 0059-qcow2-cancel-also-a-created-and-not-yet-running-job.patch
+Patch1060: 0060-Ensure-passed-ring-page-order-is-valid.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -235,6 +236,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Mon Oct 05 2026 Damien Thenot <damien.thenot@vates.tech> - 3.55.5-11.2
+- Add patch 0060-Ensure-passed-ring-page-order-is-valid.patch
+
 * Fri Sep 11 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-11.1
 - Sync with 3.55.5-10 and 3.55.5-11
 - Drop patch 0047-Validate-guest-blkif-request-segment-bounds.patch, upstream now

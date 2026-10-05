@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Teddy Astie <teddy.astie@vates.tech>
+Date: Mon, 5 Oct 2026 14:08:47 +0200
+Subject: [PATCH] Ensure passed ring-page-order is valid
+
+The current logic accepts any guest provided ring order, which can cause a
+stack overflow in tap_ctl_connect_xenblkif() as tapdisk_message_blkif::gref
+can only store 8 grant references, yet order may be larger than 3.
+
+Fix this by checking that ring order values is in [0..3] range.  Also clarify
+the gref array size in tapdisk_message_blkif (fixes TODO).
+
+This is XSA-521 / CVE-2026-102701.
+
+Signed-off-by: Teddy Astie <teddy.astie@vates.tech>
+Reviewed-by: Ross Lagerwall <ross.lagerwall@citrix.com>
+Tested-by: Alex Brett <alex.brett@citrix.com>
+---
+ control/tap-ctl-xen.c | 6 +++++-
+ tapback/frontend.c    | 6 ++++++
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/control/tap-ctl-xen.c b/control/tap-ctl-xen.c
+index 14c60ec4..81f5dcbe 100644
+--- a/control/tap-ctl-xen.c
++++ b/control/tap-ctl-xen.c
+@@ -45,6 +45,8 @@
+ #include <string.h>
+ #include <unistd.h>
+ 
++#include "xen_blkif.h"
++#include "debug.h"
+ #include "tap-ctl.h"
+ #include "compiler.h"
+ #include "util.h"
+@@ -58,7 +60,9 @@ tap_ctl_connect_xenblkif(const pid_t pid, const domid_t domid, const int devid,
+     tapdisk_message_t message;
+     int i, err;
+ 
+-	memset(&message, 0, sizeof(message));
++    ASSERT(order >= 0 && order <= MAX_RING_PAGE_ORDER);
++
++    memset(&message, 0, sizeof(message));
+     message.type = TAPDISK_MESSAGE_XENBLKIF_CONNECT;
+     message.cookie = minor;
+ 
+diff --git a/tapback/frontend.c b/tapback/frontend.c
+index e086813e..65b8ffca 100644
+--- a/tapback/frontend.c
++++ b/tapback/frontend.c
+@@ -119,6 +119,12 @@ connect_tap(vbd_t * const device)
+                 "%d", &order))
+         order = 0;
+ 
++    if (order < 0 || order > MAX_RING_PAGE_ORDER) {
++        WARN(device, "front-end asked for an invalid ring order: %d\n", order);
++        err = EINVAL;
++        goto out;
++    }
++
+      nr_pages = 1 << order;
+ 
+     if (!(gref = calloc(nr_pages, sizeof(grant_ref_t)))) {
