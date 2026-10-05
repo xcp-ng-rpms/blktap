@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.2%{?dist}
+Release: %{?xsrel}.3%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -107,6 +107,8 @@ Patch1057: 0057-qcow2-fix-use-after-free-of-s-bh-when-a-commit-races.patch
 Patch1058: 0058-qcow2-stop-a-commit-job-from-outliving-driver-close.patch
 Patch1059: 0059-qcow2-cancel-also-a-created-and-not-yet-running-job.patch
 Patch1060: 0060-Ensure-passed-ring-page-order-is-valid.patch
+Patch1061: 0061-tapdisk-vbd-fix-image-lookup-when-there-is-no-image.patch
+Patch1062: 0062-qcow2-force-thread-naming.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -236,6 +238,11 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Mon Oct 05 2026 Damien Thenot <damien.thenot@vates.tech> - 3.55.5-11.3
+Add patches:
+  - 0061-tapdisk-vbd-fix-image-lookup-when-there-is-no-image.patch
+  - 0062-qcow2-force-thread-naming.patch
+
 * Mon Oct 05 2026 Damien Thenot <damien.thenot@vates.tech> - 3.55.5-11.2
 - Add patch 0060-Ensure-passed-ring-page-order-is-valid.patch
 
