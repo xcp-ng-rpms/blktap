@@ -582,7 +582,6 @@ index 26585893..4a3960c6 100644
  void qapi_free_BlockdevOptionsCurlFtps(BlockdevOptionsCurlFtps *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevOptionsCurlFtps, qapi_free_BlockdevOptionsCurlFtps)
  
-+#if 0
  struct BlockdevOptionsNbd {
      SocketAddress *server;
      char *export;
@@ -590,8 +589,7 @@ index 26585893..4a3960c6 100644
  
  void qapi_free_BlockdevOptionsNbd(BlockdevOptionsNbd *obj);
  G_DEFINE_AUTOPTR_CLEANUP_FUNC(BlockdevOptionsNbd, qapi_free_BlockdevOptionsNbd)
-+#endif
- 
+
  struct BlockdevOptionsRaw {
      /* Members inherited from BlockdevOptionsGenericFormat: */
 @@ -3105,6 +3125,7 @@ struct BlockdevOptions {
@@ -1864,10 +1862,8 @@ index c317de9e..de666676 100644
  #include "block/block_int.h"
  #include "block/blockjob.h"
  #include "block/dirty-bitmap.h"
--#include "block/fuse.h"
--#include "block/nbd.h"
-+//#include "block/fuse.h"
-+//#include "block/nbd.h"
+ #include "block/fuse.h"
+ #include "block/nbd.h"
  #include "block/qdict.h"
  #include "qemu/error-report.h"
  #include "block/module_block.h"
@@ -2522,8 +2518,7 @@ index ff2832fa..6265dd52 100644
  /*
   * Wrappers for nbd_co_do_establish_connection
   */
--
-+#if 0
+
  typedef struct NbdDoEstablishConnection {
      BdrvPollCo poll_state;
      int ret;
@@ -2531,7 +2526,6 @@ index ff2832fa..6265dd52 100644
          return s.ret;
      }
  }
-+#endif
 diff --git a/qcow2/lib/block/dirty-bitmap.c b/qcow2/lib/block/dirty-bitmap.c
 index 13a19797..557059de 100644
 --- a/qcow2/lib/block/dirty-bitmap.c
@@ -3933,7 +3927,6 @@ index b8d709cb..7e63d3f5 100644
      return ok;
  }
  
-+#if 0
  bool visit_type_BlockdevOptionsNbd_members(Visitor *v, BlockdevOptionsNbd *obj, Error **errp)
  {
      bool has_export = !!obj->export;
@@ -3941,8 +3934,7 @@ index b8d709cb..7e63d3f5 100644
      }
      return ok;
  }
-+#endif
- 
+
  bool visit_type_BlockdevOptionsRaw_members(Visitor *v, BlockdevOptionsRaw *obj, Error **errp)
  {
 @@ -7422,6 +7461,7 @@ out_obj:
