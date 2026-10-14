@@ -1,13 +1,13 @@
-%global package_speccommit d2c254da7df3230addcd3fac888c79d7a0ddc29f
+%global package_speccommit c08977eaa0c6049d0fb43efefc0c33519070b80e
 %global usver 3.55.5
-%global xsver 11
+%global xsver 12
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.3%{?dist}
+Release: %{?xsrel}.1%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -23,6 +23,7 @@ Patch7: ca-431091__msync_cbt_log_before_munmap.patch
 Patch8: ca-429650__validate_guest_blkif_request_segment_bounds.patch
 Patch9: ca-429650__bound_nr_segments_by_seg_capacity_and_right-size_buffer-1.patch
 Patch10: ca-429650__add_unit_tests_for_blkif_request_segment_validation-1.patch
+Patch11: xsa521.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -45,7 +46,7 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
-# git format-patch XS-v3.55.5-11..v3.55.5-qcow2 --no-signature --no-numbered --zero-commit
+# git format-patch XS-v3.55.5-12..v3.55.5-qcow2 --no-signature --no-numbered --zero-commit
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 Patch1002: 0002-tapdisk-deduplicate-double-assignment-code.patch
@@ -106,9 +107,8 @@ Patch1056: 0056-qcow2-join-thread-and-clean-on-failed-open.patch
 Patch1057: 0057-qcow2-fix-use-after-free-of-s-bh-when-a-commit-races.patch
 Patch1058: 0058-qcow2-stop-a-commit-job-from-outliving-driver-close.patch
 Patch1059: 0059-qcow2-cancel-also-a-created-and-not-yet-running-job.patch
-Patch1060: 0060-Ensure-passed-ring-page-order-is-valid.patch
-Patch1061: 0061-tapdisk-vbd-fix-image-lookup-when-there-is-no-image.patch
-Patch1062: 0062-qcow2-force-thread-naming.patch
+Patch1060: 0060-tapdisk-vbd-fix-image-lookup-when-there-is-no-image.patch
+Patch1061: 0061-qcow2-force-thread-naming.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -238,6 +238,13 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Wed Oct 14 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.1
+- Sync with 3.55.5-12
+- Drop patch 0060-Ensure-passed-ring-page-order-is-valid.patch, upstream now
+- *** Upstream changelog ***
+  * Wed Sep 30 2026 Alex Brett <alex.brett@citrix.com> - 3.55.5-12
+  - CA-432084: fix for XSA-521 CVE-2026-102701
+
 * Mon Oct 05 2026 Damien Thenot <damien.thenot@vates.tech> - 3.55.5-11.3
 Add patches:
   - 0061-tapdisk-vbd-fix-image-lookup-when-there-is-no-image.patch

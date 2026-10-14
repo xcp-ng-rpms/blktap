@@ -37,10 +37,10 @@ index 7279a935..bdf65180 100644
  
  	struct gntdev_grant_copy_segment
 diff --git a/mockatests/drivers/test-td-req.c b/mockatests/drivers/test-td-req.c
-index 3d960e64..7042b2c6 100644
+index c83a40f8..f8f1b92e 100644
 --- a/mockatests/drivers/test-td-req.c
 +++ b/mockatests/drivers/test-td-req.c
-@@ -214,7 +214,6 @@ test_segment_arrays_match_ring_capacity(void **state)
+@@ -220,7 +220,6 @@ test_segment_arrays_match_ring_capacity(void **state)
  	assert_int_equal(ARRAY_SIZE(req.msg.seg), BLKIF_MAX_SEGMENTS_PER_REQUEST);
  	assert_int_equal(ARRAY_SIZE(req.gcopy_segs), ARRAY_SIZE(req.msg.seg));
  	assert_int_equal(ARRAY_SIZE(req.iov), ARRAY_SIZE(req.msg.seg));

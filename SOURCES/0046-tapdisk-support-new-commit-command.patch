@@ -351,10 +351,10 @@ index f2db49fe..03bb0434 100644
   * Instructs a tapdisk to connect to the shared ring.
   *
 diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
-index 7c54fb3b..13295123 100644
+index 56dc0be8..14df309d 100644
 --- a/include/tapdisk-message.h
 +++ b/include/tapdisk-message.h
-@@ -235,6 +235,8 @@ enum tapdisk_message_id {
+@@ -234,6 +234,8 @@ enum tapdisk_message_id {
  	TAPDISK_MESSAGE_DISK_INFO,
  	TAPDISK_MESSAGE_DISK_INFO_RSP,
  	TAPDISK_MESSAGE_EXIT,
@@ -363,7 +363,7 @@ index 7c54fb3b..13295123 100644
  	TAPDISK_MESSAGE_MAX /* This value must be the last. */
  };
  
-@@ -329,6 +331,12 @@ tapdisk_message_name(enum tapdisk_message_id id)
+@@ -328,6 +330,12 @@ tapdisk_message_name(enum tapdisk_message_id id)
  	case TAPDISK_MESSAGE_EXIT:
  		return "exit";
  

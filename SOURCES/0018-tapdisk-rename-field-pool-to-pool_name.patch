@@ -14,10 +14,10 @@ Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
  6 files changed, 29 insertions(+), 29 deletions(-)
 
 diff --git a/control/tap-ctl-xen.c b/control/tap-ctl-xen.c
-index f09b76ea..14c60ec4 100644
+index 37dff066..81f5dcbe 100644
 --- a/control/tap-ctl-xen.c
 +++ b/control/tap-ctl-xen.c
-@@ -53,7 +53,7 @@ int
+@@ -55,7 +55,7 @@ int
  tap_ctl_connect_xenblkif(const pid_t pid, const domid_t domid, const int devid, int poll_duration,
  		int poll_idle_threshold,
  		const grant_ref_t * grefs, const int order, const evtchn_port_t port,
@@ -26,7 +26,7 @@ index f09b76ea..14c60ec4 100644
  {
      tapdisk_message_t message;
      int i, err;
-@@ -71,14 +71,14 @@ tap_ctl_connect_xenblkif(const pid_t pid, const domid_t domid, const int devid,
+@@ -75,14 +75,14 @@ tap_ctl_connect_xenblkif(const pid_t pid, const domid_t domid, const int devid,
      message.u.blkif.proto = proto;
      message.u.blkif.poll_duration = poll_duration;
      message.u.blkif.poll_idle_threshold = poll_idle_threshold;
@@ -195,10 +195,10 @@ index e75752d8..f8982624 100644
      tapdisk_stats_field(st, "devid", "d", blkif->devid);
  
 diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
-index fe1b3066..7c54fb3b 100644
+index 016eea51..56dc0be8 100644
 --- a/include/tapdisk-message.h
 +++ b/include/tapdisk-message.h
-@@ -146,9 +146,9 @@ typedef struct tapdisk_message_blkif {
+@@ -145,9 +145,9 @@ typedef struct tapdisk_message_blkif {
  	uint32_t proto;
  
  	/**
