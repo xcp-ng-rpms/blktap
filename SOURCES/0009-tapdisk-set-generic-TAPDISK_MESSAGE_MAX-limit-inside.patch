@@ -28,10 +28,10 @@ index 506b203d..91ffe097 100644
  
  	conn->info = &message_infos[conn->request.type];
 diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
-index dceddbbe..0f73e0c9 100644
+index 3b1159ce..016eea51 100644
 --- a/include/tapdisk-message.h
 +++ b/include/tapdisk-message.h
-@@ -233,10 +233,9 @@ enum tapdisk_message_id {
+@@ -234,10 +234,9 @@ enum tapdisk_message_id {
  	TAPDISK_MESSAGE_DISK_INFO,
  	TAPDISK_MESSAGE_DISK_INFO_RSP,
  	TAPDISK_MESSAGE_EXIT,
