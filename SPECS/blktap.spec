@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.1%{?dist}
+Release: %{?xsrel}.2%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -109,6 +109,7 @@ Patch1058: 0058-qcow2-stop-a-commit-job-from-outliving-driver-close.patch
 Patch1059: 0059-qcow2-cancel-also-a-created-and-not-yet-running-job.patch
 Patch1060: 0060-tapdisk-vbd-fix-image-lookup-when-there-is-no-image.patch
 Patch1061: 0061-qcow2-force-thread-naming.patch
+Patch1062: 0001-tapdisk-narrow-blkif-locking-to-the-buffer-cache-whe.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -238,6 +239,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Wed Oct 14 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.2
+- Narrow blkif locking
+
 * Wed Oct 14 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.1
 - Sync with 3.55.5-12
 - Drop patch 0060-Ensure-passed-ring-page-order-is-valid.patch, upstream now
