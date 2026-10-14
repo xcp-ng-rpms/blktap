@@ -1,6 +1,6 @@
-%global package_speccommit d2c254da7df3230addcd3fac888c79d7a0ddc29f
+%global package_speccommit c08977eaa0c6049d0fb43efefc0c33519070b80e
 %global usver 3.55.5
-%global xsver 11
+%global xsver 12
 %global xsrel %{xsver}%{?xscount}%{?xshash}
 %global package_srccommit v3.55.5
 
@@ -23,6 +23,7 @@ Patch7: ca-431091__msync_cbt_log_before_munmap.patch
 Patch8: ca-429650__validate_guest_blkif_request_segment_bounds.patch
 Patch9: ca-429650__bound_nr_segments_by_seg_capacity_and_right-size_buffer-1.patch
 Patch10: ca-429650__add_unit_tests_for_blkif_request_segment_validation-1.patch
+Patch11: xsa521.patch
 
 BuildRoot: %{_tmppath}/%{name}-%{release}-buildroot
 Obsoletes: xen-blktap < 4
@@ -180,6 +181,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Wed Sep 30 2026 Alex Brett <alex.brett@citrix.com> - 3.55.5-12
+- CA-432084: fix for XSA-521 CVE-2026-102701
+
 * Thu Aug 27 2026 Mark Syms <mark.syms@citrix.com> - 3.55.5-11
 - CA-429650: fixes for XSI-513
 
