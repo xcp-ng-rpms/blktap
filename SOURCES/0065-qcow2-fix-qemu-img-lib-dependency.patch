@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Fri, 26 Jun 2026 18:09:36 +0200
+Subject: [PATCH] qcow2: fix qemu-img lib dependency
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ qcow2/Makefile.am | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/qcow2/Makefile.am b/qcow2/Makefile.am
+index 69460e08..25142147 100644
+--- a/qcow2/Makefile.am
++++ b/qcow2/Makefile.am
+@@ -12,6 +12,7 @@ AM_CPPFLAGS += $(GLIB_CFLAGS)
+ bin_PROGRAMS = qemu-img
+ 
+ qemu_img_LDADD  = lib/libqcow2.la
++qemu_img_LDADD += $(GLIB_LIBS)
+ 
+ qemu_img_SOURCES = qemu-img.c
+ qemu_img_SOURCES += qemu-config.c

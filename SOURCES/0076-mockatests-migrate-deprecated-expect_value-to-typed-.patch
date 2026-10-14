@@ -1,0 +1,1088 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Thu, 2 Jul 2026 17:43:36 +0200
+Subject: [PATCH] mockatests: migrate deprecated expect_value() to typed macros
+
+cmocka 2.x deprecates expect_value()/expect_value_count().
+Add cmocka-compat.h with fallbacks macros.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ mockatests/cbt/test-cbt-util-coalesce.c     |  47 ++++-----
+ mockatests/cbt/test-cbt-util-create.c       |   7 +-
+ mockatests/cbt/test-cbt-util-get.c          |  17 ++--
+ mockatests/cbt/test-cbt-util-set.c          |  21 ++--
+ mockatests/control/test-tap-ctl-allocate.c  |  61 ++++++------
+ mockatests/control/test-tap-ctl-close.c     | 103 ++++++++++----------
+ mockatests/control/test-tap-ctl-free.c      |  13 +--
+ mockatests/control/util.c                   |  13 +--
+ mockatests/drivers/test-tapdisk-nbdserver.c |  11 ++-
+ mockatests/include/cmocka-compat.h          |  61 ++++++++++++
+ 10 files changed, 212 insertions(+), 142 deletions(-)
+ create mode 100644 mockatests/include/cmocka-compat.h
+
+diff --git a/mockatests/cbt/test-cbt-util-coalesce.c b/mockatests/cbt/test-cbt-util-coalesce.c
+index 6ac9e340..0f4f0bb8 100644
+--- a/mockatests/cbt/test-cbt-util-coalesce.c
++++ b/mockatests/cbt/test-cbt-util-coalesce.c
+@@ -34,6 +34,7 @@
+ #include <stdarg.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <errno.h>
+ 
+ #include <cbt-util-priv.h>
+@@ -102,7 +103,7 @@ void test_cbt_util_coalesce_no_child_file_failure(void **state)
+ 								sizeof(struct cbt_log_metadata), "r");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 
+ 	will_return(__wrap_fopen, NULL);
+ 
+@@ -123,7 +124,7 @@ void test_cbt_util_coalesce_parent_log_malloc_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, 1, "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	malloc_succeeds(false);
+ 
+@@ -150,10 +151,10 @@ void test_cbt_util_coalesce_child_log_malloc_failure(void **state)
+ 								sizeof(struct cbt_log_metadata), "r");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 
+ 	will_return(__wrap_fopen, child_log);
+-	expect_value(__wrap_fclose, fp, child_log);
++	expect_ptr_value(__wrap_fclose, fp, child_log);
+ 
+ 	malloc_succeeds(true);
+ 	malloc_succeeds(false);
+@@ -178,7 +179,7 @@ void test_cbt_util_coalesce_no_parent_meta_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, 1, "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_coalesce(6, args);
+ 	assert_int_equal(result, -EIO);
+@@ -200,9 +201,9 @@ void test_cbt_util_coalesce_no_child_meta_failure(void **state)
+ 	FILE *child_log = fmemopen((void*)child_meta, 1, "r");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 	will_return(__wrap_fopen, child_log);
+-	expect_value(__wrap_fclose, fp, child_log);
++	expect_ptr_value(__wrap_fclose, fp, child_log);
+ 
+ 	result = cbt_util_coalesce(6, args);
+ 	assert_int_equal(result, -EIO);
+@@ -232,9 +233,9 @@ void test_cbt_util_coalesce_larger_parent_bitmap_failure(void **state)
+ 								sizeof(struct cbt_log_metadata), "r");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 	will_return(__wrap_fopen, child_log);
+-	expect_value(__wrap_fclose, fp, child_log);
++	expect_ptr_value(__wrap_fclose, fp, child_log);
+ 
+ 	result = cbt_util_coalesce(6, args);
+ 	assert_int_equal(result, -EINVAL);
+@@ -259,9 +260,9 @@ void test_cbt_util_coalesce_parent_bitmap_malloc_failure(void **state)
+ 	FILE *child_log = fmemopen((void*)log_meta, file_size, "r+");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 	will_return(__wrap_fopen, child_log);
+-	expect_value(__wrap_fclose, fp, child_log);
++	expect_ptr_value(__wrap_fclose, fp, child_log);
+ 
+ 	malloc_succeeds(true);
+ 	malloc_succeeds(true);
+@@ -292,9 +293,9 @@ void test_cbt_util_coalesce_child_bitmap_malloc_failure(void **state)
+ 	FILE *child_log = fmemopen((void*)log_meta, file_size, "r+");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 	will_return(__wrap_fopen, child_log);
+-	expect_value(__wrap_fclose, fp, child_log);
++	expect_ptr_value(__wrap_fclose, fp, child_log);
+ 
+ 	malloc_succeeds(true);
+ 	malloc_succeeds(true);
+@@ -326,9 +327,9 @@ void test_cbt_util_coalesce_parent_no_bitmap_data_failure(void **state)
+ 							sizeof(struct cbt_log_metadata), "r+");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 	will_return(__wrap_fopen, child_log);
+-	expect_value(__wrap_fclose, fp, child_log);
++	expect_ptr_value(__wrap_fclose, fp, child_log);
+ 
+ 	result = cbt_util_coalesce(6, args);
+ 	assert_int_equal(result, -EIO);
+@@ -360,9 +361,9 @@ void test_cbt_util_coalesce_child_no_bitmap_data_failure(void **state)
+ 							sizeof(struct cbt_log_metadata), "r+");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 	will_return(__wrap_fopen, child_log);
+-	expect_value(__wrap_fclose, fp, child_log);
++	expect_ptr_value(__wrap_fclose, fp, child_log);
+ 
+ 	result = cbt_util_coalesce(6, args);
+ 	assert_int_equal(result, -EIO);
+@@ -402,9 +403,9 @@ void test_cbt_util_coalesce_success(void **state)
+ 	FILE *child_log = fmemopen((void*)child_data, file_size, "r");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 	will_return(__wrap_fopen, child_log);
+-	expect_value(__wrap_fclose, fp, child_log);
++	expect_ptr_value(__wrap_fclose, fp, child_log);
+ 	enable_mock_fwrite();
+ 	output = setup_fwrite_mock(bmsize);
+ 
+@@ -451,9 +452,9 @@ void test_cbt_util_coalesce_set_file_pointer_failure(void **state)
+ 	FILE *child_log = fmemopen((void*)child_data, file_size, "r+");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 	will_return(__wrap_fopen, child_log);
+-	expect_value(__wrap_fclose, fp, child_log);
++	expect_ptr_value(__wrap_fclose, fp, child_log);
+ 
+ 	fail_fseek(EIO);
+ 
+@@ -494,9 +495,9 @@ void test_cbt_util_coalesce_write_bitmap_failure(void **state)
+ 	FILE *child_log = fmemopen((void*)child_data, file_size, "r");
+ 
+ 	will_return(__wrap_fopen, parent_log);
+-	expect_value(__wrap_fclose, fp, parent_log);
++	expect_ptr_value(__wrap_fclose, fp, parent_log);
+ 	will_return(__wrap_fopen, child_log);
+-	expect_value(__wrap_fclose, fp, child_log);
++	expect_ptr_value(__wrap_fclose, fp, child_log);
+ 
+ 	result = cbt_util_coalesce(6, args);
+ 	assert_int_equal(result, -EIO);
+diff --git a/mockatests/cbt/test-cbt-util-create.c b/mockatests/cbt/test-cbt-util-create.c
+index 3e4deae0..1d43c2c9 100644
+--- a/mockatests/cbt/test-cbt-util-create.c
++++ b/mockatests/cbt/test-cbt-util-create.c
+@@ -32,6 +32,7 @@
+ #include <stdarg.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <errno.h>
+ 
+ #include <cbt-util-priv.h>
+@@ -51,7 +52,7 @@ void test_cbt_util_create_success(void **state)
+ 	FILE *test_log = fmemopen(log_meta, file_size, "w+");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_create(5, args);
+ 
+@@ -86,7 +87,7 @@ void test_cbt_util_create_metadata_write_failure(void **state)
+ 	setbuf(test_log, NULL);
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_create(5, args);
+ 
+@@ -107,7 +108,7 @@ void test_cbt_util_create_bitmap_write_failure(void **state)
+ 	setbuf(test_log, NULL);
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_create(5, args);
+ 
+diff --git a/mockatests/cbt/test-cbt-util-get.c b/mockatests/cbt/test-cbt-util-get.c
+index b436df04..cec948d6 100644
+--- a/mockatests/cbt/test-cbt-util-get.c
++++ b/mockatests/cbt/test-cbt-util-get.c
+@@ -34,6 +34,7 @@
+ #include <stdarg.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <errno.h>
+ #include <uuid/uuid.h>
+ 
+@@ -54,7 +55,7 @@ void test_cbt_util_get_flag(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, sizeof(struct cbt_log_metadata), "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	output = setup_vprintf_mock(1024);
+ 
+@@ -83,7 +84,7 @@ void test_cbt_util_get_parent(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, sizeof(struct cbt_log_metadata), "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	output = setup_vprintf_mock(1024);
+ 
+@@ -115,7 +116,7 @@ void test_cbt_util_get_child(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, sizeof(struct cbt_log_metadata), "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	output = setup_vprintf_mock(1024);
+ 
+@@ -143,7 +144,7 @@ void test_cbt_util_get_size(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, sizeof(struct cbt_log_metadata), "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	output = setup_vprintf_mock(1024);
+ 
+@@ -175,7 +176,7 @@ void test_cbt_util_get_bitmap(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, file_size, "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 	enable_mock_fwrite();
+ 	output = setup_fwrite_mock(bmsize);
+ 
+@@ -201,7 +202,7 @@ void test_cbt_util_get_bitmap_nodata_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, sizeof(struct cbt_log_metadata), "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_get(5, args);
+ 	assert_int_equal(result, -EIO);
+@@ -222,7 +223,7 @@ void test_cbt_util_get_bitmap_malloc_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, file_size, "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	malloc_succeeds(true);
+ 	malloc_succeeds(false);
+@@ -268,7 +269,7 @@ void test_cbt_util_get_nodata_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, 1, "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_get(4, args);
+ 
+diff --git a/mockatests/cbt/test-cbt-util-set.c b/mockatests/cbt/test-cbt-util-set.c
+index e454e2e6..69d4b30a 100644
+--- a/mockatests/cbt/test-cbt-util-set.c
++++ b/mockatests/cbt/test-cbt-util-set.c
+@@ -35,6 +35,7 @@
+ #include <stdarg.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <errno.h>
+ #include <uuid/uuid.h>
+ #include <inttypes.h>
+@@ -63,7 +64,7 @@ test_cbt_util_set_parent(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, sizeof(struct cbt_log_metadata), "r+");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_set(5, args);
+ 	assert_int_equal(result, 0);
+@@ -92,7 +93,7 @@ test_cbt_util_set_child(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, sizeof(struct cbt_log_metadata), "r+");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_set(5, args);
+ 	assert_int_equal(result, 0);
+@@ -118,7 +119,7 @@ test_cbt_util_set_flag(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, sizeof(struct cbt_log_metadata), "r+");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_set(5, args);
+ 	assert_int_equal(result, 0);
+@@ -151,7 +152,7 @@ test_cbt_util_set_size(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, file_size, "r+");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_set(5, args);
+ 	assert_int_equal(result, 0);
+@@ -181,7 +182,7 @@ test_cbt_util_set_size_smaller_file_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, sizeof(struct cbt_log_metadata), "r+");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_set(5, args);
+ 	assert_int_equal(result, -EINVAL);
+@@ -209,7 +210,7 @@ test_cbt_util_set_size_malloc_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, file_size, "r+");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);	
++	expect_ptr_value(__wrap_fclose, fp, test_log);	
+ 		
+ 	malloc_succeeds(true);
+ 	malloc_succeeds(false);
+@@ -234,7 +235,7 @@ test_cbt_util_set_size_no_bitmap_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, sizeof(struct cbt_log_metadata), "r+");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_set(5, args);
+ 	assert_int_equal(result, -EIO);
+@@ -263,7 +264,7 @@ test_cbt_util_set_size_write_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, file_size, "r");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_set(5, args);
+ 	assert_int_equal(result, -EIO);
+@@ -292,7 +293,7 @@ test_cbt_util_set_size_reset_file_pointer_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, file_size, "r+");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	fail_fseek(EIO);
+ 
+@@ -366,7 +367,7 @@ test_cbt_util_set_no_data_failure(void **state)
+ 	FILE *test_log = fmemopen((void*)log_meta, 1, "r+");
+ 
+ 	will_return(__wrap_fopen, test_log);
+-	expect_value(__wrap_fclose, fp, test_log);
++	expect_ptr_value(__wrap_fclose, fp, test_log);
+ 
+ 	result = cbt_util_set(5, args);
+ 	assert_int_equal(result, -EIO);
+diff --git a/mockatests/control/test-tap-ctl-allocate.c b/mockatests/control/test-tap-ctl-allocate.c
+index c8abe3a6..797d8ab7 100644
+--- a/mockatests/control/test-tap-ctl-allocate.c
++++ b/mockatests/control/test-tap-ctl-allocate.c
+@@ -33,6 +33,7 @@
+ #include <string.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <errno.h>
+ 
+ #include <wrappers.h>
+@@ -136,13 +137,13 @@ void test_tap_ctl_allocate_no_device_info(void **state)
+ 	/* Check Environment */
+ 	will_return(__wrap_fopen, proc_misc);
+ 	will_return(__wrap_flock, 0);
+-	expect_value(__wrap_flock, fd, fileno(proc_misc));
++	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
+ 	will_return(__wrap_access, ENOENT);
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2/control");
+ 	/* Close check environment */
+ 	will_return(__wrap_flock, 0);
+-	expect_value(__wrap_flock, fd, fileno(proc_misc));
+-	expect_value(__wrap_fclose, fp, proc_misc);
++	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
++	expect_ptr_value(__wrap_fclose, fp, proc_misc);
+ 
+ 	result = tap_ctl_allocate(&minor, &devname);
+ 
+@@ -165,7 +166,7 @@ void test_tap_ctl_allocate_make_device_fail(void **state)
+ 	/* Check Environment */
+ 	will_return(__wrap_fopen, proc_misc);
+ 	will_return(__wrap_flock, 0);
+-	expect_value(__wrap_flock, fd, fileno(proc_misc));
++	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
+ 	will_return(__wrap_access, ENOENT);
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2/control");
+ 	/* Make Device/Prepare Directory*/
+@@ -177,8 +178,8 @@ void test_tap_ctl_allocate_make_device_fail(void **state)
+ 	expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control");
+ 	/* Close check environment */
+ 	will_return(__wrap_flock, 0);
+-	expect_value(__wrap_flock, fd, fileno(proc_misc));
+-	expect_value(__wrap_fclose, fp, proc_misc);
++	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
++	expect_ptr_value(__wrap_fclose, fp, proc_misc);
+ 
+ 	result = tap_ctl_allocate(&minor, &devname);
+ 
+@@ -202,7 +203,7 @@ void test_tap_ctl_allocate_ring_create_fail(void **state)
+ 	/* Check Environment */
+ 	will_return(__wrap_fopen, proc_misc);
+ 	will_return(__wrap_flock, 0);
+-	expect_value(__wrap_flock, fd, fileno(proc_misc));
++	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
+ 	will_return(__wrap_access, ENOENT);
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2/control");
+ 	/* Make Device/Prepare Directory*/
+@@ -214,16 +215,16 @@ void test_tap_ctl_allocate_ring_create_fail(void **state)
+ 	expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control");
+ 	/* Close check environment */
+ 	will_return(__wrap_flock, 0);
+-	expect_value(__wrap_flock, fd, fileno(proc_misc));
+-	expect_value(__wrap_fclose, fp, proc_misc);
++	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
++	expect_ptr_value(__wrap_fclose, fp, proc_misc);
+ 	/* allocate device */
+ 	will_return(__wrap_open, dev_fd);
+ 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control");
+ 	will_return(__wrap_ioctl, 0);
+-	expect_value(__wrap_ioctl, fd, dev_fd);
+-	expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_ALLOC_TAP);
++	expect_int_value(__wrap_ioctl, fd, dev_fd);
++	expect_int_value(__wrap_ioctl, request, BLKTAP2_IOCTL_ALLOC_TAP);
+ 	will_return(__wrap_close, 0);
+-	expect_value(__wrap_close, fd, dev_fd);
++	expect_int_value(__wrap_close, fd, dev_fd);
+ 	/* Make Device - ring */
+ 	will_return(__wrap_access, ENOENT);
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2");
+@@ -241,10 +242,10 @@ void test_tap_ctl_allocate_ring_create_fail(void **state)
+ 	will_return(__wrap_open, dev_fd);
+ 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control");
+ 	will_return(__wrap_ioctl, 0);
+-	expect_value(__wrap_ioctl, fd, dev_fd);
+-	expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP);
++	expect_int_value(__wrap_ioctl, fd, dev_fd);
++	expect_int_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP);
+ 	will_return(__wrap_close, 0);
+-	expect_value(__wrap_close, fd, dev_fd);
++	expect_int_value(__wrap_close, fd, dev_fd);
+ 
+ 	result = tap_ctl_allocate(&minor, &devname);
+ 
+@@ -268,7 +269,7 @@ void test_tap_ctl_allocate_io_device_fail(void **state)
+ 	/* Check Environment */
+ 	will_return(__wrap_fopen, proc_misc);
+ 	will_return(__wrap_flock, 0);
+-	expect_value(__wrap_flock, fd, fileno(proc_misc));
++	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
+ 	will_return(__wrap_access, ENOENT);
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2/control");
+ 	/* Make Device/Prepare Directory*/
+@@ -280,16 +281,16 @@ void test_tap_ctl_allocate_io_device_fail(void **state)
+ 	expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control");
+ 	/* Close check environment */
+ 	will_return(__wrap_flock, 0);
+-	expect_value(__wrap_flock, fd, fileno(proc_misc));
+-	expect_value(__wrap_fclose, fp, proc_misc);
++	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
++	expect_ptr_value(__wrap_fclose, fp, proc_misc);
+ 	/* allocate device */
+ 	will_return(__wrap_open, dev_fd);
+ 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control");
+ 	will_return(__wrap_ioctl, 0);
+-	expect_value(__wrap_ioctl, fd, dev_fd);
+-	expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_ALLOC_TAP);
++	expect_int_value(__wrap_ioctl, fd, dev_fd);
++	expect_int_value(__wrap_ioctl, request, BLKTAP2_IOCTL_ALLOC_TAP);
+ 	will_return(__wrap_close, 0);
+-	expect_value(__wrap_close, fd, dev_fd);
++	expect_int_value(__wrap_close, fd, dev_fd);
+ 	/* Make Device - ring */
+ 	will_return(__wrap_access, ENOENT);
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2");
+@@ -322,10 +323,10 @@ void test_tap_ctl_allocate_io_device_fail(void **state)
+ 	will_return(__wrap_open, dev_fd);
+ 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control");
+ 	will_return(__wrap_ioctl, 0);
+-	expect_value(__wrap_ioctl, fd, dev_fd);
+-	expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP);
++	expect_int_value(__wrap_ioctl, fd, dev_fd);
++	expect_int_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP);
+ 	will_return(__wrap_close, 0);
+-	expect_value(__wrap_close, fd, dev_fd);
++	expect_int_value(__wrap_close, fd, dev_fd);
+ 
+ 	result = tap_ctl_allocate(&minor, &devname);
+ 
+@@ -349,7 +350,7 @@ void test_tap_ctl_allocate_success(void **state)
+ 	/* Check Environment */
+ 	will_return(__wrap_fopen, proc_misc);
+ 	will_return(__wrap_flock, 0);
+-	expect_value(__wrap_flock, fd, fileno(proc_misc));
++	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
+ 	will_return(__wrap_access, ENOENT);
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2/control");
+ 	/* Make Device/Prepare Directory*/
+@@ -361,16 +362,16 @@ void test_tap_ctl_allocate_success(void **state)
+ 	expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control");
+ 	/* Close check environment */
+ 	will_return(__wrap_flock, 0);
+-	expect_value(__wrap_flock, fd, fileno(proc_misc));
+-	expect_value(__wrap_fclose, fp, proc_misc);
++	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
++	expect_ptr_value(__wrap_fclose, fp, proc_misc);
+ 	/* allocate device */
+ 	will_return(__wrap_open, dev_fd);
+ 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control");
+ 	will_return(__wrap_ioctl, 0);
+-	expect_value(__wrap_ioctl, fd, dev_fd);
+-	expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_ALLOC_TAP);
++	expect_int_value(__wrap_ioctl, fd, dev_fd);
++	expect_int_value(__wrap_ioctl, request, BLKTAP2_IOCTL_ALLOC_TAP);
+ 	will_return(__wrap_close, 0);
+-	expect_value(__wrap_close, fd, dev_fd);
++	expect_int_value(__wrap_close, fd, dev_fd);
+ 	/* Make Device - ring */
+ 	will_return(__wrap_access, ENOENT);
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2");
+diff --git a/mockatests/control/test-tap-ctl-close.c b/mockatests/control/test-tap-ctl-close.c
+index 0bfe7d68..6248fe0d 100644
+--- a/mockatests/control/test-tap-ctl-close.c
++++ b/mockatests/control/test-tap-ctl-close.c
+@@ -33,6 +33,7 @@
+ #include <string.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <errno.h>
+ 
+ #include <string.h>
+@@ -71,29 +72,29 @@ void test_tap_ctl_close_success(void **state)
+ 	saddr.sun_family = AF_UNIX;
+ 	strcpy(saddr.sun_path, expected_sock_name);
+ 
+-	expect_value(__wrap_socket, domain, AF_UNIX);
+-	expect_value(__wrap_socket, type, SOCK_STREAM);
++	expect_int_value(__wrap_socket, domain, AF_UNIX);
++	expect_int_value(__wrap_socket, type, SOCK_STREAM);
+ 	expect_any(__wrap_socket, protocol);
+ 	will_return(__wrap_socket, ipc_socket);
+ 
+-	expect_value(__wrap_connect, sockfd, ipc_socket);
++	expect_int_value(__wrap_connect, sockfd, ipc_socket);
+ 	expect_memory(__wrap_connect, addr, &saddr, sizeof(saddr));
+ 	will_return(__wrap_connect, 0);
+ 
+ 	write_select_params.result = 1;
+ 	FD_SET(ipc_socket, &write_select_params.writefds);
+-	expect_value(__wrap_select, timeout, NULL);
++	expect_ptr_value(__wrap_select, timeout, NULL);
+ 	will_return(__wrap_select, &write_select_params);
+ 
+ 	write_message.type = TAPDISK_MESSAGE_CLOSE;
+ 	write_message.cookie = test_minor;
+-	expect_value(__wrap_write, fd, ipc_socket);
++	expect_int_value(__wrap_write, fd, ipc_socket);
+ 	expect_memory(__wrap_write, buf, &write_message, sizeof(write_message));
+ 	will_return(__wrap_write, 1024);
+ 
+ 	read_select_params.result = 1;
+ 	FD_SET(ipc_socket, &read_select_params.readfds);
+-	expect_value(__wrap_select, timeout, NULL);
++	expect_ptr_value(__wrap_select, timeout, NULL);
+ 	will_return(__wrap_select, &read_select_params);
+ 
+ 	read_message.type = TAPDISK_MESSAGE_CLOSE_RSP;
+@@ -101,10 +102,10 @@ void test_tap_ctl_close_success(void **state)
+ 	read_message.u.response.error = 0;
+ 	read_params.result = sizeof(read_message);
+ 	read_params.data = &read_message;
+-	expect_value(__wrap_read, fd, ipc_socket);
++	expect_int_value(__wrap_read, fd, ipc_socket);
+ 	will_return(__wrap_read, &read_params);
+ 
+-	expect_value(__wrap_close, fd, ipc_socket);
++	expect_int_value(__wrap_close, fd, ipc_socket);
+ 	will_return(__wrap_close, 0);
+ 
+ 	/* Call test API */
+@@ -136,29 +137,29 @@ void test_tap_ctl_force_close_success(void **state)
+ 	saddr.sun_family = AF_UNIX;
+ 	strcpy(saddr.sun_path, expected_sock_name);
+ 
+-	expect_value(__wrap_socket, domain, AF_UNIX);
+-	expect_value(__wrap_socket, type, SOCK_STREAM);
++	expect_int_value(__wrap_socket, domain, AF_UNIX);
++	expect_int_value(__wrap_socket, type, SOCK_STREAM);
+ 	expect_any(__wrap_socket, protocol);
+ 	will_return(__wrap_socket, ipc_socket);
+ 
+-	expect_value(__wrap_connect, sockfd, ipc_socket);
++	expect_int_value(__wrap_connect, sockfd, ipc_socket);
+ 	expect_memory(__wrap_connect, addr, &saddr, sizeof(saddr));
+ 	will_return(__wrap_connect, 0);
+ 
+ 	write_select_params.result = 1;
+ 	FD_SET(ipc_socket, &write_select_params.writefds);
+-	expect_value(__wrap_select, timeout, NULL);
++	expect_ptr_value(__wrap_select, timeout, NULL);
+ 	will_return(__wrap_select, &write_select_params);
+ 
+ 	write_message.type = TAPDISK_MESSAGE_FORCE_SHUTDOWN;
+ 	write_message.cookie = test_minor;
+-	expect_value(__wrap_write, fd, ipc_socket);
++	expect_int_value(__wrap_write, fd, ipc_socket);
+ 	expect_memory(__wrap_write, buf, &write_message, sizeof(write_message));
+ 	will_return(__wrap_write, 1024);
+ 
+ 	read_select_params.result = 1;
+ 	FD_SET(ipc_socket, &read_select_params.readfds);
+-	expect_value(__wrap_select, timeout, NULL);
++	expect_ptr_value(__wrap_select, timeout, NULL);
+ 	will_return(__wrap_select, &read_select_params);
+ 
+ 	read_message.type = TAPDISK_MESSAGE_CLOSE_RSP;
+@@ -166,10 +167,10 @@ void test_tap_ctl_force_close_success(void **state)
+ 	read_message.u.response.error = 0;
+ 	read_params.result = sizeof(read_message);
+ 	read_params.data = &read_message;
+-	expect_value(__wrap_read, fd, ipc_socket);
++	expect_int_value(__wrap_read, fd, ipc_socket);
+ 	will_return(__wrap_read, &read_params);
+ 
+-	expect_value(__wrap_close, fd, ipc_socket);
++	expect_int_value(__wrap_close, fd, ipc_socket);
+ 	will_return(__wrap_close, 0);
+ 
+ 	/* Call test API */
+@@ -191,16 +192,16 @@ void test_tap_ctl_close_connect_fail(void **state)
+ 	saddr.sun_family = AF_UNIX;
+ 	strcpy(saddr.sun_path, expected_sock_name);
+ 
+-	expect_value(__wrap_socket, domain, AF_UNIX);
+-	expect_value(__wrap_socket, type, SOCK_STREAM);
++	expect_int_value(__wrap_socket, domain, AF_UNIX);
++	expect_int_value(__wrap_socket, type, SOCK_STREAM);
+ 	expect_any(__wrap_socket, protocol);
+ 	will_return(__wrap_socket, ipc_socket);
+ 
+-	expect_value(__wrap_connect, sockfd, ipc_socket);
++	expect_int_value(__wrap_connect, sockfd, ipc_socket);
+ 	expect_memory(__wrap_connect, addr, &saddr, sizeof(saddr));
+ 	will_return(__wrap_connect, ENOENT);
+ 
+-	expect_value(__wrap_close, fd, ipc_socket);
++	expect_int_value(__wrap_close, fd, ipc_socket);
+ 	will_return(__wrap_close, 0);
+ 
+ 	/* Call test API */
+@@ -227,25 +228,25 @@ void test_tap_ctl_close_write_error(void **state)
+ 	saddr.sun_family = AF_UNIX;
+ 	strcpy(saddr.sun_path, expected_sock_name);
+ 
+-	expect_value(__wrap_socket, domain, AF_UNIX);
+-	expect_value(__wrap_socket, type, SOCK_STREAM);
++	expect_int_value(__wrap_socket, domain, AF_UNIX);
++	expect_int_value(__wrap_socket, type, SOCK_STREAM);
+ 	expect_any(__wrap_socket, protocol);
+ 	will_return(__wrap_socket, ipc_socket);
+ 
+-	expect_value(__wrap_connect, sockfd, ipc_socket);
++	expect_int_value(__wrap_connect, sockfd, ipc_socket);
+ 	expect_memory(__wrap_connect, addr, &saddr, sizeof(saddr));
+ 	will_return(__wrap_connect, 0);
+ 
+ 	write_select_params.result = 1;
+ 	FD_SET(ipc_socket, &write_select_params.writefds);
+-	expect_value(__wrap_select, timeout, NULL);
++	expect_ptr_value(__wrap_select, timeout, NULL);
+ 	will_return(__wrap_select, &write_select_params);
+ 
+-	expect_value(__wrap_write, fd, ipc_socket);
++	expect_int_value(__wrap_write, fd, ipc_socket);
+ 	expect_any(__wrap_write, buf);
+ 	will_return(__wrap_write, -EIO);
+ 
+-	expect_value(__wrap_close, fd, ipc_socket);
++	expect_int_value(__wrap_close, fd, ipc_socket);
+ 	will_return(__wrap_close, 0);
+ 
+ 	/* Call test API */
+@@ -275,37 +276,37 @@ void test_tap_ctl_close_read_error(void **state)
+ 	saddr.sun_family = AF_UNIX;
+ 	strcpy(saddr.sun_path, expected_sock_name);
+ 
+-	expect_value(__wrap_socket, domain, AF_UNIX);
+-	expect_value(__wrap_socket, type, SOCK_STREAM);
++	expect_int_value(__wrap_socket, domain, AF_UNIX);
++	expect_int_value(__wrap_socket, type, SOCK_STREAM);
+ 	expect_any(__wrap_socket, protocol);
+ 	will_return(__wrap_socket, ipc_socket);
+ 
+-	expect_value(__wrap_connect, sockfd, ipc_socket);
++	expect_int_value(__wrap_connect, sockfd, ipc_socket);
+ 	expect_memory(__wrap_connect, addr, &saddr, sizeof(saddr));
+ 	will_return(__wrap_connect, 0);
+ 
+ 	write_select_params.result = 1;
+ 	FD_SET(ipc_socket, &write_select_params.writefds);
+-	expect_value(__wrap_select, timeout, NULL);
++	expect_ptr_value(__wrap_select, timeout, NULL);
+ 	will_return(__wrap_select, &write_select_params);
+ 
+ 	write_message.type = TAPDISK_MESSAGE_CLOSE;
+ 	write_message.cookie = test_minor;
+-	expect_value(__wrap_write, fd, ipc_socket);
++	expect_int_value(__wrap_write, fd, ipc_socket);
+ 	expect_memory(__wrap_write, buf, &write_message, sizeof(write_message));
+ 	will_return(__wrap_write, 1024);
+ 
+ 	read_select_params.result = 1;
+ 	FD_SET(ipc_socket, &read_select_params.readfds);
+-	expect_value(__wrap_select, timeout, NULL);
++	expect_ptr_value(__wrap_select, timeout, NULL);
+ 	will_return(__wrap_select, &read_select_params);
+ 
+ 	read_params.result = -EIO;
+ 	read_params.data = NULL;
+-	expect_value(__wrap_read, fd, ipc_socket);
++	expect_int_value(__wrap_read, fd, ipc_socket);
+ 	will_return(__wrap_read, &read_params);
+ 
+-	expect_value(__wrap_close, fd, ipc_socket);
++	expect_int_value(__wrap_close, fd, ipc_socket);
+ 	will_return(__wrap_close, 0);
+ 
+ 	/* Call test API */
+@@ -333,12 +334,12 @@ void test_tap_ctl_close_write_select_timeout(void **state)
+ 	saddr.sun_family = AF_UNIX;
+ 	strcpy(saddr.sun_path, expected_sock_name);
+ 
+-	expect_value(__wrap_socket, domain, AF_UNIX);
+-	expect_value(__wrap_socket, type, SOCK_STREAM);
++	expect_int_value(__wrap_socket, domain, AF_UNIX);
++	expect_int_value(__wrap_socket, type, SOCK_STREAM);
+ 	expect_any(__wrap_socket, protocol);
+ 	will_return(__wrap_socket, ipc_socket);
+ 
+-	expect_value(__wrap_connect, sockfd, ipc_socket);
++	expect_int_value(__wrap_connect, sockfd, ipc_socket);
+ 	expect_memory(__wrap_connect, addr, &saddr, sizeof(saddr));
+ 	will_return(__wrap_connect, 0);
+ 
+@@ -348,7 +349,7 @@ void test_tap_ctl_close_write_select_timeout(void **state)
+ 	expect_memory(__wrap_select, timeout, &write_timeout, sizeof(write_timeout));
+ 	will_return(__wrap_select, &write_select_params);
+ 
+-	expect_value(__wrap_close, fd, ipc_socket);
++	expect_int_value(__wrap_close, fd, ipc_socket);
+ 	will_return(__wrap_close, 0);
+ 
+ 	/* Call test API */
+@@ -379,12 +380,12 @@ void test_tap_ctl_close_read_select_timeout(void **state)
+ 	saddr.sun_family = AF_UNIX;
+ 	strcpy(saddr.sun_path, expected_sock_name);
+ 
+-	expect_value(__wrap_socket, domain, AF_UNIX);
+-	expect_value(__wrap_socket, type, SOCK_STREAM);
++	expect_int_value(__wrap_socket, domain, AF_UNIX);
++	expect_int_value(__wrap_socket, type, SOCK_STREAM);
+ 	expect_any(__wrap_socket, protocol);
+ 	will_return(__wrap_socket, ipc_socket);
+ 
+-	expect_value(__wrap_connect, sockfd, ipc_socket);
++	expect_int_value(__wrap_connect, sockfd, ipc_socket);
+ 	expect_memory(__wrap_connect, addr, &saddr, sizeof(saddr));
+ 	will_return(__wrap_connect, 0);
+ 
+@@ -397,7 +398,7 @@ void test_tap_ctl_close_read_select_timeout(void **state)
+ 
+ 	write_message.type = TAPDISK_MESSAGE_CLOSE;
+ 	write_message.cookie = test_minor;
+-	expect_value(__wrap_write, fd, ipc_socket);
++	expect_int_value(__wrap_write, fd, ipc_socket);
+ 	expect_memory(__wrap_write, buf, &write_message, sizeof(write_message));
+ 	will_return(__wrap_write, 1024);
+ 
+@@ -407,7 +408,7 @@ void test_tap_ctl_close_read_select_timeout(void **state)
+ 	expect_memory(__wrap_select, timeout, &read_timeout, sizeof(read_timeout));
+ 	will_return(__wrap_select, &read_select_params);
+ 
+-	expect_value(__wrap_close, fd, ipc_socket);
++	expect_int_value(__wrap_close, fd, ipc_socket);
+ 	will_return(__wrap_close, 0);
+ 
+ 	/* Call test API */
+@@ -439,29 +440,29 @@ void test_tap_ctl_close_error_response(void **state)
+ 	saddr.sun_family = AF_UNIX;
+ 	strcpy(saddr.sun_path, expected_sock_name);
+ 
+-	expect_value(__wrap_socket, domain, AF_UNIX);
+-	expect_value(__wrap_socket, type, SOCK_STREAM);
++	expect_int_value(__wrap_socket, domain, AF_UNIX);
++	expect_int_value(__wrap_socket, type, SOCK_STREAM);
+ 	expect_any(__wrap_socket, protocol);
+ 	will_return(__wrap_socket, ipc_socket);
+ 
+-	expect_value(__wrap_connect, sockfd, ipc_socket);
++	expect_int_value(__wrap_connect, sockfd, ipc_socket);
+ 	expect_memory(__wrap_connect, addr, &saddr, sizeof(saddr));
+ 	will_return(__wrap_connect, 0);
+ 
+ 	write_select_params.result = 1;
+ 	FD_SET(ipc_socket, &write_select_params.writefds);
+-	expect_value(__wrap_select, timeout, NULL);
++	expect_ptr_value(__wrap_select, timeout, NULL);
+ 	will_return(__wrap_select, &write_select_params);
+ 
+ 	write_message.type = TAPDISK_MESSAGE_CLOSE;
+ 	write_message.cookie = test_minor;
+-	expect_value(__wrap_write, fd, ipc_socket);
++	expect_int_value(__wrap_write, fd, ipc_socket);
+ 	expect_memory(__wrap_write, buf, &write_message, sizeof(write_message));
+ 	will_return(__wrap_write, 1024);
+ 
+ 	read_select_params.result = 1;
+ 	FD_SET(ipc_socket, &read_select_params.readfds);
+-	expect_value(__wrap_select, timeout, NULL);
++	expect_ptr_value(__wrap_select, timeout, NULL);
+ 	will_return(__wrap_select, &read_select_params);
+ 
+ 	read_message.type = TAPDISK_MESSAGE_ERROR;
+@@ -469,10 +470,10 @@ void test_tap_ctl_close_error_response(void **state)
+ 	read_message.u.response.error = ENOENT;
+ 	read_params.result = sizeof(read_message);
+ 	read_params.data = &read_message;
+-	expect_value(__wrap_read, fd, ipc_socket);
++	expect_int_value(__wrap_read, fd, ipc_socket);
+ 	will_return(__wrap_read, &read_params);
+ 
+-	expect_value(__wrap_close, fd, ipc_socket);
++	expect_int_value(__wrap_close, fd, ipc_socket);
+ 	will_return(__wrap_close, 0);
+ 
+ 	/* Call test API */
+diff --git a/mockatests/control/test-tap-ctl-free.c b/mockatests/control/test-tap-ctl-free.c
+index 9b770098..427d0108 100644
+--- a/mockatests/control/test-tap-ctl-free.c
++++ b/mockatests/control/test-tap-ctl-free.c
+@@ -32,6 +32,7 @@
+ #include <stdarg.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <errno.h>
+ 
+ #include <wrappers.h>
+@@ -63,11 +64,11 @@ void test_tap_ctl_free_success(void **state)
+ 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control");
+ 
+ 	will_return(__wrap_ioctl, 0);
+-	expect_value(__wrap_ioctl, fd, dev_fd);
+-	expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP);
++	expect_int_value(__wrap_ioctl, fd, dev_fd);
++	expect_int_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP);
+ 
+ 	will_return(__wrap_close, 0);
+-	expect_value(__wrap_close, fd, dev_fd);
++	expect_int_value(__wrap_close, fd, dev_fd);
+ 
+ 	result = tap_ctl_free(0);
+ 
+@@ -83,11 +84,11 @@ void test_tap_ctl_free_ioctl_busy(void **state)
+ 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control");
+ 
+ 	will_return(__wrap_ioctl, EBUSY);
+-	expect_value(__wrap_ioctl, fd, dev_fd);
+-	expect_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP);
++	expect_int_value(__wrap_ioctl, fd, dev_fd);
++	expect_int_value(__wrap_ioctl, request, BLKTAP2_IOCTL_FREE_TAP);
+ 
+ 	will_return(__wrap_close, 0);
+-	expect_value(__wrap_close, fd, dev_fd);
++	expect_int_value(__wrap_close, fd, dev_fd);
+ 
+ 	result = tap_ctl_free(0);
+ 
+diff --git a/mockatests/control/util.c b/mockatests/control/util.c
+index aad22b14..8629bbe7 100644
+--- a/mockatests/control/util.c
++++ b/mockatests/control/util.c
+@@ -33,6 +33,7 @@
+ #include <string.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <errno.h>
+ 
+ #include <sys/un.h>
+@@ -80,12 +81,12 @@ struct mock_ipc_params *setup_ipc(char *ipc_socket_name, int ipc_socket_fd,
+ 	ipc_params->saddr.sun_family = AF_UNIX;
+ 	strcpy(ipc_params->saddr.sun_path, ipc_socket_name);
+ 
+-	expect_value(__wrap_socket, domain, AF_UNIX);
+-	expect_value(__wrap_socket, type, SOCK_STREAM);
++	expect_int_value(__wrap_socket, domain, AF_UNIX);
++	expect_int_value(__wrap_socket, type, SOCK_STREAM);
+ 	expect_any(__wrap_socket, protocol);
+ 	will_return(__wrap_socket, ipc_socket_fd);
+ 
+-	expect_value(__wrap_connect, sockfd, ipc_socket_fd);
++	expect_int_value(__wrap_connect, sockfd, ipc_socket_fd);
+ 	expect_memory(__wrap_connect, addr,
+ 		      &(ipc_params->saddr), sizeof(ipc_params->saddr));
+ 	will_return(__wrap_connect, 0);
+@@ -95,7 +96,7 @@ struct mock_ipc_params *setup_ipc(char *ipc_socket_name, int ipc_socket_fd,
+ 	expect_any(__wrap_select, timeout);
+ 	will_return(__wrap_select, &(ipc_params->write_select_params));
+ 
+-	expect_value(__wrap_write, fd, ipc_socket_fd);
++	expect_int_value(__wrap_write, fd, ipc_socket_fd);
+ 	expect_memory(__wrap_write, buf,
+ 		      &(ipc_params->write_message), sizeof(tapdisk_message_t));
+ 	will_return(__wrap_write, 1024);
+@@ -114,11 +115,11 @@ struct mock_ipc_params *setup_ipc(char *ipc_socket_name, int ipc_socket_fd,
+ 
+ 		ipc_params->read_params[id].result = sizeof(*read_message);
+ 		ipc_params->read_params[id].data = &(ipc_params->read_message[id]);
+-		expect_value(__wrap_read, fd, ipc_socket_fd);
++		expect_int_value(__wrap_read, fd, ipc_socket_fd);
+ 		will_return(__wrap_read, &(ipc_params->read_params[id]));
+ 	}
+ 
+-	expect_value(__wrap_close, fd, ipc_socket_fd);
++	expect_int_value(__wrap_close, fd, ipc_socket_fd);
+ 	will_return(__wrap_close, 0);
+ 
+ 	return ipc_params;
+diff --git a/mockatests/drivers/test-tapdisk-nbdserver.c b/mockatests/drivers/test-tapdisk-nbdserver.c
+index 95f8f99b..0326cdec 100644
+--- a/mockatests/drivers/test-tapdisk-nbdserver.c
++++ b/mockatests/drivers/test-tapdisk-nbdserver.c
+@@ -32,6 +32,7 @@
+ #include <stdarg.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <stdlib.h>
+ 
+ #include "test-suites.h"
+@@ -55,15 +56,15 @@ test_nbdserver_new_protocol_handshake(void **state)
+ 
+ 	/* Check input to send */
+ 	expect_memory(__wrap_send, buf, &handshake, sizeof(handshake));
+-	expect_value(__wrap_send, fd, new_fd);
+-	expect_value(__wrap_send, size, sizeof(handshake));
+-	expect_value(__wrap_send, flags, 0);
++	expect_int_value(__wrap_send, fd, new_fd);
++	expect_uint_value(__wrap_send, size, sizeof(handshake));
++	expect_int_value(__wrap_send, flags, 0);
+ 	will_return(__wrap_send, sizeof(handshake));
+ 
+ 	client.server = &server;
+ 
+-	expect_value(__wrap_tapdisk_server_register_event, cb, tapdisk_nbdserver_handshake_cb);
+-	expect_value(__wrap_tapdisk_server_register_event, mode, SCHEDULER_POLL_READ_FD);
++	expect_ptr_value(__wrap_tapdisk_server_register_event, cb, tapdisk_nbdserver_handshake_cb);
++	expect_int_value(__wrap_tapdisk_server_register_event, mode, SCHEDULER_POLL_READ_FD);
+ 	int err = tapdisk_nbdserver_new_protocol_handshake(&client, new_fd);
+ 	assert_int_equal(err, 0);
+ }
+diff --git a/mockatests/include/cmocka-compat.h b/mockatests/include/cmocka-compat.h
+new file mode 100644
+index 00000000..7172b075
+--- /dev/null
++++ b/mockatests/include/cmocka-compat.h
+@@ -0,0 +1,61 @@
++/*
++ * Copyright (c) 2026, Vates SAS.
++ *
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *  3. Neither the name of the copyright holder nor the names of its
++ *     contributors may be used to endorse or promote products derived from
++ *     this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef __CMOCKA_COMPAT_H__
++#define __CMOCKA_COMPAT_H__
++
++#include <cmocka.h>
++
++/*
++ * Newer cmocka releases deprecate some macros, and -Werror=deprecated-declarations
++ * turns the warning into a build failure.
++ * Fall back to the old macros when the new ones aren't available.
++ */
++#ifndef expect_int_value
++# define expect_int_value(function, parameter, value) \
++	expect_value(function, parameter, value)
++#endif
++
++#ifndef expect_uint_value
++# define expect_uint_value(function, parameter, value) \
++	expect_value(function, parameter, value)
++#endif
++
++#ifndef expect_ptr_value
++# define expect_ptr_value(function, parameter, value) \
++	expect_uint_value(function, parameter, (uintptr_t)value)
++#endif
++
++#ifndef expect_uint_value_count
++# define expect_uint_value_count(function, parameter, value, count) \
++	expect_value_count(function, parameter, value, count)
++#endif
++
++#endif /* __CMOCKA_COMPAT_H__ */

@@ -1,0 +1,257 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Thu, 2 Jul 2026 17:43:54 +0200
+Subject: [PATCH] mockatests: migrate deprecated check_expected() to typed
+ macros
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ mockatests/control/control-wrappers.c | 40 ++++++++++++++-------------
+ mockatests/drivers/vbd-wrappers.c     | 14 ++++++----
+ mockatests/include/cmocka-compat.h    | 10 +++++++
+ mockatests/vhd/vhd-wrappers.c         |  6 ++--
+ 4 files changed, 43 insertions(+), 27 deletions(-)
+
+diff --git a/mockatests/control/control-wrappers.c b/mockatests/control/control-wrappers.c
+index e129f470..13260c14 100644
+--- a/mockatests/control/control-wrappers.c
++++ b/mockatests/control/control-wrappers.c
+@@ -38,6 +38,8 @@
+ #include <errno.h>
+ #include <sys/socket.h>
+ 
++#include <cmocka-compat.h>
++
+ #include "control-wrappers.h"
+ 
+ static int enable_mocks = 0;
+@@ -66,8 +68,8 @@ __wrap_ioctl(int fd, int request, ...)
+ {
+ 	int result;
+ 
+-	check_expected(fd);
+-	check_expected(request);
++	check_expected_int(fd);
++	check_expected_int(request);
+ 
+ 	result = (int)mock();
+ 
+@@ -88,7 +90,7 @@ __wrap_open(const char *pathname, int flags)
+ 	int result;
+ 
+ 	if (enable_mocks) {
+-		check_expected(pathname);
++		check_expected_ptr(pathname);
+ 		result = mock();
+ 		if (result == -1)
+ 			errno = ENOENT;
+@@ -106,7 +108,7 @@ __wrap_close(int fd)
+ {
+ 	int result;
+ 
+-	check_expected(fd);
++	check_expected_int(fd);
+ 	result = mock();
+ 	if (result != 0)
+ 	{
+@@ -125,7 +127,7 @@ __wrap_access(const char *pathname, int mode)
+ 	int result;
+ 
+ 	if (enable_mocks) {
+-		check_expected(pathname);
++		check_expected_ptr(pathname);
+ 
+ 		result = mock();
+ 		if (result != 0) {
+@@ -143,7 +145,7 @@ __wrap_read(int fd, void *buf, size_t count)
+ 	int result = -1;
+ 	struct mock_read_params *params;
+ 
+-	check_expected(fd);
++	check_expected_int(fd);
+ 	params = (struct mock_read_params *)mock();
+ 
+ 	if (params->result > 0) {
+@@ -171,8 +173,8 @@ __wrap_write(int fd, const void *buf, size_t count)
+ {
+ 	int result;
+ 
+-	check_expected(fd);
+-	check_expected(buf);
++	check_expected_int(fd);
++	check_expected_ptr(buf);
+ 	result = mock();
+ 
+ 	if (result > (int)count)
+@@ -188,8 +190,8 @@ int
+ __wrap_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
+ {
+ 	int result;
+-	check_expected(sockfd);
+-	check_expected(addr);
++	check_expected_int(sockfd);
++	check_expected_ptr(addr);
+ 	result = mock();
+ 	if (result) {
+ 		errno = result;
+@@ -203,7 +205,7 @@ __wrap_select(int nfds, fd_set *readfds, fd_set *writefds,
+ 	      fd_set *exceptfds, struct timeval *timeout)
+ {
+ 	struct mock_select_params *params;
+-	check_expected(timeout);
++	check_expected_ptr(timeout);
+ 	params = (struct mock_select_params *)mock();
+ 	if (readfds)
+ 		memcpy(readfds, &params->readfds, sizeof(fd_set));
+@@ -222,7 +224,7 @@ __wrap_mkdir(const char *pathname, mode_t mode)
+ {
+ 	int result;
+ 	if (enable_mocks) {
+-		check_expected(pathname);
++		check_expected_ptr(pathname);
+ 		result = mock();
+ 		if (result != 0){
+ 			errno = result;
+@@ -237,7 +239,7 @@ int
+ __wrap_flock(int fd, int operation)
+ {
+ 	int result;
+-	check_expected(fd);
++	check_expected_int(fd);
+ 	result = mock();
+ 	if (result != 0) {
+ 		errno = result;
+@@ -250,7 +252,7 @@ int
+ __wrap___xmknod(int ver, const char *pathname, mode_t mode, dev_t * dev)
+ {
+ 	int result;
+-	check_expected(pathname);
++	check_expected_ptr(pathname);
+ 	result = mock();
+ 	if (result != 0)
+ 	{
+@@ -264,7 +266,7 @@ int
+ __wrap_unlink(const char *pathname)
+ {
+ 	int result;
+-	check_expected(pathname);
++	check_expected_ptr(pathname);
+ 	result = mock();
+ 	if (result != 0)
+ 	{
+@@ -279,9 +281,9 @@ __wrap_socket(int domain, int type, int protocol)
+ {
+ 	int result;
+ 
+-	check_expected(domain);
+-	check_expected(type);
+-	check_expected(protocol);
++	check_expected_int(domain);
++	check_expected_int(type);
++	check_expected_int(protocol);
+ 
+ 	result = mock();
+ 
+@@ -297,7 +299,7 @@ __wrap_glob(const char *pattern, int flags,
+ 	    int (*errfunc) (const char *epath, int eerrno),
+ 	    glob_t *pglob)
+ {
+-	check_expected(pattern);
++	check_expected_ptr(pattern);
+ 	int result = mock();
+ 	if (result == 0)
+ 	{
+diff --git a/mockatests/drivers/vbd-wrappers.c b/mockatests/drivers/vbd-wrappers.c
+index 9a5ad9b7..5781385f 100644
+--- a/mockatests/drivers/vbd-wrappers.c
++++ b/mockatests/drivers/vbd-wrappers.c
+@@ -33,6 +33,8 @@
+ #include <setjmp.h>
+ #include <cmocka.h>
+ 
++#include <cmocka-compat.h>
++
+ #include "tapdisk.h"
+ #include "tapdisk-interface.h"
+ 
+@@ -45,16 +47,16 @@ __wrap_tapdisk_image_check_request(td_image_t *image, td_vbd_request_t *vreq)
+ void
+ __wrap_td_queue_block_status(td_image_t *image, td_request_t *treq)
+ {
+-	check_expected(treq);
++	check_expected_ptr(treq);
+ }
+ 
+ int
+ __wrap_send(int fd, void* buf, size_t size, int flags)
+ {
+-	check_expected(buf);
+-	check_expected(fd);
+-	check_expected(size);
+-	check_expected(flags);
++	check_expected_ptr(buf);
++	check_expected_int(fd);
++	check_expected_uint(size);
++	check_expected_int(flags);
+ 	return (int)mock();
+ }
+ 
+@@ -62,7 +64,7 @@ event_id_t
+ __wrap_tapdisk_server_register_event(char mode, int fd,
+                               struct timeval timeout, event_cb_t cb, void *data)
+ {
+-	check_expected(mode);
++	check_expected_int(mode);
+ 	check_expected_ptr(cb);
+ 	return 0;
+ }
+diff --git a/mockatests/include/cmocka-compat.h b/mockatests/include/cmocka-compat.h
+index 7172b075..bd827f0c 100644
+--- a/mockatests/include/cmocka-compat.h
++++ b/mockatests/include/cmocka-compat.h
+@@ -58,4 +58,14 @@
+ 	expect_value_count(function, parameter, value, count)
+ #endif
+ 
++#ifndef check_expected_int
++# define check_expected_int(parameter) check_expected(parameter)
++#endif
++#ifndef check_expected_uint
++# define check_expected_uint(parameter) check_expected(parameter)
++#endif
++#ifndef check_expected_ptr
++# define check_expected_ptr(parameter) check_expected(parameter)
++#endif
++
+ #endif /* __CMOCKA_COMPAT_H__ */
+diff --git a/mockatests/vhd/vhd-wrappers.c b/mockatests/vhd/vhd-wrappers.c
+index 24ae3fb9..bc073322 100644
+--- a/mockatests/vhd/vhd-wrappers.c
++++ b/mockatests/vhd/vhd-wrappers.c
+@@ -33,6 +33,8 @@
+ #include <setjmp.h>
+ #include <cmocka.h>
+ 
++#include <cmocka-compat.h>
++
+ #include "libvhd.h"
+ #include "vhd-wrappers.h"
+ 
+@@ -104,7 +106,7 @@ int __wrap_vhd_get_keyhash(vhd_context_t *ctx, struct vhd_keyhash* hash)
+ 
+ int __wrap_vhd_close(vhd_context_t *ctx)
+ {
+-	check_expected(ctx);
++	check_expected_ptr(ctx);
+ 	close_count++;
+ 	return (int)mock();
+ }
+@@ -160,7 +162,7 @@ __wrap_free(void *ptr)
+ 		/*fprintf(stderr, "Freeing block at %p\n", ptr);*/
+ 		test_free(ptr);
+ 	} else {
+-		check_expected(ptr);
++		check_expected_ptr(ptr);
+ 		__real_free(ptr);
+ 	}
+ }

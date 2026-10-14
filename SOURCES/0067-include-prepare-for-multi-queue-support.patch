@@ -1,0 +1,236 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Mon, 16 Mar 2026 14:36:57 +0100
+Subject: [PATCH] include: prepare for multi-queue support
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ control/tap-ctl-info.c    |  4 +++-
+ control/tap-ctl-xen.c     |  5 +++--
+ drivers/tapdisk-control.c |  8 ++++----
+ include/tap-ctl.h         |  6 ++++--
+ include/tapdisk-common.h  | 38 ++++++++++++++++++++++++++++++++++++++
+ include/tapdisk-message.h | 21 ++++++++++++++-------
+ tapback/backend.c         |  6 ++++--
+ tapback/tapback.h         |  5 +++++
+ 8 files changed, 75 insertions(+), 18 deletions(-)
+ create mode 100644 include/tapdisk-common.h
+
+diff --git a/control/tap-ctl-info.c b/control/tap-ctl-info.c
+index a6768d20..c6460c77 100644
+--- a/control/tap-ctl-info.c
++++ b/control/tap-ctl-info.c
+@@ -36,7 +36,8 @@
+ #include "tap-ctl.h"
+ 
+ int tap_ctl_info(pid_t pid, unsigned long long *sectors,
+-		unsigned int *sector_size, unsigned int *info, const int minor)
++                 unsigned int *sector_size, unsigned int *info, unsigned int *max_queues,
++                 const int minor)
+ {
+     tapdisk_message_t message;
+     int err;
+@@ -60,6 +61,7 @@ int tap_ctl_info(pid_t pid, unsigned long long *sectors,
+         *sectors = message.u.image.sectors;
+         *sector_size = message.u.image.sector_size;
+         *info = message.u.image.info;
++        *max_queues = message.u.image.max_queues;
+         return 0;
+     } else if (TAPDISK_MESSAGE_ERROR == message.type) {
+        return -message.u.response.error;
+diff --git a/control/tap-ctl-xen.c b/control/tap-ctl-xen.c
+index 81f5dcbe..832c6017 100644
+--- a/control/tap-ctl-xen.c
++++ b/control/tap-ctl-xen.c
+@@ -69,9 +69,10 @@ tap_ctl_connect_xenblkif(const pid_t pid, const domid_t domid, const int devid,
+     message.u.blkif.domid = domid;
+     message.u.blkif.devid = devid;
+     for (i = 0; i < 1 << order; i++)
+-        message.u.blkif.gref[i] = grefs[i];
++        message.u.blkif.gref[0][i] = grefs[i];
++    message.u.blkif.nr_queues = 1;
+     message.u.blkif.order = order;
+-    message.u.blkif.port = port;
++    message.u.blkif.ports[0] = port;
+     message.u.blkif.proto = proto;
+     message.u.blkif.poll_duration = poll_duration;
+     message.u.blkif.poll_idle_threshold = poll_idle_threshold;
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index d6fdf434..c154b1ff 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -1249,11 +1249,11 @@ tapdisk_control_xenblkif_connect(
+     } else
+         pool_name = blkif->pool_name;
+ 
+-    DPRINTF("connecting VBD %d domid=%d, devid=%d, pool %s, evt %d, poll duration %d, poll idle threshold %d\n",
+-            vbd->uuid, blkif->domid, blkif->devid, pool_name, blkif->port, blkif->poll_duration, blkif->poll_idle_threshold);
++    DPRINTF("connecting VBD %d domid=%d, devid=%d, queues=%d, pool %s, evt %d, poll duration %d, poll idle threshold %d\n",
++            vbd->uuid, blkif->domid, blkif->devid, blkif->nr_queues, pool_name, blkif->ports[0], blkif->poll_duration, blkif->poll_idle_threshold);
+ 
+-    err = tapdisk_xenblkif_connect(blkif->domid, blkif->devid, blkif->gref,
+-            blkif->order, blkif->port, blkif->proto, blkif->poll_duration, blkif->poll_idle_threshold, pool_name, vbd);
++    err = tapdisk_xenblkif_connect(blkif->domid, blkif->devid, &blkif->gref[0][0],
++            blkif->order, blkif->ports[0], blkif->proto, blkif->poll_duration, blkif->poll_idle_threshold, pool_name, vbd);
+ 
+ out:
+ 	response->cookie = request->cookie;
+diff --git a/include/tap-ctl.h b/include/tap-ctl.h
+index 160ecfc4..5bd57bc6 100644
+--- a/include/tap-ctl.h
++++ b/include/tap-ctl.h
+@@ -199,8 +199,10 @@ int tap_ctl_disconnect_xenblkif(const pid_t pid, const domid_t domid,
+  * @param minor
+  *
+  */
+-int tap_ctl_info(pid_t pid, unsigned long long *sectors, unsigned int
+-		*sector_size, unsigned int *info, const int minor);
++int tap_ctl_info(pid_t pid, unsigned long long *sectors,
++		unsigned int *sector_size, unsigned int *info,
++		unsigned int *max_queues,
++		const int minor);
+ 
+ /**
+  * Parses a type:/path/to/file string, storing the type and path to the output
+diff --git a/include/tapdisk-common.h b/include/tapdisk-common.h
+new file mode 100644
+index 00000000..06be8a27
+--- /dev/null
++++ b/include/tapdisk-common.h
+@@ -0,0 +1,38 @@
++/*
++ * Copyright (c) 2026, Vates SAS
++ *
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *  3. Neither the name of the copyright holder nor the names of its
++ *     contributors may be used to endorse or promote products derived from
++ *     this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#ifndef _TAPDISK_COMMON_H_
++#define _TAPDISK_COMMON_H_
++
++#define BLKIF_MAX_QUEUES           1
++
++#define TAPDISK_MAX_VBD_THREADS    BLKIF_MAX_QUEUES
++
++#endif
+diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
+index 439afc69..42e99848 100644
+--- a/include/tapdisk-message.h
++++ b/include/tapdisk-message.h
+@@ -35,6 +35,7 @@
+ #include <sys/types.h>
+ 
+ #include "xen_blkif.h"
++#include "tapdisk-common.h"
+ 
+ /*
+  * TODO This is quite small since we don't allow path bigger than 256 chars. If
+@@ -85,6 +86,7 @@ struct tapdisk_message_image {
+ 	uint64_t                         sectors;
+ 	uint32_t                         sector_size;
+ 	uint32_t                         info;
++	uint32_t                         max_queues;
+ };
+ 
+ struct tapdisk_message_string {
+@@ -135,13 +137,23 @@ typedef struct tapdisk_message_blkif {
+ 	 */
+ 	uint32_t devid;
+ 
++	/**
++	 * Number of queues
++	 */
++	uint32_t nr_queues;
++
+ 	/**
+ 	 * Grant references for the shared ring.
+ 	 */
+-	uint32_t gref[MAX_RING_PAGES];
++	grant_ref_t gref[BLKIF_MAX_QUEUES][MAX_RING_PAGES];
+ 
+ 	/**
+-	 * Number of pages in the ring, expressed as a page order.
++	 * The event channel port.
++	 */
++	uint32_t ports[BLKIF_MAX_QUEUES];
++
++	/**
++	 * Number of pages in rings, expressed as a page order.
+ 	 */
+ 	uint32_t order;
+ 
+@@ -156,11 +168,6 @@ typedef struct tapdisk_message_blkif {
+ 	 */
+ 	char pool_name[TAPDISK_MESSAGE_STRING_LENGTH];
+ 
+-	/**
+-	 * The event channel port.
+-	 */
+-	uint32_t port;
+-
+ 	/**
+ 	 * Polling duration in microseconds. 0 means no polling.
+ 	 */
+diff --git a/tapback/backend.c b/tapback/backend.c
+index facae9bf..59d76453 100644
+--- a/tapback/backend.c
++++ b/tapback/backend.c
+@@ -337,8 +337,9 @@ physical_device_path_changed(vbd_t *device) {
+ 	 * get the VBD parameters from the tapdisk
+ 	 */
+ 	if ((err = tap_ctl_info(device->tap->pid, &device->sectors,
+-					&device->sector_size, &device->info,
+-					device->minor))) {
++				&device->sector_size, &device->info,
++				&device->max_queues,
++				device->minor))) {
+ 		WARN(device, "error retrieving disk characteristics: %s\n",
+ 		     strerror(-err));
+ 		goto out;
+@@ -496,6 +497,7 @@ physical_device_changed(vbd_t *device) {
+      */
+     if ((err = tap_ctl_info(device->tap->pid, &device->sectors,
+                     &device->sector_size, &info,
++                    &device->max_queues,
+                     device->minor))) {
+         WARN(device, "error retrieving disk characteristics: %s\n",
+                 strerror(-err));
+diff --git a/tapback/tapback.h b/tapback/tapback.h
+index 9bde55d9..c96fe1c5 100644
+--- a/tapback/tapback.h
++++ b/tapback/tapback.h
+@@ -290,6 +290,11 @@ typedef struct vbd {
+      */
+     unsigned int info;
+ 
++    /**
++     * Max number of queues supported by the driver
++     */
++    unsigned int max_queues;
++
+     int major;
+ 	int minor;
+ 

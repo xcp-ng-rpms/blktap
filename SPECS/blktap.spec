@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.1%{?dist}
+Release: %{?xsrel}.2%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -109,6 +109,24 @@ Patch1058: 0058-qcow2-stop-a-commit-job-from-outliving-driver-close.patch
 Patch1059: 0059-qcow2-cancel-also-a-created-and-not-yet-running-job.patch
 Patch1060: 0060-tapdisk-vbd-fix-image-lookup-when-there-is-no-image.patch
 Patch1061: 0061-qcow2-force-thread-naming.patch
+Patch1062: 0062-tapdisk-remove-unused-atomicio-source-files.patch
+Patch1063: 0063-vhd-check-the-length-at-the-limit-to-throw-ENAMETOOL.patch
+Patch1064: 0064-lvm-vhd-use-safe_strncpy-when-needed.patch
+Patch1065: 0065-qcow2-fix-qemu-img-lib-dependency.patch
+Patch1066: 0066-tapdisk-add-missing-dependencies.patch
+Patch1067: 0067-include-prepare-for-multi-queue-support.patch
+Patch1068: 0068-include-prepare-for-discard-support.patch
+Patch1069: 0069-include-prepare-for-persistent-grant-support.patch
+Patch1070: 0070-include-prepare-for-indirect-descriptor-support.patch
+Patch1071: 0071-tapdisk-narrow-blkif-locking-to-the-buffer-cache-whe.patch
+Patch1072: 0072-tapdisk-nbdserver-Fix-the-handshake-error-path.patch
+Patch1073: 0073-tapdisk-nbdserver-unregister-handshake-event-uncondi.patch
+Patch1074: 0074-tapdisk-nbdserver-free-nbd-client-on-handshake-error.patch
+Patch1075: 0075-tapdisk-nbdserver-remove-useless-handshake-fd.patch
+Patch1076: 0076-mockatests-migrate-deprecated-expect_value-to-typed-.patch
+Patch1077: 0077-mockatests-migrate-deprecated-check_expected-to-type.patch
+Patch1078: 0078-mockatests-migrate-deprecated-assert_in_range-will_r.patch
+Patch1079: 0079-mockatests-wrap-both-mknod-and-__xmknod.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -145,7 +163,7 @@ sh autogen.sh
 # The following can be used for leak tracing
 #%%configure LDFLAGS="$LDFLAGS -lrt -static-liblsan" CFLAGS="$CFLAGS  -Wno-stringop-truncation -fsanitize=leak -ggdb -fno-omit-frame-pointer"
 #%%configure CFLAGS="$CFLAGS -Wno-stringop-truncation -Wno-error=analyzer-malloc-leak -Wno-error=analyzer-use-after-free -Wno-error=analyzer-double-free -Wno-error=analyzer-null-dereference -fanalyzer"
-%configure CFLAGS="$CFLAGS -Wno-stringop-truncation"
+%configure
 %{?_cov_wrap} make %{?coverage:GCOV=true}
 
 %check
@@ -238,6 +256,15 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Oct 16 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.2
+- Narrow blkif locking for better performance
+- Clean-up unused atomicio files
+- Fix GCC stringop-truncation warnings
+- Fix tapdisk and libqcow2 dependencies
+- Fix NBD server handshake crash
+- Fix mockatests on modern mocka library
+- Prepare tapdisk to welcome new blkif features
+
 * Wed Oct 14 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.1
 - Sync with 3.55.5-12
 - Drop patch 0060-Ensure-passed-ring-page-order-is-valid.patch, upstream now
