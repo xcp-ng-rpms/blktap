@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Fri, 10 Jul 2026 10:20:46 +0200
+Subject: [PATCH] include: prepare for indirect-descriptor support
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ control/tap-ctl-xen.c     | 1 +
+ drivers/tapdisk-control.c | 3 +++
+ drivers/td-blkif.c        | 1 +
+ drivers/td-blkif.h        | 1 +
+ include/tapdisk-message.h | 5 +++++
+ 5 files changed, 11 insertions(+)
+
+diff --git a/control/tap-ctl-xen.c b/control/tap-ctl-xen.c
+index a1cd1d59..2d1818df 100644
+--- a/control/tap-ctl-xen.c
++++ b/control/tap-ctl-xen.c
+@@ -75,6 +75,7 @@ tap_ctl_connect_xenblkif(const pid_t pid, const domid_t domid, const int devid,
+     message.u.blkif.ports[0] = port;
+     message.u.blkif.proto = proto;
+     message.u.blkif.persistent_grants = false;
++    message.u.blkif.indirect_max_segments = 0;
+     message.u.blkif.poll_duration = poll_duration;
+     message.u.blkif.poll_idle_threshold = poll_idle_threshold;
+     if (pool_name) {
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index 2fdc8274..7d19cc82 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -1253,13 +1253,16 @@ tapdisk_control_xenblkif_connect(
+ 
+     DPRINTF("connecting VBD %d domid=%d, devid=%d, queues=%d,"
+ 	    " persistent-grants=%s,"
++	    " indirect-segs=%s (max %d),"
+ 	    " pool %s, evt %d, poll duration %d, poll idle threshold %d\n",
+ 	    vbd->uuid, blkif->domid, blkif->devid, blkif->nr_queues,
+ 	    blkif->persistent_grants ? "yes":"no",
++	    blkif->indirect_max_segments ? "enabled":"disabled", blkif->indirect_max_segments,
+ 	    pool_name, blkif->ports[0], blkif->poll_duration, blkif->poll_idle_threshold);
+ 
+     err = tapdisk_xenblkif_connect(blkif->domid, blkif->devid, &blkif->gref[0][0],
+ 				blkif->order, blkif->ports[0], blkif->persistent_grants,
++				blkif->indirect_max_segments,
+ 				blkif->proto, blkif->poll_duration, blkif->poll_idle_threshold,
+ 				pool_name, vbd);
+ 
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index d941fb90..0f3b16eb 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -469,6 +469,7 @@ tapdisk_xenblkif_cb_chkrng(event_id_t id __attribute__((unused)),
+ int
+ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t * grefs,
+                          int order, evtchn_port_t port, bool persistent_grant,
++                         unsigned int indirect_max_segments,
+                          int proto, int poll_duration, int poll_idle_threshold,
+                          const char *pool, td_vbd_t * vbd)
+ {
+diff --git a/drivers/td-blkif.h b/drivers/td-blkif.h
+index 8123be8b..d69d0165 100644
+--- a/drivers/td-blkif.h
++++ b/drivers/td-blkif.h
+@@ -255,6 +255,7 @@ struct td_xenblkif {
+ int
+ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t * grefs,
+                          int order, evtchn_port_t port, bool persistent_grant,
++                         unsigned int indirect_max_segments,
+                          int proto, int poll_duration, int poll_idle_threshold,
+                          const char *pool, td_vbd_t * vbd);
+ 
+diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
+index 46fc8270..c379ba3f 100644
+--- a/include/tapdisk-message.h
++++ b/include/tapdisk-message.h
+@@ -185,6 +185,11 @@ typedef struct tapdisk_message_blkif {
+ 	 * Persistent grants feature enabled.
+ 	 */
+ 	bool persistent_grants;
++
++	/**
++	 * Maximum number of segments per page in indirect requests.
++	 */
++	uint32_t indirect_max_segments;
+ } tapdisk_message_blkif_t;
+ 
+ /**

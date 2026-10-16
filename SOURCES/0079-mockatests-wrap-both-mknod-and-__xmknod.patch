@@ -1,0 +1,182 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Thu, 2 Jul 2026 21:41:30 +0200
+Subject: [PATCH] mockatests: wrap both mknod() and __xmknod()
+
+Mocking mknod(3) only through __xmknod worked on old glibc, where
+<sys/stat.h> forwards mknod() to __xmknod(). Since glibc 2.33 mknod()
+is exported directly, so that wrap intercepted nothing and the real
+mknod(2) ran, failing the allocate tests.
+
+Wrap both symbols so the mock works regardless of glibc version.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ mockatests/control/Makefile.am             |  2 +-
+ mockatests/control/control-wrappers.c      | 26 +++++++++++++++-
+ mockatests/control/test-tap-ctl-allocate.c | 36 +++++++++++-----------
+ 3 files changed, 44 insertions(+), 20 deletions(-)
+
+diff --git a/mockatests/control/Makefile.am b/mockatests/control/Makefile.am
+index 73094100..1195725a 100644
+--- a/mockatests/control/Makefile.am
++++ b/mockatests/control/Makefile.am
+@@ -16,7 +16,7 @@ test_control_LDFLAGS += -static-libtool-libs
+ # Would be good to use the cmocka malloc wraps but looks like maybe strdup doesn't call malloc
+ #test_control_LDFLAGS += -Wl,--wrap=malloc,--wrap=free
+ test_control_LDFLAGS += -Wl,--wrap=socket,--wrap=connect,--wrap=read,--wrap=select,--wrap=write,--wrap=fdopen
+-test_control_LDFLAGS += -Wl,--wrap=open,--wrap=ioctl,--wrap=close,--wrap=access,--wrap=mkdir,--wrap=flock,--wrap=unlink,--wrap=__xmknod
++test_control_LDFLAGS += -Wl,--wrap=open,--wrap=ioctl,--wrap=close,--wrap=access,--wrap=mkdir,--wrap=flock,--wrap=unlink,--wrap=mknod,--wrap=__xmknod
+ #test_control_LDFLAGS += -Wl,--wrap=execl,--wrap=waitpid
+ test_control_LDFLAGS += -Wl,--wrap=glob,--wrap=globfree
+ test_control_LDFLAGS += -Wl,--wrap=fopen,--wrap=fclose,--wrap=fseek,--wrap=fwrite
+diff --git a/mockatests/control/control-wrappers.c b/mockatests/control/control-wrappers.c
+index 13260c14..26965bbf 100644
+--- a/mockatests/control/control-wrappers.c
++++ b/mockatests/control/control-wrappers.c
+@@ -248,10 +248,24 @@ __wrap_flock(int fd, int operation)
+ 	return result;
+ }
+ 
++/*
++ * Prior to glibc 2.33, mknod(3) was an inline wrapper in <sys/stat.h>
++ * that forwarded to the exported __xmknod() symbol.
++ * Since glibc 2.33, mknod() is exported directly so we have to wrap
++ * mknod() instead.
++ *
++ * Compiler flags (-fno-inline, -Og) and glibc version both influence
++ * which symbol the call site actually references, so we define both
++ * wrappers unconditionally.
++ */
+ int
+-__wrap___xmknod(int ver, const char *pathname, mode_t mode, dev_t * dev)
++__wrap_mknod(const char *pathname, mode_t mode, dev_t dev)
+ {
+ 	int result;
++
++	(void)mode;
++	(void)dev;
++
+ 	check_expected_ptr(pathname);
+ 	result = mock();
+ 	if (result != 0)
+@@ -262,6 +276,16 @@ __wrap___xmknod(int ver, const char *pathname, mode_t mode, dev_t * dev)
+ 	return result;
+ }
+ 
++int
++__wrap___xmknod(int ver, const char *pathname, mode_t mode, dev_t *dev)
++{
++	(void)ver;
++	(void)mode;
++	(void)dev;
++
++	return __wrap_mknod(pathname, mode, (dev_t)(dev ? *dev : 0));
++}
++
+ int
+ __wrap_unlink(const char *pathname)
+ {
+diff --git a/mockatests/control/test-tap-ctl-allocate.c b/mockatests/control/test-tap-ctl-allocate.c
+index 797d8ab7..1589c4c2 100644
+--- a/mockatests/control/test-tap-ctl-allocate.c
++++ b/mockatests/control/test-tap-ctl-allocate.c
+@@ -174,8 +174,8 @@ void test_tap_ctl_allocate_make_device_fail(void **state)
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2");
+ 	will_return(__wrap_unlink, 0);
+ 	expect_string(__wrap_unlink, pathname, "/dev/xen/blktap-2/control");
+-	will_return(__wrap___xmknod, EPERM);
+-	expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control");
++	will_return(__wrap_mknod, EPERM);
++	expect_string(__wrap_mknod, pathname, "/dev/xen/blktap-2/control");
+ 	/* Close check environment */
+ 	will_return(__wrap_flock, 0);
+ 	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
+@@ -211,8 +211,8 @@ void test_tap_ctl_allocate_ring_create_fail(void **state)
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2");
+ 	will_return(__wrap_unlink, 0);
+ 	expect_string(__wrap_unlink, pathname, "/dev/xen/blktap-2/control");
+-	will_return(__wrap___xmknod, 0);
+-	expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control");
++	will_return(__wrap_mknod, 0);
++	expect_string(__wrap_mknod, pathname, "/dev/xen/blktap-2/control");
+ 	/* Close check environment */
+ 	will_return(__wrap_flock, 0);
+ 	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
+@@ -236,8 +236,8 @@ void test_tap_ctl_allocate_ring_create_fail(void **state)
+ 	expect_string(__wrap_mkdir, pathname, "/dev/xen/blktap-2");
+ 	will_return(__wrap_unlink, 0);
+ 	expect_any(__wrap_unlink, pathname);
+-	will_return(__wrap___xmknod, EPERM);
+-	expect_any(__wrap___xmknod, pathname);
++	will_return(__wrap_mknod, EPERM);
++	expect_any(__wrap_mknod, pathname);
+ 	/* tap-ctl-free */
+ 	will_return(__wrap_open, dev_fd);
+ 	expect_string(__wrap_open, pathname, "/dev/xen/blktap-2/control");
+@@ -277,8 +277,8 @@ void test_tap_ctl_allocate_io_device_fail(void **state)
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2");
+ 	will_return(__wrap_unlink, 0);
+ 	expect_string(__wrap_unlink, pathname, "/dev/xen/blktap-2/control");
+-	will_return(__wrap___xmknod, 0);
+-	expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control");
++	will_return(__wrap_mknod, 0);
++	expect_string(__wrap_mknod, pathname, "/dev/xen/blktap-2/control");
+ 	/* Close check environment */
+ 	will_return(__wrap_flock, 0);
+ 	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
+@@ -302,8 +302,8 @@ void test_tap_ctl_allocate_io_device_fail(void **state)
+ 	expect_string(__wrap_mkdir, pathname, "/dev/xen/blktap-2");
+ 	will_return(__wrap_unlink, 0);
+ 	expect_any(__wrap_unlink, pathname);
+-	will_return(__wrap___xmknod, 0);
+-	expect_any(__wrap___xmknod, pathname);
++	will_return(__wrap_mknod, 0);
++	expect_any(__wrap_mknod, pathname);
+ 
+ 	/* Make Device - io device */
+ 	will_return(__wrap_access, ENOENT);
+@@ -316,8 +316,8 @@ void test_tap_ctl_allocate_io_device_fail(void **state)
+ 	expect_string(__wrap_mkdir, pathname, "/dev/xen/blktap-2");
+ 	will_return(__wrap_unlink, 0);
+ 	expect_any(__wrap_unlink, pathname);
+-	will_return(__wrap___xmknod, EPERM);
+-	expect_any(__wrap___xmknod, pathname);
++	will_return(__wrap_mknod, EPERM);
++	expect_any(__wrap_mknod, pathname);
+ 
+ 	/* tap-ctl-free */
+ 	will_return(__wrap_open, dev_fd);
+@@ -358,8 +358,8 @@ void test_tap_ctl_allocate_success(void **state)
+ 	expect_string(__wrap_access, pathname, "/dev/xen/blktap-2");
+ 	will_return(__wrap_unlink, 0);
+ 	expect_string(__wrap_unlink, pathname, "/dev/xen/blktap-2/control");
+-	will_return(__wrap___xmknod, 0);
+-	expect_string(__wrap___xmknod, pathname, "/dev/xen/blktap-2/control");
++	will_return(__wrap_mknod, 0);
++	expect_string(__wrap_mknod, pathname, "/dev/xen/blktap-2/control");
+ 	/* Close check environment */
+ 	will_return(__wrap_flock, 0);
+ 	expect_int_value(__wrap_flock, fd, fileno(proc_misc));
+@@ -383,8 +383,8 @@ void test_tap_ctl_allocate_success(void **state)
+ 	expect_string(__wrap_mkdir, pathname, "/dev/xen/blktap-2");
+ 	will_return(__wrap_unlink, 0);
+ 	expect_any(__wrap_unlink, pathname);
+-	will_return(__wrap___xmknod, 0);
+-	expect_any(__wrap___xmknod, pathname);
++	will_return(__wrap_mknod, 0);
++	expect_any(__wrap_mknod, pathname);
+ 
+ 	/* Make Device - io device */
+ 	will_return(__wrap_access, ENOENT);
+@@ -397,8 +397,8 @@ void test_tap_ctl_allocate_success(void **state)
+ 	expect_string(__wrap_mkdir, pathname, "/dev/xen/blktap-2");
+ 	will_return(__wrap_unlink, 0);
+ 	expect_any(__wrap_unlink, pathname);
+-	will_return(__wrap___xmknod, 0);
+-	expect_any(__wrap___xmknod, pathname);
++	will_return(__wrap_mknod, 0);
++	expect_any(__wrap_mknod, pathname);
+ 
+ 
+ 	result = tap_ctl_allocate(&minor, &devname);

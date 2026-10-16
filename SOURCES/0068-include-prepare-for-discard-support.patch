@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Mon, 16 Mar 2026 14:40:09 +0100
+Subject: [PATCH] include: prepare for discard support
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ control/tap-ctl-info.c    |  7 ++++++-
+ drivers/tapdisk-control.c | 12 +++++++++---
+ drivers/tapdisk.h         |  2 ++
+ include/tap-ctl.h         |  3 +++
+ include/tapdisk-message.h |  3 +++
+ tapback/backend.c         |  6 ++++++
+ tapback/tapback.h         | 15 +++++++++++++++
+ 7 files changed, 44 insertions(+), 4 deletions(-)
+
+diff --git a/control/tap-ctl-info.c b/control/tap-ctl-info.c
+index c6460c77..5fc067a0 100644
+--- a/control/tap-ctl-info.c
++++ b/control/tap-ctl-info.c
+@@ -37,6 +37,7 @@
+ 
+ int tap_ctl_info(pid_t pid, unsigned long long *sectors,
+                  unsigned int *sector_size, unsigned int *info, unsigned int *max_queues,
++                 bool *discard, unsigned int *discard_granularity,
+                  const int minor)
+ {
+     tapdisk_message_t message;
+@@ -45,10 +46,12 @@ int tap_ctl_info(pid_t pid, unsigned long long *sectors,
+     ASSERT(sectors);
+     ASSERT(sector_size);
+     ASSERT(info);
++    ASSERT(discard);
++    ASSERT(discard_granularity);
+ 
+     memset(&message, 0, sizeof(message));
+     message.type = TAPDISK_MESSAGE_DISK_INFO;
+-	message.cookie = minor;
++    message.cookie = minor;
+ 
+     err = tap_ctl_connect_send_and_receive(pid, &message, NULL);
+     if (err) {
+@@ -62,6 +65,8 @@ int tap_ctl_info(pid_t pid, unsigned long long *sectors,
+         *sector_size = message.u.image.sector_size;
+         *info = message.u.image.info;
+         *max_queues = message.u.image.max_queues;
++        *discard = message.u.image.discard;
++        *discard_granularity = message.u.image.discard_granularity;
+         return 0;
+     } else if (TAPDISK_MESSAGE_ERROR == message.type) {
+        return -message.u.response.error;
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index c154b1ff..ae5bddca 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -859,6 +859,8 @@ out:
+         response->u.image.sectors = vbd->disk_info.size;
+         response->u.image.sector_size = vbd->disk_info.sector_size;
+         response->u.image.info = vbd->disk_info.info;
++        response->u.image.discard = vbd->disk_info.discard;
++        response->u.image.discard_granularity = vbd->disk_info.discard_granularity;
+         response->type = TAPDISK_MESSAGE_OPEN_RSP;
+ 		return td_err_set_success(error);
+ 	}
+@@ -1315,17 +1317,21 @@ tapdisk_control_disk_info(
+     if (!vbd) {
+         err = -ENODEV;
+         goto out;
+-	}
++    }
+ 
+-    DPRINTF("VBD %d got disk info: sectors=%llu sector size=%ld, info=%d\n",
++    DPRINTF("VBD %d got disk info: sectors=%llu sector size=%ld, info=%d, discard=%s, discard granularity=%ld\n",
+             vbd->uuid, (unsigned long long)vbd->disk_info.size,
+-            vbd->disk_info.sector_size, vbd->disk_info.info);
++            vbd->disk_info.sector_size, vbd->disk_info.info,
++            vbd->disk_info.discard ? "true" : "false",
++            vbd->disk_info.discard_granularity);
+ out:
+     if (!err) {
+         response->type = TAPDISK_MESSAGE_DISK_INFO_RSP;
+         image->sectors = vbd->disk_info.size;
+         image->sector_size = vbd->disk_info.sector_size;
+         image->info = vbd->disk_info.info;
++        image->discard = vbd->disk_info.discard;
++        image->discard_granularity = vbd->disk_info.discard_granularity;
+     }
+     return td_err_set_errno(error, err);
+ }
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index 2f74c957..cb08f9d9 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -154,6 +154,8 @@ struct td_disk_info {
+ 	td_sector_t                  size;
+ 	long                         sector_size;
+ 	uint32_t                     info;
++	bool                         discard;
++	long                         discard_granularity;
+ };
+ 
+ struct td_iovec {
+diff --git a/include/tap-ctl.h b/include/tap-ctl.h
+index 5bd57bc6..8739e4f4 100644
+--- a/include/tap-ctl.h
++++ b/include/tap-ctl.h
+@@ -196,12 +196,15 @@ int tap_ctl_disconnect_xenblkif(const pid_t pid, const domid_t domid,
+  * @param sector_size output parameter that receives the size of the sector
+  * @param info output parameter that receives the vdisk info flags VDISK_???,
+  * defined in include/xen/interface/io/blkif.h
++ * @param discard output parameter that receives if discard is supported
++ * @param discard_granularity output parameter that receives the discard granularity
+  * @param minor
+  *
+  */
+ int tap_ctl_info(pid_t pid, unsigned long long *sectors,
+ 		unsigned int *sector_size, unsigned int *info,
+ 		unsigned int *max_queues,
++		bool *discard, unsigned int *discard_granularity,
+ 		const int minor);
+ 
+ /**
+diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
+index 42e99848..4fd0f5c0 100644
+--- a/include/tapdisk-message.h
++++ b/include/tapdisk-message.h
+@@ -32,6 +32,7 @@
+ #define _TAPDISK_MESSAGE_H_
+ 
+ #include <inttypes.h>
++#include <stdbool.h>
+ #include <sys/types.h>
+ 
+ #include "xen_blkif.h"
+@@ -87,6 +88,8 @@ struct tapdisk_message_image {
+ 	uint32_t                         sector_size;
+ 	uint32_t                         info;
+ 	uint32_t                         max_queues;
++	bool                             discard;
++	uint32_t                         discard_granularity;
+ };
+ 
+ struct tapdisk_message_string {
+diff --git a/tapback/backend.c b/tapback/backend.c
+index 59d76453..fb963c2f 100644
+--- a/tapback/backend.c
++++ b/tapback/backend.c
+@@ -339,6 +339,7 @@ physical_device_path_changed(vbd_t *device) {
+ 	if ((err = tap_ctl_info(device->tap->pid, &device->sectors,
+ 				&device->sector_size, &device->info,
+ 				&device->max_queues,
++				&device->discard, &device->discard_granularity,
+ 				device->minor))) {
+ 		WARN(device, "error retrieving disk characteristics: %s\n",
+ 		     strerror(-err));
+@@ -377,6 +378,8 @@ out:
+ 		free(device->tap);
+ 		device->tap = NULL;
+ 		device->sector_size = device->sectors = device->info = 0;
++		device->discard = false;
++		device->discard_granularity = 0;
+ 	}
+ 	free(s);
+ done:
+@@ -498,6 +501,7 @@ physical_device_changed(vbd_t *device) {
+     if ((err = tap_ctl_info(device->tap->pid, &device->sectors,
+                     &device->sector_size, &info,
+                     &device->max_queues,
++                    &device->discard, &device->discard_granularity,
+                     device->minor))) {
+         WARN(device, "error retrieving disk characteristics: %s\n",
+                 strerror(-err));
+@@ -535,6 +539,8 @@ out:
+         free(device->tap);
+         device->tap = NULL;
+         device->sector_size = device->sectors = device->info = 0;
++        device->discard = false;
++        device->discard_granularity = 0;
+     }
+     free(s);
+     return err;
+diff --git a/tapback/tapback.h b/tapback/tapback.h
+index c96fe1c5..330d0e6a 100644
+--- a/tapback/tapback.h
++++ b/tapback/tapback.h
+@@ -209,6 +209,11 @@ typedef struct backend {
+ 	 * Tells whether we support write I/O barriers.
+ 	 */
+ 	bool barrier;
++
++	/**
++	 * Tells whether we support discard.
++	 */
++	bool discard;
+ } backend_t;
+ 
+ /**
+@@ -295,6 +300,16 @@ typedef struct vbd {
+      */
+     unsigned int max_queues;
+ 
++    /*
++     * Whether the backing driver supports discard
++     */
++    bool discard;
++
++    /**
++     * Discard granularity, supplied by the tapdisk, communicated to blkfront.
++     */
++    unsigned int discard_granularity;
++
+     int major;
+ 	int minor;
+ 

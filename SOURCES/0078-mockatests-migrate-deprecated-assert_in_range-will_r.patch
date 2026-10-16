@@ -1,0 +1,130 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Thu, 2 Jul 2026 17:45:53 +0200
+Subject: [PATCH] mockatests: migrate deprecated
+ assert_in_range()/will_return_always()
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ mockatests/cbt/test-cbt-util-commands.c |  3 ++-
+ mockatests/include/cmocka-compat.h      | 13 +++++++++++++
+ mockatests/vhd/test-vhd-util-snapshot.c |  5 +++--
+ mockatests/wrappers/wrappers.c          |  9 +++++----
+ 4 files changed, 23 insertions(+), 7 deletions(-)
+
+diff --git a/mockatests/cbt/test-cbt-util-commands.c b/mockatests/cbt/test-cbt-util-commands.c
+index fb90c9e9..bddb533c 100644
+--- a/mockatests/cbt/test-cbt-util-commands.c
++++ b/mockatests/cbt/test-cbt-util-commands.c
+@@ -32,6 +32,7 @@
+ #include <stdarg.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ 
+ #include <cbt-util-priv.h>
+ #include <wrappers.h>
+@@ -122,7 +123,7 @@ test_help_success(void ** state)
+ 
+ 	help();
+ 
+-	assert_in_range(output->offset, 10, 1024);
++	assert_int_in_range(output->offset, 10, 1024);
+ 
+ 	free_printf_data(output);
+ }
+diff --git a/mockatests/include/cmocka-compat.h b/mockatests/include/cmocka-compat.h
+index bd827f0c..50ee811a 100644
+--- a/mockatests/include/cmocka-compat.h
++++ b/mockatests/include/cmocka-compat.h
+@@ -68,4 +68,17 @@
+ # define check_expected_ptr(parameter) check_expected(parameter)
+ #endif
+ 
++#ifndef assert_int_in_range
++# define assert_int_in_range(value, minimum, maximum) \
++	assert_in_range(value, minimum, maximum)
++#endif
++#ifndef will_return_int_always
++# define will_return_int_always(function, value) \
++	will_return_always(function, value)
++#endif
++#ifndef will_return_ptr_always
++# define will_return_ptr_always(function, value) \
++	will_return_always(function, value)
++#endif
++
+ #endif /* __CMOCKA_COMPAT_H__ */
+diff --git a/mockatests/vhd/test-vhd-util-snapshot.c b/mockatests/vhd/test-vhd-util-snapshot.c
+index 1ca1ca11..9e4e7235 100644
+--- a/mockatests/vhd/test-vhd-util-snapshot.c
++++ b/mockatests/vhd/test-vhd-util-snapshot.c
+@@ -31,6 +31,7 @@
+ #include <stdarg.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <errno.h>
+ #include <wrappers.h>
+ 
+@@ -121,10 +122,10 @@ void test_vhd_util_snapshot_einval_from_vhd_set_keyhash(void **state)
+ {
+ 	will_return(__wrap_canonpath, "testing");
+ 	will_return(__wrap_vhd_snapshot, 0);
+-	will_return_always(__wrap_vhd_open, 0);
++	will_return_int_always(__wrap_vhd_open, 0);
+ 	set_cookie();
+ 	will_return(__wrap_vhd_get_keyhash, 0);
+-	will_return_always(__wrap_vhd_close, 0);
++	will_return_int_always(__wrap_vhd_close, 0);
+ 	will_return(__wrap_vhd_set_keyhash, EINVAL);
+ 	expect_any_count(__wrap_vhd_close, ctx, 2);
+ 	expect_any(__wrap_free, ptr);
+diff --git a/mockatests/wrappers/wrappers.c b/mockatests/wrappers/wrappers.c
+index dd33f6e7..e0316d11 100644
+--- a/mockatests/wrappers/wrappers.c
++++ b/mockatests/wrappers/wrappers.c
+@@ -35,6 +35,7 @@
+ #include <stddef.h>
+ #include <setjmp.h>
+ #include <cmocka.h>
++#include <cmocka-compat.h>
+ #include <errno.h>
+ 
+ #include <wrappers.h>
+@@ -123,7 +124,7 @@ __wrap_fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+ 		size_t remaining = data->size - data->offset;
+ 		size_t len = size * nmemb;
+ 
+-		assert_in_range(len, 0, remaining);
++		assert_int_in_range(len, 0, remaining);
+ 		memcpy(data->buf + data->offset, ptr, len);
+ 
+ 		data->offset += len;
+@@ -147,7 +148,7 @@ struct fwrite_data *setup_fwrite_mock(int size)
+ 	data->buf = buf;
+ 	data->type = stdout;
+ 
+-	will_return_always(__wrap_fwrite, data);
++	will_return_ptr_always(__wrap_fwrite, data);
+ 
+ 	return data;
+ }
+@@ -167,7 +168,7 @@ wrap_vprintf(const char *format, va_list ap)
+ 		struct printf_data *data = mock_ptr_type(struct printf_data *);
+ 		int remaining = data->size - data->offset;
+ 		int len = vsnprintf(data->buf + data->offset, remaining, format, ap);
+-		assert_in_range(len, 0, remaining);
++		assert_int_in_range(len, 0, remaining);
+ 		data->offset += len;
+ 		return len;
+ 	} else {
+@@ -224,7 +225,7 @@ struct printf_data *setup_vprintf_mock(int size)
+ 	data->offset = 0;
+ 	data->buf = buf;
+ 
+-	will_return_always(wrap_vprintf, data);
++	will_return_ptr_always(wrap_vprintf, data);
+ 
+ 	mock_vprintf = 1;
+ 

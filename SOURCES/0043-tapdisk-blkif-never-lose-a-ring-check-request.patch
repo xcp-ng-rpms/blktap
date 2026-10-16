@@ -192,7 +192,7 @@ index 2eaf080c..03e9cd92 100644
  /**
   * Tells whether a barrier request can be completed.
 diff --git a/mockatests/drivers/test-td-req.c b/mockatests/drivers/test-td-req.c
-index 7042b2c6..7c09eb7c 100644
+index f8f1b92e..dd3147a6 100644
 --- a/mockatests/drivers/test-td-req.c
 +++ b/mockatests/drivers/test-td-req.c
 @@ -82,7 +82,7 @@ tapdisk_xenblkif_reqs_pending(const struct td_xenblkif * const blkif)
