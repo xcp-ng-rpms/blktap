@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Mon, 16 Mar 2026 14:40:48 +0100
+Subject: [PATCH] include: prepare for persistent-grant support
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ control/tap-ctl-xen.c     |  1 +
+ drivers/tapdisk-control.c | 12 +++++++++---
+ drivers/td-blkif.c        |  5 +++--
+ drivers/td-blkif.h        |  5 +++--
+ include/tapdisk-message.h |  5 +++++
+ 5 files changed, 21 insertions(+), 7 deletions(-)
+
+diff --git a/control/tap-ctl-xen.c b/control/tap-ctl-xen.c
+index 832c6017..a1cd1d59 100644
+--- a/control/tap-ctl-xen.c
++++ b/control/tap-ctl-xen.c
+@@ -74,6 +74,7 @@ tap_ctl_connect_xenblkif(const pid_t pid, const domid_t domid, const int devid,
+     message.u.blkif.order = order;
+     message.u.blkif.ports[0] = port;
+     message.u.blkif.proto = proto;
++    message.u.blkif.persistent_grants = false;
+     message.u.blkif.poll_duration = poll_duration;
+     message.u.blkif.poll_idle_threshold = poll_idle_threshold;
+     if (pool_name) {
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index ae5bddca..2fdc8274 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -1251,11 +1251,17 @@ tapdisk_control_xenblkif_connect(
+     } else
+         pool_name = blkif->pool_name;
+ 
+-    DPRINTF("connecting VBD %d domid=%d, devid=%d, queues=%d, pool %s, evt %d, poll duration %d, poll idle threshold %d\n",
+-            vbd->uuid, blkif->domid, blkif->devid, blkif->nr_queues, pool_name, blkif->ports[0], blkif->poll_duration, blkif->poll_idle_threshold);
++    DPRINTF("connecting VBD %d domid=%d, devid=%d, queues=%d,"
++	    " persistent-grants=%s,"
++	    " pool %s, evt %d, poll duration %d, poll idle threshold %d\n",
++	    vbd->uuid, blkif->domid, blkif->devid, blkif->nr_queues,
++	    blkif->persistent_grants ? "yes":"no",
++	    pool_name, blkif->ports[0], blkif->poll_duration, blkif->poll_idle_threshold);
+ 
+     err = tapdisk_xenblkif_connect(blkif->domid, blkif->devid, &blkif->gref[0][0],
+-            blkif->order, blkif->ports[0], blkif->proto, blkif->poll_duration, blkif->poll_idle_threshold, pool_name, vbd);
++				blkif->order, blkif->ports[0], blkif->persistent_grants,
++				blkif->proto, blkif->poll_duration, blkif->poll_idle_threshold,
++				pool_name, vbd);
+ 
+ out:
+ 	response->cookie = request->cookie;
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index b0d5af93..d941fb90 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -468,8 +468,9 @@ tapdisk_xenblkif_cb_chkrng(event_id_t id __attribute__((unused)),
+ 
+ int
+ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t * grefs,
+-        int order, evtchn_port_t port, int proto, int poll_duration,
+-        int poll_idle_threshold, const char *pool, td_vbd_t * vbd)
++                         int order, evtchn_port_t port, bool persistent_grant,
++                         int proto, int poll_duration, int poll_idle_threshold,
++                         const char *pool, td_vbd_t * vbd)
+ {
+     struct td_xenblkif *td_blkif = NULL; /* TODO rename to blkif */
+     struct td_xenio_ctx *td_ctx;
+diff --git a/drivers/td-blkif.h b/drivers/td-blkif.h
+index 03e9cd92..8123be8b 100644
+--- a/drivers/td-blkif.h
++++ b/drivers/td-blkif.h
+@@ -254,8 +254,9 @@ struct td_xenblkif {
+  */
+ int
+ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t * grefs,
+-        int order, evtchn_port_t port, int proto, int poll_duration,
+-        int poll_idle_threshold, const char *pool, td_vbd_t * vbd);
++                         int order, evtchn_port_t port, bool persistent_grant,
++                         int proto, int poll_duration, int poll_idle_threshold,
++                         const char *pool, td_vbd_t * vbd);
+ 
+ /**
+  * Disconnects the tapdisk from the shared ring.
+diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
+index 4fd0f5c0..46fc8270 100644
+--- a/include/tapdisk-message.h
++++ b/include/tapdisk-message.h
+@@ -180,6 +180,11 @@ typedef struct tapdisk_message_blkif {
+ 	 * Idle CPU threshold above which polling is permitted.
+ 	 */
+ 	uint32_t poll_idle_threshold;
++
++	/**
++	 * Persistent grants feature enabled.
++	 */
++	bool persistent_grants;
+ } tapdisk_message_blkif_t;
+ 
+ /**

@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 13 Oct 2026 16:17:10 +0200
+Subject: [PATCH] tapdisk: nbdserver: Fix the handshake error path
+
+The option negociation error path enabled the client on a failed and
+close fd handshake.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/tapdisk-nbdserver.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/tapdisk-nbdserver.c b/drivers/tapdisk-nbdserver.c
+index 66657c35..dcbb659c 100644
+--- a/drivers/tapdisk-nbdserver.c
++++ b/drivers/tapdisk-nbdserver.c
+@@ -1062,7 +1062,9 @@ tapdisk_nbdserver_handshake_cb(event_id_t id, char mode, void *data)
+ 	/* Receive newstyle options. */
+ 	if (receive_newstyle_options(client, server->handshake_fd, no_zeroes) == -1) {
+ 		INFO("Option negotiation terminated");
++		/* The client aborted or failed the negotiation: do not enable it */
+ 		close(server->handshake_fd);
++		goto out;
+ 	}
+ 
+ 	INFO("About to enable client on fd %d", client->client_fd);

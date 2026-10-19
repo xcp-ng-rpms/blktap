@@ -285,10 +285,10 @@ index 8749b28c..f093912d 100644
  /**
   * Instructs a tapdisk to connect to the shared ring.
 diff --git a/include/tapdisk-message.h b/include/tapdisk-message.h
-index 7645553a..22756eec 100644
+index c6f9f1e9..439afc69 100644
 --- a/include/tapdisk-message.h
 +++ b/include/tapdisk-message.h
-@@ -247,6 +247,8 @@ enum tapdisk_message_id {
+@@ -246,6 +246,8 @@ enum tapdisk_message_id {
  	TAPDISK_MESSAGE_COMMIT_RSP,
  	TAPDISK_MESSAGE_QUERY_COMMIT_JOB,
  	TAPDISK_MESSAGE_QUERY_COMMIT_JOB_RSP,
@@ -297,7 +297,7 @@ index 7645553a..22756eec 100644
  	TAPDISK_MESSAGE_MAX /* This value must be the last. */
  };
  
-@@ -353,6 +355,12 @@ tapdisk_message_name(enum tapdisk_message_id id)
+@@ -352,6 +354,12 @@ tapdisk_message_name(enum tapdisk_message_id id)
  	case TAPDISK_MESSAGE_QUERY_COMMIT_JOB_RSP:
  		return "query commit job response";
  

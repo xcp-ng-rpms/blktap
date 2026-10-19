@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 3 Mar 2026 11:27:24 +0100
+Subject: [PATCH] qcow2: force thread naming
+
+Useful for differentiate CPU load.
+Call to qemu_thread_naming() should be sufficient, but RCU thread
+won't be named. So until we remove RCU thread, setting variable to
+true is required.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/block-qcow2.c              | 1 +
+ qcow2/lib/util/qemu-thread-posix.c | 2 +-
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index 2e6eaeac..303c3c6e 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -572,6 +572,7 @@ _qcow2_open(td_driver_t *driver, const char *name,
+ 
+ 	pthread_mutex_lock(&s->lock);
+ 	s->driver_opened = true;
++	qemu_thread_naming(true);
+ 	qemu_thread_create(&s->thread, "td-qcow2", qcow2_open, s,
+ 			   QEMU_THREAD_JOINABLE);
+ 
+diff --git a/qcow2/lib/util/qemu-thread-posix.c b/qcow2/lib/util/qemu-thread-posix.c
+index 078833c7..78e72e34 100644
+--- a/qcow2/lib/util/qemu-thread-posix.c
++++ b/qcow2/lib/util/qemu-thread-posix.c
+@@ -22,7 +22,7 @@
+ #include <pthread_np.h>
+ #endif
+ 
+-static bool name_threads;
++static bool name_threads = true;
+ 
+ void qemu_thread_naming(bool enable)
+ {
