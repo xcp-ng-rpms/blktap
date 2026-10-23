@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.2%{?dist}
+Release: %{?xsrel}.3%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -127,6 +127,7 @@ Patch1076: 0076-mockatests-migrate-deprecated-expect_value-to-typed-.patch
 Patch1077: 0077-mockatests-migrate-deprecated-check_expected-to-type.patch
 Patch1078: 0078-mockatests-migrate-deprecated-assert_in_range-will_r.patch
 Patch1079: 0079-mockatests-wrap-both-mknod-and-__xmknod.patch
+Patch1080: 0080-tapdisk-wait-for-the-NBD-requests-in-flight-before-c.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -256,6 +257,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Fri Oct 23 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.3
+- Wait for the NBD requests in flight before closing an image
+
 * Fri Oct 16 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.2
 - Narrow blkif locking for better performance
 - Clean-up unused atomicio files
