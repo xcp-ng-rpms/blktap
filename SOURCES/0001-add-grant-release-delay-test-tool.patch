@@ -1,0 +1,295 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tu Dinh <ngoc-tu.dinh@vates.tech>
+Date: Fri, 23 Oct 2026 02:12:13 +0200
+Subject: [PATCH] add grant release delay test tool
+
+
+diff --git a/drivers/tapdisk-server.c b/drivers/tapdisk-server.c
+index 812ecd90967f..b12c7bf8600b 100644
+--- a/drivers/tapdisk-server.c
++++ b/drivers/tapdisk-server.c
+@@ -447,6 +447,31 @@ tapdisk_server_signal_handler(event_id_t id, char mode __attribute__((unused)),
+ 
+ 	signal = fdsi.ssi_signo;
+ 
++	/* Queued real-time signals address one disk by its tap-ctl minor.
++	 * Plain kill is deliberately ignored: it carries no disk selection.
++	 */
++	if (signal == SIGRTMIN || signal == SIGRTMIN + 1) {
++		if ((int)fdsi.ssi_code != SI_QUEUE || fdsi.ssi_int > UINT16_MAX) {
++			DBG(TLOG_WARN, "completion-delay: expected queued signal with minor\n");
++			return;
++		}
++		vbd = tapdisk_server_get_vbd((td_uuid_t)fdsi.ssi_int);
++		if (!vbd) {
++			DBG(TLOG_WARN, "completion-delay: unknown minor=%u\n", fdsi.ssi_int);
++			return;
++		}
++		pthread_mutex_lock(&vbd->mutex);
++		vbd->completion_delay_enabled = signal == SIGRTMIN;
++		/* Re-enabling restarts a reproducible per-disk sequence. */
++		vbd->completion_delay_random = 0x9e3779b9U ^ vbd->uuid;
++		vbd->completion_delay_skip = 0;
++		DBG(TLOG_WARN, "completion-delay: minor=%u enabled=%d name=%s\n",
++		    vbd->uuid, vbd->completion_delay_enabled,
++		    vbd->name ? vbd->name : "(unopened)");
++		pthread_mutex_unlock(&vbd->mutex);
++		return;
++	}
++
+ 	switch (signal) {
+ 	case SIGBUS:
+ 		tapdisk_server_for_each_vbd(vbd, tmp)
+@@ -860,6 +885,8 @@ tapdisk_server_run()
+ 	sigaddset(&set, SIGUSR2);
+ 	sigaddset(&set, SIGHUP);
+ 	sigaddset(&set, SIGXFSZ);
++	sigaddset(&set, SIGRTMIN);
++	sigaddset(&set, SIGRTMIN + 1);
+ 	server.sigfd = signalfd(-1, &set, 0);
+ 	if (server.sigfd == -1) {
+ 		err = errno;
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index b66825ae6237..3b1da2cce9e4 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -60,6 +60,7 @@
+ #include "tapdisk-storage.h"
+ #include "tapdisk-nbdserver.h"
+ #include "td-stats.h"
++#include "td-req.h"
+ #include "tapdisk-utils.h"
+ #include "timeout-math.h"
+ 
+@@ -853,6 +854,7 @@ tapdisk_vbd_shutdown(td_vbd_t *vbd)
+ void
+ tapdisk_vbd_free(td_vbd_t *vbd)
+ {
++	tapdisk_xenblkif_cancel_completion_delay(vbd);
+ 	pthread_mutex_destroy(&vbd->mutex);
+ 	free(vbd->name);
+ 	free(vbd->encryption.encryption_key);
+diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
+index 099300753aaf..e1b1c578fd6b 100644
+--- a/drivers/tapdisk-vbd.h
++++ b/drivers/tapdisk-vbd.h
+@@ -168,6 +168,14 @@ struct td_vbd_handle {
+ 
+ 	bool                       watchdog_warned;
+ 
++	/* Test-only completion delays; disabled until explicitly signalled.
++	 * All fields are protected by mutex. At most one held read per VBD.
++	 */
++	bool                        completion_delay_enabled;
++	uint32_t                    completion_delay_random;
++	unsigned int                completion_delay_skip;
++	void                       *completion_delay_held;
++
+ 	td_flag_t                  driver_flags;
+ 	int                        efd;
+ 	event_id_t                 event;
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 3d4177a3c4f7..9a346e197e48 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -595,6 +595,107 @@ out:
+ 	return blkif_destroyed;
+ }
+ 
++/* Test hook: delay a successful read before grant-copy / response publication.
++ * The caller (tapdisk_vbd_kick) already holds vbd->mutex. The outstanding
++ * ring request keeps blkif alive, including across a normal disconnect.
++ */
++struct td_completion_delay {
++    struct td_xenblkif *blkif;
++    struct td_xenblkif_req *req;
++    event_id_t event;
++};
++
++static uint32_t
++completion_delay_random(td_vbd_t *vbd)
++{
++    uint32_t x = vbd->completion_delay_random;
++
++    x ^= x << 13;
++    x ^= x >> 17;
++    x ^= x << 5;
++    return vbd->completion_delay_random = x;
++}
++
++static void
++completion_delay_expired(event_id_t id, char mode, void *private)
++{
++    struct td_completion_delay *held = private;
++    struct td_xenblkif *blkif = held->blkif;
++    struct td_xenblkif_req *req = held->req;
++    td_vbd_t *vbd = blkif->vbd;
++
++    (void)mode;
++    tapdisk_server_unregister_event(id);
++    pthread_mutex_lock(&vbd->mutex);
++    vbd->completion_delay_held = NULL;
++    tlog_write(TLOG_WARN, "completion-delay: release minor=%u req=%"PRIu64" dead=%d\n",
++              vbd->uuid, req->msg.id, blkif->dead);
++    free(held);
++    /* Always publish this completion even if it was not last in its batch.
++     * A dead ring instead discards the completion and may destroy itself.
++     */
++    tapdisk_xenblkif_complete_request(blkif, req, 0, 1, true);
++    pthread_mutex_unlock(&vbd->mutex);
++}
++
++/* Forced shutdown can discard outstanding rings. Cancel the test timer
++ * before the VBD is freed so it cannot later dereference those rings.
++ */
++void
++tapdisk_xenblkif_cancel_completion_delay(td_vbd_t *vbd)
++{
++    struct td_completion_delay *held = vbd->completion_delay_held;
++
++    if (held) {
++        tapdisk_server_unregister_event(held->event);
++        vbd->completion_delay_held = NULL;
++        free(held);
++    }
++}
++
++static bool
++completion_delay_hold(struct td_xenblkif *blkif,
++                      struct td_xenblkif_req *req, int error)
++{
++    td_vbd_t *vbd = blkif->vbd;
++    struct td_completion_delay *held;
++    unsigned int delay_ms;
++    struct timeval timeout;
++    event_id_t event;
++
++    if (!vbd->completion_delay_enabled || vbd->completion_delay_held ||
++        blkif->dead || error || req->msg.operation != BLKIF_OP_READ)
++        return false;
++
++    if (vbd->completion_delay_skip) {
++        vbd->completion_delay_skip--;
++        return false;
++    }
++
++    held = calloc(1, sizeof(*held));
++    if (!held)
++        return false;
++
++    delay_ms = 5000 + completion_delay_random(vbd) % 10001;
++    timeout.tv_sec = delay_ms / 1000;
++    timeout.tv_usec = (delay_ms % 1000) * 1000;
++    held->blkif = blkif;
++    held->req = req;
++    event = tapdisk_server_register_event(SCHEDULER_POLL_TIMEOUT, -1,
++                                         timeout, completion_delay_expired, held);
++    if (event < 0) {
++        free(held);
++        return false;
++    }
++
++    held->event = event;
++    vbd->completion_delay_held = held;
++    vbd->completion_delay_skip = 1 + completion_delay_random(vbd) % 64;
++    tlog_write(TLOG_WARN, "completion-delay: held minor=%u req=%"PRIu64" delay_ms=%u\n",
++              vbd->uuid, req->msg.id, delay_ms);
++    return true;
++}
++
+ /**
+  * Request completion callback, executed when the tapdisk has finished
+  * processing the request.
+@@ -616,6 +717,9 @@ __tapdisk_xenblkif_request_cb(struct td_vbd_request * const vreq,
+ 
+     req = container_of(vreq, struct td_xenblkif_req, vreq);
+ 
++    if (completion_delay_hold(blkif, req, error))
++        return;
++
+     if (error) {
+         pthread_mutex_lock(&blkif->mutex);
+         if (likely(!blkif->dead)) {
+diff --git a/drivers/td-req.h b/drivers/td-req.h
+index f7f42c45339c..fcc6a5d91380 100644
+--- a/drivers/td-req.h
++++ b/drivers/td-req.h
+@@ -125,6 +125,8 @@ tapdisk_xenblkif_reqs_init(struct td_xenblkif *td_blkif);
+ void
+ tapdisk_xenblkif_reqs_free(struct td_xenblkif * const blkif);
+ 
++void tapdisk_xenblkif_cancel_completion_delay(td_vbd_t *vbd);
++
+ #define msg_to_tapreq(_req) \
+ 	container_of(_req, struct td_xenblkif_req, msg)
+ 
+diff --git a/mockatests/drivers/test-td-req.c b/mockatests/drivers/test-td-req.c
+index dd3147a620ec..07fab2946526 100644
+--- a/mockatests/drivers/test-td-req.c
++++ b/mockatests/drivers/test-td-req.c
+@@ -51,6 +51,14 @@
+ unsigned int PAGE_SIZE;
+ unsigned int PAGE_SHIFT;
+ 
++void
++__tlog_write(int level, const char *fmt, ...)
++{
++	(void)level;
++	(void)fmt;
++}
++
++
+ event_id_t
+ tapdisk_server_register_event(char m, int fd, struct timeval t,
+ 		event_cb_t cb, void *p)
+diff --git a/tools/tapdisk-delay.c b/tools/tapdisk-delay.c
+new file mode 100644
+index 000000000000..cfa5ea116f61
+--- /dev/null
++++ b/tools/tapdisk-delay.c
+@@ -0,0 +1,45 @@
++/* Send a per-disk completion-delay control signal to a patched tapdisk.
++ * Build: cc -Wall -Wextra -o tapdisk-delay tapdisk-delay.c
++ * Usage: ./tapdisk-delay PID MINOR on|off
++ */
++#define _POSIX_C_SOURCE 200809L
++#include <errno.h>
++#include <limits.h>
++#include <signal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++static long number(const char *s, long low, long high)
++{
++    char *end;
++    long value;
++
++    errno = 0;
++    value = strtol(s, &end, 10);
++    if (errno || end == s || *end || value < low || value > high) {
++        fprintf(stderr, "Invalid number: %s\n", s);
++        exit(2);
++    }
++    return value;
++}
++
++int main(int argc, char **argv)
++{
++    union sigval value;
++    pid_t pid;
++    int signo;
++
++    if (argc != 4 || (strcmp(argv[3], "on") && strcmp(argv[3], "off"))) {
++        fprintf(stderr, "Usage: %s PID MINOR on|off\n", argv[0]);
++        return 2;
++    }
++    pid = (pid_t)number(argv[1], 1, INT_MAX);
++    value.sival_int = (int)number(argv[2], 0, 65535);
++    signo = SIGRTMIN + (!strcmp(argv[3], "off"));
++    if (sigqueue(pid, signo, value)) {
++        perror("sigqueue");
++        return 1;
++    }
++    return 0;
++}
