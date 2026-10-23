@@ -128,6 +128,8 @@ Patch1077: 0077-mockatests-migrate-deprecated-check_expected-to-type.patch
 Patch1078: 0078-mockatests-migrate-deprecated-assert_in_range-will_r.patch
 Patch1079: 0079-mockatests-wrap-both-mknod-and-__xmknod.patch
 
+Patch1080: 0001-add-grant-release-delay-test-tool.patch
+
 %description
 Blktap creates kernel block devices which realize I/O requests to
 processes implementing virtual hard disk images entirely in user
