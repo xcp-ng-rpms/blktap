@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 13 Oct 2026 22:30:42 +0200
+Subject: [PATCH] tapdisk: count the sectors of the requests retried at their
+ first issue
+
+tapdisk_vbd_issue_new_requests() counted the sectors of a request only when
+its first issue succeeded or completed it. A request failing with an error
+that makes it retried, like -EBUSY from the VHD driver while it allocates a
+block, was retried from the failed requests without being counted: the
+sector counters of tap-ctl stats missed these requests, which happened more
+often with the larger indirect requests (test_vm_io saw 256 KiB missing out
+of 10 MiB written).
+
+Count the request once it leaves the new requests, whatever the result of
+its first issue.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/tapdisk-vbd.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 59662371..a646e072 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -2081,6 +2081,14 @@ tapdisk_vbd_issue_new_requests(td_vbd_queue_t* queue)
+ 		err = tapdisk_vbd_issue_request(queue, vreq);
+ 		pthread_mutex_lock(&queue->mutex);
+ 
++		/*
++		 * Count the request once it left the new requests, also when it
++		 * failed and will be retried from the failed requests (e.g. on
++		 * -EBUSY), which doesn't count it again. vreq must NOT be
++		 * accessed after issuing the request.
++		 */
++		td_sector_count_add(&queue->secs, secs, write);
++
+ 		/*
+ 		 * if this request failed, but was not completed,
+ 		 * we'll back off for a while.
+@@ -2089,10 +2097,6 @@ tapdisk_vbd_issue_new_requests(td_vbd_queue_t* queue)
+ 			pthread_mutex_unlock(&queue->mutex);
+ 			return err;
+ 		}
+-
+-		/* XXX: split counting and add; vreq must NOT be accessed after issuing the
+-		        request. */
+-		td_sector_count_add(&queue->secs, secs, write);
+ 	}
+ 	pthread_mutex_unlock(&queue->mutex);
+ 

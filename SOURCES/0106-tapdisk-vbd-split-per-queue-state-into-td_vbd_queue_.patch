@@ -1,0 +1,2199 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Thu, 25 Jun 2026 12:20:40 +0200
+Subject: [PATCH] tapdisk: vbd: split per-queue state into td_vbd_queue_t for
+ multi-queue
+
+Extract request lists (new, pending, failed, completed), mutex, sector
+counters, watchdog state and timestamps from td_vbd_t into a new
+td_vbd_queue_t struct. Each VBD now holds an array of queues indexed by
+td_queue_id_t.
+
+Refactor VBD request processing functions (issue, kick, retry, check
+progress) to operate on individual queues rather than the whole VBD.
+Update all callers: blktap, lcache, llcache, qcow2, NBD server, td-req,
+and the server main loop.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/block-lcache.c                      |  10 +-
+ drivers/block-llcache.c                     |   8 +-
+ drivers/block-qcow2.c                       |   4 +-
+ drivers/tapdisk-blktap.c                    |   2 +-
+ drivers/tapdisk-control.c                   |   7 +-
+ drivers/tapdisk-nbdserver.c                 |  37 +-
+ drivers/tapdisk-nbdserver.h                 |   5 +-
+ drivers/tapdisk-server.c                    |  85 ++-
+ drivers/tapdisk-stream.c                    |   4 +-
+ drivers/tapdisk-vbd.c                       | 604 ++++++++++++--------
+ drivers/tapdisk-vbd.h                       |  73 +--
+ drivers/tapdisk.h                           |   3 +-
+ drivers/td-req.c                            |   7 +-
+ mockatests/drivers/Makefile.am              |   1 +
+ mockatests/drivers/test-tapdisk-nbdserver.c |   5 +-
+ mockatests/drivers/test-tapdisk-vbd.c       |  26 +-
+ mockatests/drivers/test-td-req.c            |   2 +-
+ mockatests/drivers/vbd-wrappers.c           |  10 +
+ tapback/tapback.c                           |   1 +
+ 19 files changed, 524 insertions(+), 370 deletions(-)
+
+diff --git a/drivers/block-lcache.c b/drivers/block-lcache.c
+index 0c478144..135e22d2 100644
+--- a/drivers/block-lcache.c
++++ b/drivers/block-lcache.c
+@@ -30,6 +30,7 @@
+ #include <sys/mman.h>
+ #include <sys/vfs.h>
+ 
++#include "debug.h"
+ #include "vhd.h"
+ #include "td-req.h"
+ #include "tapdisk.h"
+@@ -260,6 +261,7 @@ lcache_store_read(td_lcache_t *cache, td_lcache_req_t *req)
+ 	td_vbd_request_t *vreq;
+ 	struct td_iovec *iov;
+ 	td_vbd_t *vbd;
++	td_queue_id_t qid;
+ 	int err;
+ 
+ 	iov          = &req->iov;
+@@ -275,9 +277,13 @@ lcache_store_read(td_lcache_t *cache, td_lcache_req_t *req)
+ 	vreq->token  = cache;
+ 	vreq->skip_mirror = true;
+ 
+-	vbd = req->treq.vreq->vbd;
++	ASSERT(req->treq.vreq->vqueue);
++	ASSERT(req->treq.vreq->vqueue->vbd);
++	vbd = req->treq.vreq->vqueue->vbd;
++	qid = req->treq.vreq->vqueue - vbd->queues;
+ 
+-	err = tapdisk_vbd_queue_request(vbd, vreq, true);  // TODO: suboptimal final argument
++	// FIXME: maybe define another convenient API
++	err = tapdisk_vbd_queue_request(vbd, vreq, qid, true);  // TODO: suboptimal final argument
+ 	BUG_ON(err);
+ }
+ 
+diff --git a/drivers/block-llcache.c b/drivers/block-llcache.c
+index 808c78d6..ed5b8824 100644
+--- a/drivers/block-llcache.c
++++ b/drivers/block-llcache.c
+@@ -204,6 +204,8 @@ llpcache_requeue_treq(td_llpcache_t *s, td_llpcache_req_t *req, int target)
+ {
+ 	struct llpcache_vreq *lvr;
+ 	td_vbd_request_t *vreq;
++	td_vbd_t *vbd;
++	td_queue_id_t qid;
+ 	int err;
+ 
+ 	lvr           = &req->lvr[target];
+@@ -217,7 +219,11 @@ llpcache_requeue_treq(td_llpcache_t *s, td_llpcache_req_t *req, int target)
+ 	vreq->cb      = __llpcache_write_cb;
+ 	vreq->token   = s;
+ 
+-	err = tapdisk_vbd_queue_request(req->treq.vreq->vbd, vreq, true);  // TODO: suboptimal final argument
++	vbd = req->treq.vreq->vqueue->vbd;
++	qid = req->treq.vreq->vqueue - vbd->queues;
++
++	// FIXME: maybe define another convenient API
++	err = tapdisk_vbd_queue_request(vbd, vreq, qid, true);  // TODO: suboptimal final argument
+ 	if (err)
+ 		goto fail;
+ 
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index c32c46bb..6eb7495f 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -716,13 +716,13 @@ static inline void
+ signal_completion(struct qcow2_request *r)
+ {
+ 	struct qcow2_state *s = r->state;
+-	td_vbd_t *vbd = r->treq.vreq->vbd;
++	td_vbd_queue_t *queue = r->treq.vreq->vqueue;
+ 
+ 	td_complete_request(r->treq, r->error);
+ 	DBG(TLOG_DBG, "lsec: 0x%08"PRIx64", blk: 0x%04x, "
+ 		"err: %d\n", r->treq.sec, r->treq.secs, r->error);
+ 	if (r->error == 0) {
+-		tapdisk_vbd_kick(vbd, true);
++		tapdisk_vbd_kick(queue, true);
+ 		s->kick++;
+ 	}
+ 	free_qcow2_request(s, r);
+diff --git a/drivers/tapdisk-blktap.c b/drivers/tapdisk-blktap.c
+index 1feaae66..03bfccca 100644
+--- a/drivers/tapdisk-blktap.c
++++ b/drivers/tapdisk-blktap.c
+@@ -404,7 +404,7 @@ tapdisk_blktap_get_requests(td_blktap_t *tap)
+ 			goto fail_ring;
+ 		}
+ 
+-		err = tapdisk_vbd_queue_request(tap->vbd, &req->vreq, (rc+1 == rp));
++		err = tapdisk_vbd_queue_request(tap->vbd, &req->vreq, (td_queue_id_t)0, (rc+1 == rp));
+ 		if (err)
+ 			tapdisk_blktap_complete_request(tap, req, err, 1);
+ 	}
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index db59ceac..538cc3e9 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -882,7 +882,8 @@ tapdisk_control_nbd_requests_in_flight(td_vbd_t *vbd)
+ 
+ 	if (td_flag_test(vbd->state, TD_VBD_QUIESCED) ||
+ 	    td_flag_test(vbd->state, TD_VBD_QUIESCE_REQUESTED))
+-		return !list_empty(&vbd->pending_requests);
++		return (tapdisk_vbd_pending_queues(vbd) ||
++			tapdisk_vbd_failed_queues(vbd));
+ 
+ 	return true;
+ }
+@@ -911,7 +912,7 @@ tapdisk_control_close_image(struct tapdisk_ctl_conn *conn,
+ 	if (td_flag_test(vbd->state, TD_VBD_PAUSED))
+ 		EPRINTF("closing paused VBD %d", request->cookie);
+ 
+-	if (!list_empty(&vbd->failed_requests))
++	if (tapdisk_vbd_failed_queues(vbd))
+ 		EPRINTF("closing VBD %d with failed requests\n", request->cookie);
+ 
+ 	if (vbd->nbdserver)
+@@ -976,7 +977,7 @@ tapdisk_control_close_image(struct tapdisk_ctl_conn *conn,
+ 		ERR(err, "failure closing image\n");
+ 
+ 	if (err == -ENOTTY) {
+-		while (!list_empty(&vbd->pending_requests))
++		while (tapdisk_vbd_pending_queues(vbd))
+ 			tapdisk_server_iterate();
+ 
+ 		err = 0;
+diff --git a/drivers/tapdisk-nbdserver.c b/drivers/tapdisk-nbdserver.c
+index 6406177d..7d2754e6 100644
+--- a/drivers/tapdisk-nbdserver.c
++++ b/drivers/tapdisk-nbdserver.c
+@@ -285,7 +285,7 @@ tapdisk_nbdserver_alloc_request(td_nbdserver_client_t *client)
+ 
+ 	if (unlikely(client->n_reqs_free == 0)) {
+ 		/* last free request, mask the events */
+-		tapdisk_server_mask_event(client->client_event_id, 1);
++		tapdisk_server_mask_io_event(NBD_SERVER_QUEUE_ID, client->client_event_id, 1);
+ 	}
+ 	pthread_mutex_unlock(&client->mutex);
+ 
+@@ -364,7 +364,7 @@ tapdisk_nbdserver_free_request(td_nbdserver_client_t *client,
+ 
+ 	if (unlikely(client->n_reqs_free == (client->n_reqs / 4))) {
+ 		/* free requests, unmask the events */
+-		tapdisk_server_mask_event(client->client_event_id, 0);
++		tapdisk_server_mask_io_event(NBD_SERVER_QUEUE_ID, client->client_event_id, 0);
+ 	}
+ 	pthread_mutex_unlock(&client->mutex);
+ 
+@@ -809,7 +809,7 @@ tapdisk_nbdserver_enable_client(td_nbdserver_client_t *client)
+ 
+ 	INFO("Enable client");
+ 
+-	client->client_event_id = tapdisk_server_register_event(
++	client->client_event_id = tapdisk_server_register_io_event(NBD_SERVER_QUEUE_ID,
+ 			SCHEDULER_POLL_READ_FD,
+ 			client->client_fd, TV_ZERO,
+ 			tapdisk_nbdserver_clientcb,
+@@ -832,7 +832,7 @@ tapdisk_nbdserver_disable_client(td_nbdserver_client_t *client)
+ 
+ 	INFO("Disable client");
+ 
+-	tapdisk_server_unregister_event(client->client_event_id);
++	tapdisk_server_unregister_io_event(NBD_SERVER_QUEUE_ID, client->client_event_id);
+ 	client->client_event_id = -1;
+ }
+ 
+@@ -1091,7 +1091,8 @@ tapdisk_nbdserver_handshake_cb(event_id_t id, char mode, void *data)
+ 	td_nbdserver_t *server = client->server;
+ 	int fd = client->client_fd;
+ 
+-	tapdisk_server_unregister_event(id);
++	/* Unregister before eventually register again in enable_client() */
++	tapdisk_server_unregister_io_event(NBD_SERVER_QUEUE_ID, id);
+ 
+ 	if (recv_fully_or_fail(fd, &cflags, sizeof(cflags)) < 0) {
+ 		ERR("Could not receive client flags");
+@@ -1141,7 +1142,7 @@ tapdisk_nbdserver_new_protocol_handshake(td_nbdserver_client_t *client, int new_
+ 	 * SXM contexts, so setup an event and return so that tapdisk is 
+ 	 * reponsive during the interim*/
+ 
+-	tapdisk_server_register_event( SCHEDULER_POLL_READ_FD,
++	tapdisk_server_register_io_event(NBD_SERVER_QUEUE_ID, SCHEDULER_POLL_READ_FD,
+ 				       new_fd, TV_ZERO,
+ 				       tapdisk_nbdserver_handshake_cb,
+ 				       client);
+@@ -1275,7 +1276,7 @@ static td_vbd_request_t *create_request_vreq(
+ 	vreq->iov = &req->iov;
+ 	vreq->iov->secs = len >> SECTOR_SHIFT;
+ 	vreq->token = client;
+-	vreq->vbd = server->vbd;
++	vreq->vqueue = server->vqueue;
+ 
+ 	return vreq;
+ 
+@@ -1357,7 +1358,6 @@ tapdisk_nbdserver_clientcb(event_id_t id, char mode, void *data)
+ 		INFO("Sent initial connection message");
+ 		return;
+ 	case TAPDISK_NBD_CMD_BLOCK_STATUS:
+-	{
+ 		if (!client->structured_reply)
+ 			ERR("NBD_CMD_BLOCK_STATUS: when not in structured reply");
+ 
+@@ -1380,14 +1380,13 @@ tapdisk_nbdserver_clientcb(event_id_t id, char mode, void *data)
+ 		vreq->data = extents;
+ 		vreq->cb = __tapdisk_nbdserver_block_status_cb;
+ 		vreq->op = TD_OP_BLOCK_STATUS;
+-	}
+ 		break;
+ 	default:
+ 		ERR("Unsupported operation: 0x%x", request.type);
+ 		goto fail;
+ 	}
+ 
+-	rc = tapdisk_vbd_queue_request(server->vbd, vreq, true); // TODO: suboptimal final argument
++	rc = tapdisk_vbd_queue_request(server->vqueue->vbd, vreq, (td_queue_id_t)0, true); // TODO: suboptimal final argument
+ 	if (rc) {
+ 		ERR("tapdisk_vbd_queue_request failed: %d", rc);
+ 		goto fail;
+@@ -1487,7 +1486,7 @@ tapdisk_nbdserver_alloc(td_vbd_t *vbd, td_disk_info_t info, nbd_protocol_style_t
+ 		goto fail;
+ 	}
+ 
+-	server->vbd = vbd;
++	server->vqueue = &vbd->queues[0];
+ 	server->info = info;
+ 	server->fdrecv_listening_fd = -1;
+ 	server->fdrecv_listening_event_id = -1;
+@@ -1501,13 +1500,13 @@ tapdisk_nbdserver_alloc(td_vbd_t *vbd, td_disk_info_t info, nbd_protocol_style_t
+ 
+ 	switch (style) {
+ 		case TAPDISK_NBD_PROTOCOL_OLD:
+-			if (td_metrics_nbd_start_old(&server->nbd_stats, server->vbd->tap->minor)) {
++			if (td_metrics_nbd_start_old(&server->nbd_stats, vbd->tap->minor)) {
+ 				ERR("failed to create metrics file for nbdserver");
+ 				goto fail;
+ 			}
+ 			break;
+ 		case TAPDISK_NBD_PROTOCOL_NEW:
+-			if (td_metrics_nbd_start_new(&server->nbd_stats, server->vbd->tap->minor)) {
++			if (td_metrics_nbd_start_new(&server->nbd_stats, vbd->tap->minor)) {
+ 				ERR("failed to create metrics file for nbdserver");
+ 				goto fail;
+ 			}
+@@ -1571,12 +1570,12 @@ tapdisk_nbdserver_pause(td_nbdserver_t *server, bool log)
+ 	pthread_mutex_unlock(&server->mutex);
+ 
+ 	if (server->fdrecv_listening_event_id >= 0) {
+-		tapdisk_server_unregister_event(server->fdrecv_listening_event_id);
++		tapdisk_server_unregister_io_event(NBD_SERVER_QUEUE_ID, server->fdrecv_listening_event_id);
+ 		server->fdrecv_listening_event_id = -1;
+ 	}
+ 
+ 	if (server->unix_listening_event_id >= 0) {
+-		tapdisk_server_unregister_event(server->unix_listening_event_id);
++		tapdisk_server_unregister_io_event(NBD_SERVER_QUEUE_ID, server->unix_listening_event_id);
+ 		server->unix_listening_event_id = -1;
+ 	}
+ }
+@@ -1592,7 +1591,7 @@ tapdisk_nbdserver_unpause_fdrecv(td_nbdserver_t *server)
+ 			&& server->fdrecv_listening_fd >= 0) {
+ 		INFO("registering for fdrecv_listening_fd");
+ 		server->fdrecv_listening_event_id =
+-			tapdisk_server_register_event(SCHEDULER_POLL_READ_FD,
++			tapdisk_server_register_io_event(NBD_SERVER_QUEUE_ID, SCHEDULER_POLL_READ_FD,
+ 					server->fdrecv_listening_fd, TV_ZERO,
+ 					tapdisk_nbdserver_newclient,
+ 					server);
+@@ -1616,7 +1615,7 @@ tapdisk_nbdserver_unpause_unix(td_nbdserver_t *server)
+ 			&& server->unix_listening_fd >= 0) {
+ 		INFO("registering for unix_listening_fd");
+ 		server->unix_listening_event_id =
+-			tapdisk_server_register_event(SCHEDULER_POLL_READ_FD,
++			tapdisk_server_register_io_event(NBD_SERVER_QUEUE_ID, SCHEDULER_POLL_READ_FD,
+ 					server->unix_listening_fd, TV_ZERO,
+ 					tapdisk_nbdserver_newclient_unix,
+ 					server);
+@@ -1839,7 +1838,7 @@ tapdisk_nbdserver_free(td_nbdserver_t *server)
+ 	pthread_mutex_unlock(&server->mutex);
+ 
+ 	if (server->fdrecv_listening_event_id >= 0) {
+-		tapdisk_server_unregister_event(server->fdrecv_listening_event_id);
++		tapdisk_server_unregister_io_event(NBD_SERVER_QUEUE_ID, server->fdrecv_listening_event_id);
+ 		server->fdrecv_listening_event_id = -1;
+ 	}
+ 
+@@ -1852,7 +1851,7 @@ tapdisk_nbdserver_free(td_nbdserver_t *server)
+ 		td_fdreceiver_stop(server->fdreceiver);
+ 
+ 	if (server->unix_listening_event_id >= 0) {
+-		tapdisk_server_unregister_event(server->unix_listening_event_id);
++		tapdisk_server_unregister_io_event(NBD_SERVER_QUEUE_ID, server->unix_listening_event_id);
+ 		server->unix_listening_event_id = -1;
+ 	}
+ 
+diff --git a/drivers/tapdisk-nbdserver.h b/drivers/tapdisk-nbdserver.h
+index c804edd2..c2a3cf98 100644
+--- a/drivers/tapdisk-nbdserver.h
++++ b/drivers/tapdisk-nbdserver.h
+@@ -63,6 +63,9 @@ struct nbd_reply {
+ };
+ 
+ 
++/* IO thread queue the NBD server events are registered on */
++#define NBD_SERVER_QUEUE_ID 0
++
+ #define TAPDISK_NBDSERVER_MAX_PATH_LEN 256
+ #define TAPDISK_NBDCLIENT_LISTEN_SOCK_PATH BLKTAP2_CONTROL_DIR"/nbdclient"
+ #define TAPDISK_NBDSERVER_OLD_LISTEN_SOCK_PATH BLKTAP2_CONTROL_DIR"/nbdserver"
+@@ -71,7 +74,7 @@ struct nbd_reply {
+ #define TAPDISK_NBDSERVER_NEW_SOCK_PATH BLKTAP2_CONTROL_DIR"/nbd"
+ 
+ struct td_nbdserver {
+-	td_vbd_t               *vbd;
++	td_vbd_queue_t         *vqueue;
+ 	td_disk_info_t          info;
+ 
+ 	/**
+diff --git a/drivers/tapdisk-server.c b/drivers/tapdisk-server.c
+index f1b3c03b..5a211d22 100644
+--- a/drivers/tapdisk-server.c
++++ b/drivers/tapdisk-server.c
+@@ -65,9 +65,11 @@ typedef struct tapdisk_server {
+ 	char                        *name;
+ 	char                        *ident;
+ 	int                          facility;
++#if 0
+ 	event_id_t                   wake_event;
+ 	int                          wake_event_fd;
+ 	uint64_t                     wake_event_count;
++#endif
+ 
+ 	/* IO threads states */
+ 	struct {
+@@ -299,6 +301,7 @@ tapdisk_server_set_io_max_timeout(td_queue_id_t qid, int seconds)
+ 	scheduler_set_max_timeout(&server.io_threads[qid].scheduler, TV_SECS(seconds));
+ }
+ 
++#if 0   // TODO: to be removed
+ void
+ tapdisk_server_scheduler_wake(void)
+ {
+@@ -318,33 +321,24 @@ tapdisk_server_scheduler_wake_handler(event_id_t id, char mode __attribute__((un
+ 	n = read(server.wake_event_fd, &cnt, sizeof(cnt));
+ 	ASSERT(n == 8);
+ }
+-static void
+-tapdisk_server_assert_locks(void)
+-{
+-
+-}
++#endif
+ 
+ static void
+-tapdisk_server_set_retry_timeout(void)
++tapdisk_server_set_retry_timeout(td_queue_id_t qid)
+ {
+ 	td_vbd_t *vbd, *tmp;
+ 
+-	tapdisk_server_for_each_vbd(vbd, tmp)
+-		if (tapdisk_vbd_retry_needed(vbd)) {
+-			tapdisk_server_set_max_timeout(TD_VBD_RETRY_INTERVAL);
++	/* FIXME: VBD list not locked */
++	tapdisk_server_for_each_vbd(vbd, tmp) {
++		if (tapdisk_vbd_retry_needed(&vbd->queues[qid])) {
++			tapdisk_server_set_io_max_timeout(qid, TD_VBD_RETRY_INTERVAL);
+ 			return;
+ 		}
++	}
+ }
+ 
+ static void
+-tapdisk_server_set_io_retry_timeout(int qid)
+-{
+-	// Do nothing because, retry is related to new failed and failed
+-	// list which are handled in main thread
+-}
+-
+-static void
+-tapdisk_server_check_progress(void)
++tapdisk_server_check_progress(td_queue_id_t qid)
+ {
+ 	struct timeval now;
+ 	td_vbd_t *vbd, *tmp;
+@@ -352,7 +346,7 @@ tapdisk_server_check_progress(void)
+ 	gettimeofday(&now, NULL);
+ 
+ 	tapdisk_server_for_each_vbd(vbd, tmp)
+-		tapdisk_vbd_check_progress(vbd);
++		tapdisk_vbd_check_progress(&vbd->queues[qid]);
+ }
+ 
+ static void
+@@ -363,21 +357,21 @@ tapdisk_server_submit_tiocbs(void)
+ }
+ 
+ static void
+-tapdisk_server_kick_responses(void)
++tapdisk_server_kick_responses(td_queue_id_t qid)
+ {
+ 	td_vbd_t *vbd, *tmp;
+ 
+ 	tapdisk_server_for_each_vbd(vbd, tmp)
+-		tapdisk_vbd_kick(vbd, false);
++		tapdisk_vbd_kick(&vbd->queues[qid], false);
+ }
+ 
+ static void
+-tapdisk_server_check_vbds(void)
++tapdisk_server_check_vbds(td_queue_id_t qid)
+ {
+ 	td_vbd_t *vbd, *tmp;
+ 
+ 	tapdisk_server_for_each_vbd(vbd, tmp)
+-		tapdisk_vbd_check_state(vbd);
++		tapdisk_vbd_check_state(&vbd->queues[qid]);
+ }
+ 
+ /**
+@@ -385,13 +379,17 @@ tapdisk_server_check_vbds(void)
+  * which have been issued.
+  */
+ static int
+-tapdisk_server_recheck_vbds(void)
++tapdisk_server_recheck_vbds(td_queue_id_t qid)
+ {
+ 	td_vbd_t *vbd, *tmp;
+ 	int rv = 0;
+ 
+-	tapdisk_server_for_each_vbd(vbd, tmp)
+-		rv += tapdisk_vbd_recheck_state(vbd);
++	// TODO: change that, ok for one VBD, but maybe we should have
++	//       1:1 thread per queue (for the moment we are sharing a
++	//       thread between multiple VBD)
++	tapdisk_server_for_each_vbd(vbd, tmp) {
++		rv += tapdisk_vbd_recheck_state(&vbd->queues[qid]);
++	}
+ 
+ 	return rv;
+ }
+@@ -490,12 +488,20 @@ tapdisk_io_iterate(td_queue_id_t qid)
+ {
+ 	int ret;
+ 
+-	tapdisk_server_set_io_retry_timeout(qid);
++	tapdisk_server_set_retry_timeout(qid);
++	tapdisk_server_check_progress(qid);
+ 
+ 	ret = scheduler_wait_for_events(&server.io_threads[qid].scheduler);
+ 	if (ret < 0)
+ 		DBG(TLOG_WARN, "server wait returned %s\n", strerror(-ret));
+ 
++	tapdisk_server_check_vbds(qid);
++	do {
++		tapdisk_server_submit_tiocbs();
++		tapdisk_server_kick_responses(qid);
++
++		ret = tapdisk_server_recheck_vbds(qid);
++	} while (ret); /* repeat until there are no new requests to issue */
+ }
+ 
+ static void*
+@@ -516,21 +522,9 @@ tapdisk_server_iterate(void)
+ {
+ 	int ret;
+ 
+-	tapdisk_server_assert_locks();
+-	tapdisk_server_set_retry_timeout();
+-	tapdisk_server_check_progress();
+-
+ 	ret = scheduler_wait_for_events(&server.scheduler);
+ 	if (ret < 0)
+ 		DBG(TLOG_WARN, "server wait returned %s\n", strerror(-ret));
+-
+-	tapdisk_server_check_vbds();
+-	do {
+-		tapdisk_server_submit_tiocbs();
+-		tapdisk_server_kick_responses();
+-
+-		ret = tapdisk_server_recheck_vbds();
+-	} while (ret); /* repeat until there are no new requests to issue */
+ }
+ 
+ static void
+@@ -878,11 +872,6 @@ tapdisk_server_initialize_cpumond_client(void)
+ 	return 0;
+ }
+ 
+-static void
+-tapdisk_server_io_dummy(event_id_t id, char mode, void *private)
+-{
+-}
+-
+ int
+ tapdisk_server_init(void)
+ {
+@@ -899,8 +888,10 @@ tapdisk_server_init(void)
+ 
+ 	server.tlog_reopen_evid = -1;
+ 	server.signal_handler_evid = -1;
++#if 0  // TODO: to be removed
+ 	server.wake_event = -1;
+ 	server.wake_event_fd = -1;
++#endif
+ 
+ 	scheduler_initialize(&server.scheduler);
+ 
+@@ -956,6 +947,7 @@ tapdisk_server_complete(void)
+ 		server.io_threads[qid].eventfd = fd;
+ 		server.io_threads[qid].eventfd_count = 0;
+ 
++		/* FIXME: register_io_event ? */
+ 		int event = scheduler_register_event(&server.io_threads[qid].scheduler,
+ 						     SCHEDULER_POLL_READ_FD,
+ 						     server.io_threads[qid].eventfd,
+@@ -975,13 +967,9 @@ tapdisk_server_complete(void)
+ 		snprintf(server.io_threads[qid].name,
+ 			 sizeof(server.io_threads[qid].name), "td-queue-%d", qid);
+ 		pthread_setname_np(tid, server.io_threads[qid].name);
+-
+-		/* HACK: just to wake up the IO thread */
+-		err = tapdisk_server_register_event(SCHEDULER_POLL_TIMEOUT, -1,
+-						    TV_USECS(500000),
+-						    tapdisk_server_io_dummy, (void*)(long)qid);
+ 	}
+ 
++#if 0  // TODO: to be removed
+ 	server.wake_event_fd = eventfd(0, 0);
+ 	server.wake_event_count = 0;
+ 	ASSERT(server.wake_event_fd >= 0);
+@@ -992,6 +980,7 @@ tapdisk_server_complete(void)
+ 						     TV_INF,
+ 						     tapdisk_server_scheduler_wake_handler,
+ 						     NULL);
++#endif
+ 
+ 	server.run = 1;
+ 
+diff --git a/drivers/tapdisk-stream.c b/drivers/tapdisk-stream.c
+index 282ed4b0..341d9a01 100644
+--- a/drivers/tapdisk-stream.c
++++ b/drivers/tapdisk-stream.c
+@@ -28,6 +28,7 @@
+ #include <unistd.h>
+ #include <sys/mman.h>
+ 
++#include "debug.h"
+ #include "list.h"
+ #include "scheduler.h"
+ #include "tapdisk.h"
+@@ -278,11 +279,12 @@ tapdisk_stream_queue_request(td_stream_t *s, td_stream_req_t *req)
+ 	vreq->op            = TD_OP_READ;
+ 	vreq->token         = s;
+ 	vreq->cb            = __tapdisk_stream_request_cb;
++	// XXX: do not overwrite vreq->vqueue it is constant over time (add an ASSERT ?)
+ 
+ 	s->count  -= secs;
+ 	s->sec_in += secs;
+ 
+-	err = tapdisk_vbd_queue_request(s->vbd, vreq, true);
++	err = tapdisk_vbd_queue_request(s->vbd, vreq, (td_queue_id_t)0, true);
+ 	if (err)
+ 		tapdisk_stream_complete_request(s, req, err, 1);
+ 
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index c37dd602..ed8498b5 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -43,6 +43,7 @@
+ #include "td-stats.h"
+ #include "tapdisk-utils.h"
+ #include "timeout-math.h"
++#include "util.h"
+ 
+ #define DBG(_level, _f, _a...) tlog_write(_level, _f, ##_a)
+ #define ERR(_err, _f, _a...) tlog_error(_err, _f, ##_a)
+@@ -56,10 +57,10 @@
+ 
+ char* op_strings[TD_OPS_END] ={"read", "write", "block_status"};
+ 
+-static void tapdisk_vbd_complete_vbd_request(td_vbd_t *, td_vbd_request_t *);
++static void tapdisk_vbd_complete_vbd_request(td_vbd_queue_t *, td_vbd_request_t *);
+ static bool tapdisk_vbd_queue_ready(td_vbd_t *);
+-static void tapdisk_vbd_check_complete_requests(td_vbd_t *);
+-static void tapdisk_vbd_check_requests_for_issue(td_vbd_t *);
++static void tapdisk_vbd_check_complete_requests(td_vbd_queue_t *);
++static void tapdisk_vbd_check_requests_for_issue(td_vbd_queue_t *);
+ 
+ static bool log=true;
+ 
+@@ -68,9 +69,9 @@ static bool log=true;
+  */
+ 
+ static void
+-tapdisk_vbd_mark_progress(td_vbd_t *vbd)
++tapdisk_vbd_mark_progress(td_vbd_queue_t *queue)
+ {
+-	gettimeofday(&vbd->ts, NULL);
++	gettimeofday(&queue->ts, NULL);
+ }
+ 
+ td_vbd_t*
+@@ -88,19 +89,29 @@ tapdisk_vbd_create(uint16_t uuid)
+ 
+ 	vbd->uuid        = uuid;
+ 	vbd->req_timeout = TD_VBD_REQUEST_TIMEOUT;
+-	vbd->watchdog_warned = false;
++
++	pthread_mutex_init(&vbd->mutex, NULL);
++
++	for (int i = 0; i < ARRAY_SIZE(vbd->queues); i++) {
++		td_vbd_queue_t* queue = &vbd->queues[i];
++
++		queue->vbd = vbd;
++		queue->efd = -1;
++		queue->event = -1;
++		queue->watchdog_warned = false;
++		INIT_LIST_HEAD(&queue->new_requests);
++		INIT_LIST_HEAD(&queue->pending_requests);
++		INIT_LIST_HEAD(&queue->failed_requests);
++		INIT_LIST_HEAD(&queue->completed_requests);
++		pthread_mutex_init(&queue->mutex, NULL);
++		tapdisk_vbd_mark_progress(queue);
++	}
+ 
+ 	INIT_LIST_HEAD(&vbd->images);
+-	INIT_LIST_HEAD(&vbd->new_requests);
+-	INIT_LIST_HEAD(&vbd->pending_requests);
+-	INIT_LIST_HEAD(&vbd->failed_requests);
+-	INIT_LIST_HEAD(&vbd->completed_requests);
+ 	INIT_LIST_HEAD(&vbd->next);
+ 	INIT_LIST_HEAD(&vbd->rings);
+ 	INIT_LIST_HEAD(&vbd->dead_rings);
+-	pthread_mutex_init(&vbd->mutex, NULL);
+ 
+-	tapdisk_vbd_mark_progress(vbd);
+ 
+ 	return vbd;
+ }
+@@ -248,6 +259,23 @@ out:
+     return -err;
+ }
+ 
++static void
++tapdisk_vbd_release_queues_event(td_vbd_t *vbd)
++{
++    for (int qid = 0; qid < ARRAY_SIZE(vbd->queues); qid++) {
++        td_vbd_queue_t* queue = &vbd->queues[qid];
++
++        if (queue->event > 0) {
++            tapdisk_server_unregister_io_event(qid, queue->event);
++            queue->event = -1;
++        }
++        if (queue->efd > 0) {
++                close(queue->efd);
++                queue->efd = -1;
++        }
++    }
++}
++
+ void
+ tapdisk_vbd_close_vdi(td_vbd_t *vbd)
+ {
+@@ -281,10 +309,7 @@ tapdisk_vbd_close_vdi(td_vbd_t *vbd)
+ 	td_flag_set(vbd->state, TD_VBD_CLOSED);
+ 
+ 	if (td_flag_test(vbd->driver_flags, TD_DRIVER_THREADED)) {
+-		tapdisk_server_unregister_event(vbd->event);
+-		vbd->event = -1;
+-		close(vbd->efd);
+-		vbd->efd = -1;
++		tapdisk_vbd_release_queues_event(vbd);
+ 	}
+ 	pthread_mutex_unlock(&vbd->mutex);
+ }
+@@ -583,18 +608,18 @@ void
+ tapdisk_vbd_event_cb(event_id_t id __attribute__((unused)),
+ 	char mode __attribute__((unused)), void *private)
+ {
+-	td_vbd_t *vbd = private;
++	td_vbd_queue_t *queue = private;
+ 	uint64_t u;
+ 	ssize_t s;
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+-	if (vbd->efd < 0)
++	pthread_mutex_lock(&queue->mutex);
++	if (queue->efd < 0)
+ 	    goto unlock;
+ 
+-	s = read(vbd->efd, &u, sizeof(uint64_t));
++	s = read(queue->efd, &u, sizeof(uint64_t));
+ 	ASSERT(s == sizeof(uint64_t));
+ unlock:
+-	pthread_mutex_unlock(&vbd->mutex);
++	pthread_mutex_unlock(&queue->mutex);
+ }
+ 
+ int 
+@@ -630,20 +655,25 @@ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_d
+ 	if (td_flag_test(tapdisk_vbd_first_image(vbd)->driver->ops->flags, TD_DRIVER_THREADED)) {
+ 		vbd->driver_flags = tapdisk_vbd_first_image(vbd)->driver->ops->flags;
+ 
+-		vbd->efd = eventfd(0, 0);
+-		if (vbd->efd == -1) {
+-			err = -errno;
+-			ERROR("Failed to create eventfd: %s\n", strerror(-err));
+-			goto fail;
+-		}
++		/* Should wake the write thread/blkif */
++		for (int qid = 0; qid < ARRAY_SIZE(vbd->queues); qid++) {
++			td_vbd_queue_t* queue = &vbd->queues[qid];
+ 
+-		vbd->event = tapdisk_server_register_event(
+-				SCHEDULER_POLL_READ_FD, vbd->efd, TV_INF,
+-				tapdisk_vbd_event_cb, vbd);
+-		if (unlikely(vbd->event < 0)) {
+-			err = vbd->event;
+-			ERROR("Failed to register eventfd: %s\n", strerror(-err));
+-			goto fail;
++			queue->efd = eventfd(0, 0);
++			if (queue->efd == -1) {
++				err = -errno;
++				ERROR("Failed to create eventfd: %s\n", strerror(-err));
++				goto fail;
++			}
++
++			queue->event = tapdisk_server_register_io_event(qid,
++				SCHEDULER_POLL_READ_FD, queue->efd, TV_INF,
++				tapdisk_vbd_event_cb, queue);
++			if (unlikely(queue->event < 0)) {
++				err = queue->event;
++				ERROR("Failed to register eventfd: %s\n", strerror(-err));
++				goto fail;
++			}
+ 		}
+ 	}
+ 
+@@ -703,14 +733,8 @@ fail:
+ 		free(vbd->name);
+ 		vbd->name = tmp;
+ 	}
+-	if (vbd->event > 0) {
+-		tapdisk_server_unregister_event(vbd->event);
+-		vbd->event = -1;
+-	}
+-	if (vbd->efd > 0) {
+-		close(vbd->efd);
+-		vbd->efd = -1;
+-	}
++
++	tapdisk_vbd_release_queues_event(vbd);
+ 
+ 	if (!list_empty(&vbd->images))
+ 		tapdisk_image_close_chain(&vbd->images);
+@@ -772,26 +796,32 @@ tapdisk_vbd_queue_count(td_vbd_t *vbd, int *new,
+ 			int *pending, int *failed, int *completed)
+ {
+ 	int n, p, f, c;
+-	td_vbd_request_t *vreq, *tvreq;
+ 
+ 	n = 0;
+ 	p = 0;
+ 	f = 0;
+ 	c = 0;
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+-	tapdisk_vbd_for_each_request(vreq, tvreq, &vbd->new_requests)
+-		n++;
++	for (int i = 0; i < ARRAY_SIZE(vbd->queues); i++) {
++		td_vbd_queue_t* queue = &vbd->queues[i];
++		td_vbd_request_t *vreq, *tvreq;
+ 
+-	tapdisk_vbd_for_each_request(vreq, tvreq, &vbd->pending_requests)
+-		p++;
++		pthread_mutex_lock(&queue->mutex);
+ 
+-	tapdisk_vbd_for_each_request(vreq, tvreq, &vbd->failed_requests)
+-		f++;
++		tapdisk_vbd_for_each_request(vreq, tvreq, &queue->new_requests)
++			n++;
+ 
+-	tapdisk_vbd_for_each_request(vreq, tvreq, &vbd->completed_requests)
+-		c++;
+-	pthread_mutex_unlock(&vbd->mutex);
++		tapdisk_vbd_for_each_request(vreq, tvreq, &queue->pending_requests)
++			p++;
++
++		tapdisk_vbd_for_each_request(vreq, tvreq, &queue->failed_requests)
++			f++;
++
++		tapdisk_vbd_for_each_request(vreq, tvreq, &queue->completed_requests)
++			c++;
++
++		pthread_mutex_unlock(&queue->mutex);
++	}
+ 
+ 	*new       = n;
+ 	*pending   = p;
+@@ -799,30 +829,68 @@ tapdisk_vbd_queue_count(td_vbd_t *vbd, int *new,
+ 	*completed = c;
+ }
+ 
++bool
++tapdisk_vbd_pending_queues(td_vbd_t *vbd)
++{
++	bool any_pending = false;
++
++	pthread_mutex_lock(&vbd->mutex);
++	for (int i = 0; i < ARRAY_SIZE(vbd->queues) && !any_pending; i++) {
++		td_vbd_queue_t* queue = &vbd->queues[i];
++		pthread_mutex_lock(&queue->mutex);
++		any_pending = !list_empty(&queue->pending_requests);
++		pthread_mutex_unlock(&queue->mutex);
++	}
++	pthread_mutex_unlock(&vbd->mutex);
++
++	return any_pending;
++}
++
++bool
++tapdisk_vbd_failed_queues(td_vbd_t *vbd)
++{
++	bool any_failed = false;
++
++	pthread_mutex_lock(&vbd->mutex);
++	for (int i = 0; i < ARRAY_SIZE(vbd->queues) && !any_failed; i++) {
++		td_vbd_queue_t* queue = &vbd->queues[i];
++		pthread_mutex_lock(&queue->mutex);
++		any_failed = !list_empty(&queue->failed_requests);
++		pthread_mutex_unlock(&queue->mutex);
++	}
++	pthread_mutex_unlock(&vbd->mutex);
++
++	return any_failed;
++}
++
+ static int
+ tapdisk_vbd_shutdown(td_vbd_t *vbd)
+ {
+ 	int new, pending, failed, completed;
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+-	if (!list_empty(&vbd->pending_requests)) {
+-		pthread_mutex_unlock(&vbd->mutex);
++	if (tapdisk_vbd_pending_queues(vbd)) {
+ 		return -EAGAIN;
+ 	}
+-	pthread_mutex_unlock(&vbd->mutex);
+ 
+ 	tapdisk_vbd_queue_count(vbd, &new, &pending, &failed, &completed);
+ 
+ 	DPRINTF("%s: state: 0x%08x, new: 0x%02x, pending: 0x%02x, "
+-		"failed: 0x%02x, completed: 0x%02x\n", 
++		"failed: 0x%02x, completed: 0x%02x\n",
+ 		vbd->name, vbd->state, new, pending, failed, completed);
+-	DPRINTF("last activity: %010ld.%06ld, errors: 0x%04"PRIx64", "
++
++	DPRINTF("errors: 0x%04"PRIx64", "
+ 		"retries: 0x%04"PRIx64", received: 0x%08"PRIx64", "
+ 		"returned: 0x%08"PRIx64", kicked: 0x%08"PRIx64"\n",
+-		vbd->ts.tv_sec, vbd->ts.tv_usec,
+ 		vbd->errors, vbd->retries, vbd->received, vbd->returned,
+ 		vbd->kicked);
+ 
++	for (int i = 0; i < ARRAY_SIZE(vbd->queues); i++) {
++		td_vbd_queue_t* queue = &vbd->queues[i];
++		DPRINTF("queue #%d : last activity: %010ld.%06ld\n",
++			i,
++			queue->ts.tv_sec, queue->ts.tv_usec);
++	}
++
+ 	tapdisk_vbd_close_vdi(vbd);
+ 	tapdisk_vbd_detach(vbd);
+ 	tapdisk_server_remove_vbd(vbd);
+@@ -844,23 +912,34 @@ int
+ tapdisk_vbd_close(td_vbd_t *vbd)
+ {
+ 	pthread_mutex_lock(&vbd->mutex);
+-	/*
+-	 * don't close if any requests are pending in the aio layer
+-	 */
+-	if (!list_empty(&vbd->pending_requests))
+-		goto fail;
++	for (int i = 0; i < ARRAY_SIZE(vbd->queues); i++) {
++		td_vbd_queue_t* queue = &vbd->queues[i];
++		bool fail;
+ 
+-	/* 
+-	 * if the queue is still active and we have more
+-	 * requests, try to complete them before closing.
+-	 */
+-	if (tapdisk_vbd_queue_ready(vbd) &&
+-	    (!list_empty(&vbd->new_requests) ||
+-	     !list_empty(&vbd->failed_requests) ||
+-	     !list_empty(&vbd->completed_requests)))
+-		goto fail;
++		pthread_mutex_lock(&queue->mutex);
+ 
++		/*
++		 * don't close if any requests are pending in the aio layer
++		 */
++		fail = !list_empty(&queue->pending_requests);
++
++		/*
++		 * if the queue is still active and we have more
++		 * requests, try to complete them before closing.
++		 */
++		fail = fail ||
++			(tapdisk_vbd_queue_ready(vbd) &&
++			 (!list_empty(&queue->new_requests) ||
++			  !list_empty(&queue->failed_requests) ||
++			  !list_empty(&queue->completed_requests)));
++
++		pthread_mutex_unlock(&queue->mutex);
++
++		if (fail)
++			goto fail;
++	}
+ 	pthread_mutex_unlock(&vbd->mutex);
++
+ 	return tapdisk_vbd_shutdown(vbd);
+ 
+ fail:
+@@ -883,14 +962,21 @@ tapdisk_vbd_debug(td_vbd_t *vbd)
+ 	tapdisk_vbd_queue_count(vbd, &new, &pending, &failed, &completed);
+ 
+ 	DBG(TLOG_WARN, "%s: state: 0x%08x, new: 0x%02x, pending: 0x%02x, "
+-	    "failed: 0x%02x, completed: 0x%02x, last activity: %010ld.%06ld, "
++	    "failed: 0x%02x, completed: 0x%02x, "
+ 	    "errors: 0x%04"PRIx64", retries: 0x%04"PRIx64", "
+ 	    "received: 0x%08"PRIx64", returned: 0x%08"PRIx64", "
+ 	    "kicked: 0x%08"PRIx64"\n",
+ 	    vbd->name, vbd->state, new, pending, failed, completed,
+-	    vbd->ts.tv_sec, vbd->ts.tv_usec, vbd->errors, vbd->retries,
++	    vbd->errors, vbd->retries,
+ 	    vbd->received, vbd->returned, vbd->kicked);
+ 
++	for (int i = 0; i < ARRAY_SIZE(vbd->queues); i++) {
++		td_vbd_queue_t* queue = &vbd->queues[i];
++		DBG(TLOG_WARN, "%s: queue #%d : last activity: %010ld.%06ld\n",
++		    vbd->name, i,
++		    queue->ts.tv_sec, queue->ts.tv_usec);
++	}
++
+ 	tapdisk_vbd_for_each_image(vbd, image, tmp)
+ 		td_debug(image);
+ }
+@@ -932,13 +1018,14 @@ tapdisk_vbd_queue_ready(td_vbd_t *vbd)
+ }
+ 
+ bool
+-tapdisk_vbd_retry_needed(td_vbd_t *vbd)
++tapdisk_vbd_retry_needed(td_vbd_queue_t* queue)
+ {
+ 	bool retry;
+-	pthread_mutex_lock(&vbd->mutex);
+-	retry = !(list_empty(&vbd->failed_requests) &&
+-		 list_empty(&vbd->new_requests));
+-	pthread_mutex_unlock(&vbd->mutex);
++
++	pthread_mutex_lock(&queue->mutex);
++	retry = !(list_empty(&queue->failed_requests) &&
++		  list_empty(&queue->new_requests));
++	pthread_mutex_unlock(&queue->mutex);
+ 	return retry;
+ }
+ 
+@@ -951,17 +1038,21 @@ tapdisk_vbd_lock(td_vbd_t *vbd)
+ int
+ tapdisk_vbd_quiesce_queue(td_vbd_t *vbd)
+ {
++	bool any_pending = tapdisk_vbd_pending_queues(vbd);
++	int ret = 0;
++
+ 	pthread_mutex_lock(&vbd->mutex);
+-	if (!list_empty(&vbd->pending_requests)) {
++	if (any_pending) {
+ 		td_flag_set(vbd->state, TD_VBD_QUIESCE_REQUESTED);
+-		pthread_mutex_unlock(&vbd->mutex);
+-		return -EAGAIN;
++		ret = -EAGAIN;
++	}
++	else {
++		td_flag_clear(vbd->state, TD_VBD_QUIESCE_REQUESTED);
++		td_flag_set(vbd->state, TD_VBD_QUIESCED);
+ 	}
+-
+-	td_flag_clear(vbd->state, TD_VBD_QUIESCE_REQUESTED);
+-	td_flag_set(vbd->state, TD_VBD_QUIESCED);
+ 	pthread_mutex_unlock(&vbd->mutex);
+-	return 0;
++
++	return ret;
+ }
+ 
+ int
+@@ -969,7 +1060,9 @@ tapdisk_vbd_start_queue(td_vbd_t *vbd)
+ {
+ 	td_flag_clear(vbd->state, TD_VBD_QUIESCED);
+ 	td_flag_clear(vbd->state, TD_VBD_QUIESCE_REQUESTED);
+-	tapdisk_vbd_mark_progress(vbd);
++	for (int i = 0; i < ARRAY_SIZE(vbd->queues); i++) {
++		tapdisk_vbd_mark_progress(&vbd->queues[i]);
++	}
+ 	return 0;
+ }
+ 
+@@ -1039,16 +1132,15 @@ tapdisk_vbd_pause(td_vbd_t *vbd)
+ 	if (err)
+ 		return err;
+ 
+-
+ 	tapdisk_vbd_close_vdi(vbd);
+ 
+ 	/* Don't guard this one as at this point the pause operation is complete */
+ 	INFO("pause completed\n");
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+-	if (!list_empty(&vbd->failed_requests))
++	if (tapdisk_vbd_failed_queues(vbd))
+ 		INFO("warning: failed requests pending\n");
+ 
++	pthread_mutex_lock(&vbd->mutex);
+ 	td_flag_clear(vbd->state, TD_VBD_PAUSE_REQUESTED);
+ 	td_flag_set(vbd->state, TD_VBD_PAUSED);
+ 	pthread_mutex_unlock(&vbd->mutex);
+@@ -1060,7 +1152,7 @@ int
+ tapdisk_vbd_resume(td_vbd_t *vbd, const char *name, td_err *error)
+ {
+ 	int i, err = 0;
+-    struct td_xenblkif *blkif;
++	struct td_xenblkif *blkif;
+ 
+ 	td_err_init_errno(error);
+ 
+@@ -1114,17 +1206,18 @@ resume_failed:
+ 	td_flag_clear(vbd->state, TD_VBD_PAUSED);
+ 	td_flag_clear(vbd->state, TD_VBD_PAUSE_REQUESTED);
+ 	pthread_mutex_unlock(&vbd->mutex);
+-	tapdisk_vbd_check_state(vbd);
++
++	for (int i = 0; i < ARRAY_SIZE(vbd->queues); i++)
++		tapdisk_vbd_check_state(&vbd->queues[i]);
+ 
+ 	if (vbd->nbdserver)
+ 		tapdisk_nbdserver_unpause(vbd->nbdserver);
+ 	if (vbd->nbdserver_new)
+ 		tapdisk_nbdserver_unpause(vbd->nbdserver_new);
+ 
+-    list_for_each_entry(blkif, &vbd->rings, entry)
++	list_for_each_entry(blkif, &vbd->rings, entry)
+ 		tapdisk_xenblkif_resume(blkif);
+ 
+-
+ 	DBG(TLOG_DBG, "state checked\n");
+ 
+ 	return td_err_set_success(error);
+@@ -1184,7 +1277,7 @@ tapdisk_vbd_request_ttl(td_vbd_request_t *vreq,
+ {
+ 	struct timeval delta;
+ 	timersub(now, &vreq->ts, &delta);
+-	return vreq->vbd->req_timeout - delta.tv_sec;
++	return vreq->vqueue->vbd->req_timeout - delta.tv_sec;
+ }
+ 
+ static bool
+@@ -1211,37 +1304,41 @@ tapdisk_vbd_request_timeout(td_vbd_request_t *vreq)
+ }
+ 
+ static void
+-tapdisk_vbd_check_complete_requests(td_vbd_t *vbd)
++tapdisk_vbd_check_complete_requests(td_vbd_queue_t *queue)
+ {
+ 	td_vbd_request_t *vreq, *tmp;
+ 	struct timeval now;
+ 
+ 	gettimeofday(&now, NULL);
+-	pthread_mutex_lock(&vbd->mutex);
+-	tapdisk_vbd_for_each_request(vreq, tmp, &vbd->failed_requests)
++
++	pthread_mutex_lock(&queue->mutex);
++	tapdisk_vbd_for_each_request(vreq, tmp, &queue->failed_requests)
+ 		if (__tapdisk_vbd_request_timeout(vreq, &now))
+-			tapdisk_vbd_complete_vbd_request(vbd, vreq);
+-	pthread_mutex_unlock(&vbd->mutex);
++			tapdisk_vbd_complete_vbd_request(queue, vreq);
++	pthread_mutex_unlock(&queue->mutex);
+ }
+ 
+ static void
+-tapdisk_vbd_check_requests_for_issue(td_vbd_t *vbd)
++tapdisk_vbd_check_requests_for_issue(td_vbd_queue_t* queue)
+ {
+ 	bool issue;
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+-	issue = !list_empty(&vbd->new_requests) ||
+-		!list_empty(&vbd->failed_requests);
+-	pthread_mutex_unlock(&vbd->mutex);
++	pthread_mutex_lock(&queue->mutex);
++	issue = !list_empty(&queue->new_requests) ||
++		!list_empty(&queue->failed_requests);
++	pthread_mutex_unlock(&queue->mutex);
+ 
+ 	if (issue)
+-		tapdisk_vbd_issue_requests(vbd);
++		tapdisk_vbd_issue_requests(queue);
+ }
+ 
+ void
+-tapdisk_vbd_check_state(td_vbd_t *vbd)
++tapdisk_vbd_check_state(td_vbd_queue_t *queue)
+ {
+ 	struct td_xenblkif *blkif;
++	td_vbd_t *vbd = queue->vbd;
++
++	// TODO: what about lock ?
+ 
+ 	/* Don't check if we're already quiesced */
+ 	if (td_flag_test(vbd->state, TD_VBD_QUIESCED))
+@@ -1253,11 +1350,13 @@ tapdisk_vbd_check_state(td_vbd_t *vbd)
+ 	list_for_each_entry(blkif, &vbd->rings, entry)
+ 		tapdisk_xenblkif_ring_stats_update(blkif);
+ 
+-	tapdisk_vbd_check_complete_requests(vbd);
++	tapdisk_vbd_check_complete_requests(queue);
+ 
+ 	if (!td_flag_test(vbd->state, TD_VBD_QUIESCE_REQUESTED) &&
+-	      !td_flag_test(vbd->state, TD_VBD_PAUSE_REQUESTED))
+-		tapdisk_vbd_check_requests_for_issue(vbd);
++	    !td_flag_test(vbd->state, TD_VBD_PAUSE_REQUESTED))
++	{
++		tapdisk_vbd_check_requests_for_issue(queue);
++	}
+ 
+ 	if (td_flag_test(vbd->state, TD_VBD_QUIESCE_REQUESTED))
+ 		tapdisk_vbd_quiesce_queue(vbd);
+@@ -1269,55 +1368,56 @@ tapdisk_vbd_check_state(td_vbd_t *vbd)
+ 		tapdisk_vbd_close(vbd);
+ }
+ 
+-void watchdog_cleared(td_vbd_t *vbd)
++void watchdog_cleared(td_vbd_queue_t* queue)
+ {
+-	if (vbd->watchdog_warned) {
+-		DBG(TLOG_WARN, "%s: watchdog timeout: requests were blocked\n", vbd->name);
++	if (queue->watchdog_warned) {
++		DBG(TLOG_WARN, "%s: watchdog timeout: requests were blocked\n", queue->vbd->name);
+ 		/* Ideally want a direct way to flush the log */
+ 		tlog_precious(1);
+ 	}
+-	vbd->watchdog_warned = false;
++	queue->watchdog_warned = false;
+ }
+ 
+ void
+-tapdisk_vbd_check_progress(td_vbd_t *vbd)
++tapdisk_vbd_check_progress(td_vbd_queue_t* queue)
+ {
+ 	time_t diff;
+ 	struct timeval now, delta;
++	td_queue_id_t qid = queue - queue->vbd->queues;
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+-	if (list_empty(&vbd->pending_requests)) {
+-		pthread_mutex_unlock(&vbd->mutex);
+-		watchdog_cleared(vbd);
++	pthread_mutex_lock(&queue->mutex);
++	if (list_empty(&queue->pending_requests)) {
++		pthread_mutex_unlock(&queue->mutex);
++		watchdog_cleared(queue);
+ 		return;
+ 	}
+-	pthread_mutex_unlock(&vbd->mutex);
++	pthread_mutex_unlock(&queue->mutex);
+ 
+ 	gettimeofday(&now, NULL);
+-	timersub(&now, &vbd->ts, &delta);
++	timersub(&now, &queue->ts, &delta);
+ 	diff = delta.tv_sec;
+ 
+ 	if (diff >= TD_VBD_WATCHDOG_TIMEOUT)
+ 	{
+-		pthread_mutex_lock(&vbd->mutex);
+-		if(tapdisk_vbd_queue_ready(vbd))
++		pthread_mutex_lock(&queue->mutex);
++		if(tapdisk_vbd_queue_ready(queue->vbd))
+ 		{
+-			if (!vbd->watchdog_warned) {
++			if (!queue->watchdog_warned) {
+ 				DBG(TLOG_WARN, "%s: watchdog timeout: pending requests "
+-				    "idle for %ld seconds\n", vbd->name, diff);
+-				vbd->watchdog_warned = true;
++				    "idle for %ld seconds\n", queue->vbd->name, diff);
++				queue->watchdog_warned = true;
+ 			}
+-			pthread_mutex_unlock(&vbd->mutex);
+-			tapdisk_vbd_drop_log(vbd);
+-			pthread_mutex_lock(&vbd->mutex);
++			pthread_mutex_unlock(&queue->mutex);
++			tapdisk_vbd_drop_log(queue->vbd);
++			pthread_mutex_lock(&queue->mutex);
+ 		}
+-		pthread_mutex_unlock(&vbd->mutex);
++		pthread_mutex_unlock(&queue->mutex);
+ 		return;
+ 	}
+ 
+-	watchdog_cleared(vbd);
++	watchdog_cleared(queue);
+ 
+-	tapdisk_server_set_max_timeout(TD_VBD_WATCHDOG_TIMEOUT - diff);
++	tapdisk_server_set_io_max_timeout(qid, TD_VBD_WATCHDOG_TIMEOUT - diff);
+ }
+ 
+ /*
+@@ -1337,10 +1437,10 @@ tapdisk_vbd_check_queue(td_vbd_t *vbd)
+ }
+ 
+ static bool
+-tapdisk_vbd_request_should_retry(td_vbd_t *vbd, td_vbd_request_t *vreq)
++tapdisk_vbd_request_should_retry(td_vbd_queue_t* queue, td_vbd_request_t *vreq)
+ {
+-	if (td_flag_test(vbd->state, TD_VBD_DEAD) ||
+-	    td_flag_test(vbd->state, TD_VBD_SHUTDOWN_REQUESTED))
++	if (td_flag_test(queue->vbd->state, TD_VBD_DEAD) ||
++	    td_flag_test(queue->vbd->state, TD_VBD_SHUTDOWN_REQUESTED))
+ 		return false;
+ 
+ 	if (tapdisk_vbd_request_timeout(vreq))
+@@ -1357,14 +1457,14 @@ tapdisk_vbd_request_should_retry(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ }
+ 
+ static void
+-tapdisk_vbd_complete_vbd_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
++tapdisk_vbd_complete_vbd_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq)
+ {
+ 	if (!vreq->submitting && !vreq->secs_pending) {
+ 		if (vreq->error &&
+-		    tapdisk_vbd_request_should_retry(vbd, vreq))
+-			tapdisk_vbd_move_request(vreq, &vbd->failed_requests);
++		    tapdisk_vbd_request_should_retry(queue, vreq))
++			tapdisk_vbd_move_request(vreq, &queue->failed_requests);
+ 		else
+-			tapdisk_vbd_move_request(vreq, &vbd->completed_requests);
++			tapdisk_vbd_move_request(vreq, &queue->completed_requests);
+ 	}
+ }
+ 
+@@ -1379,18 +1479,20 @@ FIXME_maybe_count_enospc_redirect(td_vbd_t *vbd, td_request_t treq)
+ }
+ 
+ static void
+-__tapdisk_vbd_complete_td_request(td_vbd_t *vbd, td_vbd_request_t *vreq,
++__tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+ 				  td_request_t treq, int res)
+ {
+ 	td_image_t *image = treq.image;
++	td_vbd_t* vbd = queue->vbd;
+ 	int err;
+ 
+         long long interval;
+ 
+ 	err = (res <= 0 ? res : -res);
+ 	pthread_mutex_lock(&vbd->mutex);
+-	vbd->secs_pending  -= treq.secs;
+-	vreq->secs_pending -= treq.secs;
++	pthread_mutex_lock(&queue->mutex);
++	queue->secs_pending -= treq.secs;
++	vreq->secs_pending  -= treq.secs;
+ 
+ 	if (err != -EBUSY) {
+ 		int write = treq.op == TD_OP_WRITE;
+@@ -1398,7 +1500,6 @@ __tapdisk_vbd_complete_td_request(td_vbd_t *vbd, td_vbd_request_t *vreq,
+ 		if (err)
+ 			td_sector_count_add(&image->stats.fail,
+ 					    treq.secs, write);
+-
+ 		FIXME_maybe_count_enospc_redirect(vbd, treq);
+ 	}
+ 
+@@ -1411,40 +1512,43 @@ __tapdisk_vbd_complete_td_request(td_vbd_t *vbd, td_vbd_request_t *vreq,
+ 					       op_strings[treq.op],
+ 					       image->name,
+ 					       treq.secs, treq.sec, strerror(abs(err)));
+-			vbd->errors++;
++			// TODO: add protection ?
++			queue->vbd->errors++;
+ 		}
+ 		vreq->error = (vreq->error ? : err);
+ 	}
+ 
+-        interval = timeval_to_us(&vbd->ts) - timeval_to_us(&vreq->ts);
++        interval = timeval_to_us(&queue->ts) - timeval_to_us(&vreq->ts);
+ 
+-        if(treq.op == TD_OP_READ) {
++	switch (treq.op) {
++        case TD_OP_READ:
+             vbd->vdi_stats.stats->read_reqs_completed++;
+             vbd->vdi_stats.stats->read_sectors += treq.secs;
+             vbd->vdi_stats.stats->read_total_ticks += interval;
+-        }
+-
+-        if(treq.op == TD_OP_WRITE) {
++	    break;
++	case TD_OP_WRITE:
+             vbd->vdi_stats.stats->write_reqs_completed++;
+             vbd->vdi_stats.stats->write_sectors += treq.secs;
+             vbd->vdi_stats.stats->write_total_ticks += interval;
++	    break;
+         }
+ 
+-	tapdisk_vbd_complete_vbd_request(vbd, vreq);
++	tapdisk_vbd_complete_vbd_request(queue, vreq);
++	pthread_mutex_unlock(&queue->mutex);
+ 	pthread_mutex_unlock(&vbd->mutex);
+ }
+ 
+ static void
+-__tapdisk_vbd_reissue_td_request(td_vbd_t *vbd,
++__tapdisk_vbd_reissue_td_request(td_vbd_queue_t* queue,
+ 				 td_image_t *image, td_request_t treq)
+ {
+ 	td_image_t *parent;
+-	td_vbd_request_t *vreq;
++	td_vbd_request_t *vreq = treq.vreq;
++	td_vbd_t *vbd = queue->vbd;
+ 
+-	vreq = treq.vreq;
+ 	gettimeofday(&vreq->last_try, NULL);
+ 
+-	pthread_mutex_lock(&vbd->mutex);
++	pthread_mutex_lock(&vbd->mutex);  // TODO: why this mutex ?
+ 	vreq->submitting++;
+ 	pthread_mutex_unlock(&vbd->mutex);
+ 
+@@ -1492,7 +1596,6 @@ __tapdisk_vbd_reissue_td_request(td_vbd_t *vbd,
+ 	case TD_OP_WRITE:
+ 		td_queue_write(parent, treq);
+ 		break;
+-
+ 	case TD_OP_READ:
+ 		td_queue_read(parent, treq);
+ 		break;
+@@ -1502,11 +1605,11 @@ __tapdisk_vbd_reissue_td_request(td_vbd_t *vbd,
+ 	}
+ 
+ done:
+-	pthread_mutex_lock(&vbd->mutex);
++	pthread_mutex_lock(&queue->mutex);
+ 	vreq->submitting--;
+ 	if (!vreq->secs_pending)
+-		tapdisk_vbd_complete_vbd_request(vbd, vreq);
+-	pthread_mutex_unlock(&vbd->mutex);
++		tapdisk_vbd_complete_vbd_request(queue, vreq);
++	pthread_mutex_unlock(&queue->mutex);
+ }
+ 
+ void
+@@ -1515,15 +1618,17 @@ tapdisk_vbd_forward_request(td_request_t treq)
+ 	td_vbd_t *vbd;
+ 	td_image_t *image;
+ 	td_vbd_request_t *vreq;
++	td_vbd_queue_t *queue;
+ 
+ 	image = treq.image;
+ 	vreq  = treq.vreq;
+-	vbd   = vreq->vbd;
++	queue = vreq->vqueue;
++	vbd   = vreq->vqueue->vbd;  // TODO: remove it and keep only vqueue
+ 
+-	tapdisk_vbd_mark_progress(vbd);
++	tapdisk_vbd_mark_progress(queue);
+ 
+ 	if (tapdisk_vbd_queue_ready(vbd))
+-		__tapdisk_vbd_reissue_td_request(vbd, image, treq);
++		__tapdisk_vbd_reissue_td_request(queue, image, treq);
+ 	else
+ 		td_complete_request(treq, -EBUSY);
+ }
+@@ -1572,14 +1677,14 @@ block_status_add_extent(tapdisk_extents_t *extents, td_request_t *vreq)
+ void
+ tapdisk_vbd_complete_block_status_request(td_request_t treq, int res)
+ {
+-	td_vbd_t *vbd;
+ 	td_image_t *image;
+ 	td_vbd_request_t *vreq;
++	td_vbd_queue_t *queue;
+ 
+ 	image = treq.image;
+ 	vreq  = treq.vreq;
+-	vbd   = vreq->vbd;
+-	tapdisk_vbd_mark_progress(vbd);
++	queue = vreq->vqueue;
++	tapdisk_vbd_mark_progress(queue);
+ 
+ 	/* Record this extents in the vreqs data */
+ 	tapdisk_extents_t* extents = (tapdisk_extents_t*)vreq->data;
+@@ -1594,7 +1699,7 @@ tapdisk_vbd_complete_block_status_request(td_request_t treq, int res)
+ 	    treq.sidx, treq.sec, treq.secs,
+ 	    treq.buf, vreq->op, res);
+ 
+-	__tapdisk_vbd_complete_td_request(vbd, vreq, treq, res);
++	__tapdisk_vbd_complete_td_request(queue, vreq, treq, res);
+ }
+ 
+ void
+@@ -1603,15 +1708,17 @@ tapdisk_vbd_complete_td_request(td_request_t treq, int res)
+ 	td_vbd_t *vbd;
+ 	td_image_t *image, *leaf;
+ 	td_vbd_request_t *vreq;
++	td_vbd_queue_t *queue;
+ 
+ 	image = treq.image;
+ 	vreq  = treq.vreq;
+-	vbd   = vreq->vbd;
++	queue = vreq->vqueue;
++	vbd   = vreq->vqueue->vbd;
+ 
+-	tapdisk_vbd_mark_progress(vbd);
++	tapdisk_vbd_mark_progress(queue);
+ 
+-	if (abs(res) == ENOSPC && td_flag_test(image->flags,
+-				TD_IGNORE_ENOSPC)) {
++	if (abs(res) == ENOSPC &&
++	    td_flag_test(image->flags, TD_IGNORE_ENOSPC)) {
+ 		res = 0;
+ 		leaf = tapdisk_vbd_first_image(vbd);
+ 		if (vbd->secondary_mode == TD_VBD_SECONDARY_MIRROR) {
+@@ -1652,7 +1759,7 @@ tapdisk_vbd_complete_td_request(td_request_t treq, int res)
+ 	    treq.sidx, treq.sec, treq.secs,
+ 	    treq.buf, vreq->op, res);
+ 
+-	__tapdisk_vbd_complete_td_request(vbd, vreq, treq, res);
++	__tapdisk_vbd_complete_td_request(queue, vreq, treq, res);
+ }
+ 
+ static inline void
+@@ -1663,11 +1770,10 @@ queue_mirror_req(td_vbd_t *vbd, td_request_t clone)
+ }
+ 
+ int
+-tapdisk_vbd_issue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
++tapdisk_vbd_issue_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq)
+ {
++	td_vbd_t* vbd = queue->vbd;
+ 	td_image_t *image;
+-	td_request_t treq;
+-	bzero(&treq, sizeof(treq));
+ 	td_sector_t sec;
+ 	int i, err;
+ 
+@@ -1675,14 +1781,16 @@ tapdisk_vbd_issue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ 	image  = tapdisk_vbd_first_image(vbd);
+ 
+ 	pthread_mutex_lock(&vbd->mutex);
++	pthread_mutex_lock(&queue->mutex);
+ 	vreq->submitting = 1;
+ 
+-	tapdisk_vbd_mark_progress(vbd);
+-	vreq->last_try = vbd->ts;
++	tapdisk_vbd_mark_progress(queue);
++	vreq->last_try = queue->ts;
+ 
+-	tapdisk_vbd_move_request(vreq, &vbd->pending_requests);
++	tapdisk_vbd_move_request(vreq, &queue->pending_requests);
+ 
+ 	err = tapdisk_vbd_check_queue(vbd);
++	pthread_mutex_unlock(&queue->mutex);
+ 	pthread_mutex_unlock(&vbd->mutex);
+ 	if (err) {
+ 		goto fail;
+@@ -1695,7 +1803,9 @@ tapdisk_vbd_issue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ 
+ 	for (i = 0; i < vreq->iovcnt; i++) {
+ 		struct td_iovec *iov = &vreq->iov[i];
++		td_request_t treq;
+ 
++		bzero(&treq, sizeof(treq));
+ 		treq.sidx           = i;
+ 		treq.buf            = iov->base;
+ 		treq.sec            = sec;
+@@ -1707,15 +1817,17 @@ tapdisk_vbd_issue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ 
+ 
+ 		pthread_mutex_lock(&vbd->mutex);
+-		vreq->secs_pending += iov->secs;
+-		vbd->secs_pending  += iov->secs;
++		pthread_mutex_lock(&queue->mutex);  // TODO: rework
++		vreq->secs_pending  += iov->secs;
++		queue->secs_pending += iov->secs;
+ 		if (vbd->secondary_mode == TD_VBD_SECONDARY_MIRROR &&
+ 		    vreq->op == TD_OP_WRITE &&
+ 			likely(vreq->skip_mirror == false))
+ 		{
+-			vreq->secs_pending += iov->secs;
+-			vbd->secs_pending  += iov->secs;
++			vreq->secs_pending  += iov->secs;
++			queue->secs_pending += iov->secs;
+ 		}
++		pthread_mutex_unlock(&queue->mutex);
+ 		pthread_mutex_unlock(&vbd->mutex);
+ 
+ 		switch (vreq->op) {
+@@ -1762,13 +1874,13 @@ tapdisk_vbd_issue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ 	err = 0;
+ 
+ out:
+-	pthread_mutex_lock(&vbd->mutex);
++	pthread_mutex_lock(&queue->mutex);
+ 	vreq->submitting--;
+ 	if (!vreq->secs_pending) {
+ 		err = (err ? : vreq->error);
+-		tapdisk_vbd_complete_vbd_request(vbd, vreq);
++		tapdisk_vbd_complete_vbd_request(queue, vreq);
+ 	}
+-	pthread_mutex_unlock(&vbd->mutex);
++	pthread_mutex_unlock(&queue->mutex);
+ 
+ 	return err;
+ 
+@@ -1778,28 +1890,30 @@ fail:
+ }
+ 
+ static bool
+-tapdisk_vbd_request_completed(td_vbd_t *vbd, td_vbd_request_t *vreq)
++tapdisk_vbd_request_completed(td_vbd_queue_t *queue, td_vbd_request_t *vreq)
+ {
+-	return vreq->list_head == &vbd->completed_requests;
++	return vreq->list_head == &queue->completed_requests;
+ }
+ 
+ static int
+-tapdisk_vbd_reissue_failed_requests(td_vbd_t *vbd)
++tapdisk_vbd_reissue_failed_requests(td_vbd_queue_t *queue)
+ {
+ 	int err;
+ 	struct timeval now;
+ 	td_vbd_request_t *vreq, *tmp;
++	td_vbd_t *vbd = queue->vbd;
+ 
+ 	err = 0;
+ 	gettimeofday(&now, NULL);
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+-	tapdisk_vbd_for_each_request(vreq, tmp, &vbd->failed_requests) {
++	pthread_mutex_lock(&queue->mutex);
++	tapdisk_vbd_for_each_request(vreq, tmp, &queue->failed_requests) {
+ 		if (vreq->secs_pending)
+ 			continue;
+ 
++		// FIXME: lock VBD ?
+ 		if (td_flag_test(vbd->state, TD_VBD_SHUTDOWN_REQUESTED)) {
+-			tapdisk_vbd_complete_vbd_request(vbd, vreq);
++			tapdisk_vbd_complete_vbd_request(queue, vreq);
+ 			continue;
+ 		}
+ 
+@@ -1807,28 +1921,29 @@ tapdisk_vbd_reissue_failed_requests(td_vbd_t *vbd)
+ 		    now.tv_sec - vreq->last_try.tv_sec < TD_VBD_RETRY_INTERVAL)
+ 			continue;
+ 
++		// FIXME: lock VBD or atomics ?  (only for display or stats)
+ 		vbd->retries++;
+ 		vreq->num_retries++;
+ 
+ 		vreq->prev_error = vreq->error;
+ 		vreq->error      = 0;
+ 
+-		pthread_mutex_unlock(&vbd->mutex);
++		pthread_mutex_unlock(&queue->mutex);
+ 		DBG(TLOG_DBG, "retry #%d of req, "
+ 		    "sec 0x%08"PRIx64", iovcnt: %d\n", vreq->num_retries,
+ 		    vreq->sec, vreq->iovcnt);
+ 
+-		err = tapdisk_vbd_issue_request(vbd, vreq);
++		err = tapdisk_vbd_issue_request(queue, vreq);
+ 
+-		pthread_mutex_lock(&vbd->mutex);
++		pthread_mutex_lock(&queue->mutex);
+ 		/*
+ 		 * if this request failed, but was not completed,
+ 		 * we'll back off for a while.
+ 		 */
+-		if (err && !tapdisk_vbd_request_completed(vbd, vreq))
++		if (err && !tapdisk_vbd_request_completed(queue, vreq))
+ 			break;
+ 	}
+-	pthread_mutex_unlock(&vbd->mutex);
++	pthread_mutex_unlock(&queue->mutex);
+ 
+ 	return 0;
+ }
+@@ -1847,89 +1962,95 @@ tapdisk_vbd_count_new_request(td_vbd_request_t *vreq)
+ }
+ 
+ static int
+-tapdisk_vbd_issue_new_requests(td_vbd_t *vbd)
++tapdisk_vbd_issue_new_requests(td_vbd_queue_t* queue)
+ {
+ 	int err;
+ 	td_vbd_request_t *vreq, *tmp;
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+-	tapdisk_vbd_for_each_request(vreq, tmp, &vbd->new_requests) {
++	pthread_mutex_lock(&queue->mutex);
++	tapdisk_vbd_for_each_request(vreq, tmp, &queue->new_requests) {
+ 		td_sector_t secs = tapdisk_vbd_count_new_request(vreq);
+ 		bool write = vreq->op == TD_OP_WRITE;
+ 
+-		pthread_mutex_unlock(&vbd->mutex);
+-		err = tapdisk_vbd_issue_request(vbd, vreq);
+-		pthread_mutex_lock(&vbd->mutex);
++		pthread_mutex_unlock(&queue->mutex);
++		err = tapdisk_vbd_issue_request(queue, vreq);
++		pthread_mutex_lock(&queue->mutex);
+ 
+ 		/*
+ 		 * if this request failed, but was not completed,
+ 		 * we'll back off for a while.
+ 		 */
+-		if (err && !tapdisk_vbd_request_completed(vbd, vreq)) {
+-			pthread_mutex_unlock(&vbd->mutex);
++		if (err && !tapdisk_vbd_request_completed(queue, vreq)) {
++			pthread_mutex_unlock(&queue->mutex);
+ 			return err;
+ 		}
+ 
+ 		/* XXX: split counting and add; vreq must NOT be accessed after issuing the
+ 		        request. */
+-		td_sector_count_add(&vbd->secs, secs, write);
++		td_sector_count_add(&queue->secs, secs, write);
+ 	}
+-	pthread_mutex_unlock(&vbd->mutex);
++	pthread_mutex_unlock(&queue->mutex);
+ 
+ 	return 0;
+ }
+ 
+ int
+-tapdisk_vbd_recheck_state(td_vbd_t *vbd)
++tapdisk_vbd_recheck_state(td_vbd_queue_t* queue)
+ {
+ 	int err = 0;
+ 	bool no_issue;
++	td_vbd_t* vbd = queue->vbd;
+ 
++	// FIXME: maybe move 'state' in queue to avoid locking
++	//        or change it to an atomic
+ 	pthread_mutex_lock(&vbd->mutex);
++	pthread_mutex_lock(&queue->mutex);
+ 	no_issue =
+-		list_empty(&vbd->new_requests) ||
++		list_empty(&queue->new_requests) ||
+ 		td_flag_test(vbd->state, TD_VBD_QUIESCED) ||
+ 		td_flag_test(vbd->state, TD_VBD_QUIESCE_REQUESTED);
++	pthread_mutex_unlock(&queue->mutex);
+ 	pthread_mutex_unlock(&vbd->mutex);
+ 
+ 	if (no_issue)
+ 		return 0;
+ 
+-	err = tapdisk_vbd_issue_requests(vbd);
++	err = tapdisk_vbd_issue_requests(queue);
+ 
+ 	/* If we have errors stop checking in this cycle */
+ 	return err ? 0 : 1;
+ }
+ 
+ static int
+-tapdisk_vbd_kill_requests(td_vbd_t *vbd)
++tapdisk_vbd_kill_requests(td_vbd_queue_t* queue)
+ {
+ 	td_vbd_request_t *vreq, *tmp;
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+-	tapdisk_vbd_for_each_request(vreq, tmp, &vbd->new_requests) {
++	pthread_mutex_lock(&queue->mutex);
++	tapdisk_vbd_for_each_request(vreq, tmp, &queue->new_requests) {
+ 		vreq->error = -ESHUTDOWN;
+-		tapdisk_vbd_move_request(vreq, &vbd->completed_requests);
++		tapdisk_vbd_move_request(vreq, &queue->completed_requests);
+ 	}
+ 
+-	tapdisk_vbd_for_each_request(vreq, tmp, &vbd->failed_requests) {
++	tapdisk_vbd_for_each_request(vreq, tmp, &queue->failed_requests) {
+ 		vreq->error = -ESHUTDOWN;
+-		tapdisk_vbd_move_request(vreq, &vbd->completed_requests);
++		tapdisk_vbd_move_request(vreq, &queue->completed_requests);
+ 	}
+-	pthread_mutex_unlock(&vbd->mutex);
++	pthread_mutex_unlock(&queue->mutex);
+ 
+ 	return 0;
+ }
+ 
+ int
+-tapdisk_vbd_issue_requests(td_vbd_t *vbd)
++tapdisk_vbd_issue_requests(td_vbd_queue_t *queue)
+ {
++	td_vbd_t *vbd = queue->vbd;
+ 	int err;
+ 
+ 	pthread_mutex_lock(&vbd->mutex);
+ 	if (td_flag_test(vbd->state, TD_VBD_DEAD)) {
+ 		pthread_mutex_unlock(&vbd->mutex);
+-		return tapdisk_vbd_kill_requests(vbd);
++		return tapdisk_vbd_kill_requests(queue);
+ 	}
+ 
+ 	if (td_flag_test(vbd->state, TD_VBD_QUIESCED) ||
+@@ -1937,7 +2058,7 @@ tapdisk_vbd_issue_requests(td_vbd_t *vbd)
+ 
+ 		if (td_flag_test(vbd->state, TD_VBD_RESUME_FAILED)) {
+ 			pthread_mutex_unlock(&vbd->mutex);
+-			return tapdisk_vbd_kill_requests(vbd);
++			return tapdisk_vbd_kill_requests(queue);
+                 } else {
+ 			pthread_mutex_unlock(&vbd->mutex);
+ 			return -EAGAIN;
+@@ -1945,42 +2066,48 @@ tapdisk_vbd_issue_requests(td_vbd_t *vbd)
+ 	}
+ 	pthread_mutex_unlock(&vbd->mutex);
+ 
+-	err = tapdisk_vbd_reissue_failed_requests(vbd);
++	err = tapdisk_vbd_reissue_failed_requests(queue);
+ 	if (err)
+ 		return err;
+ 
+-	return tapdisk_vbd_issue_new_requests(vbd);
++	return tapdisk_vbd_issue_new_requests(queue);
+ }
+ 
+ int
+-tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq, bool final)
++tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq, td_queue_id_t qid, bool final)
+ {
++	td_vbd_queue_t* queue = &vbd->queues[qid];
++
+ 	gettimeofday(&vreq->ts, NULL);
+-	vreq->vbd = vbd;
++	vreq->vqueue = queue;
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+-	list_add_tail(&vreq->next, &vbd->new_requests);
+-	vreq->list_head = &vbd->new_requests;
++	pthread_mutex_lock(&queue->mutex);
++	list_add_tail(&vreq->next, &queue->new_requests);
++	vreq->list_head = &queue->new_requests;
+ 	vbd->received++;
+-	pthread_mutex_unlock(&vbd->mutex);
++	pthread_mutex_unlock(&queue->mutex);
+ 
++#if 0  // TODO: to be removed
+ 	if (final)
+ 		tapdisk_server_scheduler_wake();
++#endif
+ 
+ 	return 0;
+ }
+ 
+ void
+-tapdisk_vbd_kick(td_vbd_t *vbd, bool scheduler_kick)
++tapdisk_vbd_kick(td_vbd_queue_t *queue, bool scheduler_kick)
+ {
+ 	const struct list_head *list;
+ 	td_vbd_request_t *vreq, *prev, *next;
+ 	ssize_t s;
++	td_vbd_t *vbd = queue->vbd;
+ 
+-	pthread_mutex_lock(&vbd->mutex);
+ 	vbd->kicked++;
+ 
+-	list = &vbd->completed_requests;
++	pthread_mutex_lock(&queue->mutex);
++	list = &queue->completed_requests;
++
+ 	while (!list_empty(list)) {
+ 
+ 		/*
+@@ -1999,6 +2126,7 @@ tapdisk_vbd_kick(td_vbd_t *vbd, bool scheduler_kick)
+ 		tapdisk_vbd_for_each_request(vreq, next, list) {
+ 			if (vreq->token == prev->token) {
+ 
++				// FIXME: callback was initially called with vbd->mutex locked
+ 				prev->cb(prev, prev->error, prev->token, 0);
+ 				vbd->returned++;
+ 
+@@ -2007,6 +2135,7 @@ tapdisk_vbd_kick(td_vbd_t *vbd, bool scheduler_kick)
+ 			}
+ 		}
+ 
++		// FIXME: callback was initially called with vbd->mutex locked
+ 		prev->cb(prev, prev->error, prev->token, 1);
+ 		vbd->returned++;
+ 	}
+@@ -2014,15 +2143,15 @@ tapdisk_vbd_kick(td_vbd_t *vbd, bool scheduler_kick)
+ 	if (scheduler_kick && td_flag_test(vbd->driver_flags, TD_DRIVER_THREADED)) {
+ 		static uint64_t token = 1;
+ 
+-		if (vbd->efd < 0) {
+-		    pthread_mutex_unlock(&vbd->mutex);
++		if (queue->efd < 0) {
++		    pthread_mutex_unlock(&queue->mutex);
+ 		    return;
+ 		}
+ 
+-		s = write(vbd->efd, &token, sizeof(uint64_t));
++		s = write(queue->efd, &token, sizeof(uint64_t));
+ 		ASSERT(s == sizeof(uint64_t));
+ 	}
+-	pthread_mutex_unlock(&vbd->mutex);
++	pthread_mutex_unlock(&queue->mutex);
+ }
+ 
+ int
+@@ -2036,6 +2165,7 @@ tapdisk_vbd_start_nbdservers(td_vbd_t *vbd)
+ 	if (err)
+ 		return err;
+ 
++	// FIXME: force use of first queue. Could we do better ?
+ 	vbd->nbdserver = tapdisk_nbdserver_alloc(vbd, info, TAPDISK_NBD_PROTOCOL_OLD);
+ 	if (!vbd->nbdserver) {
+ 		EPRINTF("Error starting nbd server");
+@@ -2049,6 +2179,7 @@ tapdisk_vbd_start_nbdservers(td_vbd_t *vbd)
+ 		return err;
+ 	}
+ 
++	// FIXME: force use of first queue. Could we do better ?
+ 	vbd->nbdserver_new = tapdisk_nbdserver_alloc(vbd, info, TAPDISK_NBD_PROTOCOL_NEW);
+ 	if (!vbd->nbdserver_new) {
+ 		EPRINTF("Error starting new-style nbd server");
+@@ -2090,9 +2221,10 @@ tapdisk_vbd_stats(td_vbd_t *vbd, td_stats_t *st)
+ 	tapdisk_stats_enter(st, '{');
+ 	tapdisk_stats_field(st, "name", "s", vbd->name);
+ 
++	// TODO: sum every queues instead of using only first queue
+ 	tapdisk_stats_field(st, "secs", "[");
+-	tapdisk_stats_val(st, "llu", vbd->secs.rd);
+-	tapdisk_stats_val(st, "llu", vbd->secs.wr);
++	tapdisk_stats_val(st, "llu", vbd->queues[0].secs.rd);
++	tapdisk_stats_val(st, "llu", vbd->queues[0].secs.wr);
+ 	tapdisk_stats_leave(st, ']');
+ 
+ 	tapdisk_stats_field(st, "images", "[");
+diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
+index bdef458d..702d4a1f 100644
+--- a/drivers/tapdisk-vbd.h
++++ b/drivers/tapdisk-vbd.h
+@@ -50,6 +50,7 @@
+ #define TD_VBD_SECONDARY_STANDBY    2
+ 
+ struct td_nbdserver;
++struct td_vbd_queue;
+ 
+ struct td_vbd_rrd {
+ 
+@@ -118,43 +119,31 @@ struct td_vbd_handle {
+ 
+ 	int                         nbd_mirror_failed;
+ 
+-	struct list_head            new_requests;
+-	struct list_head            pending_requests;
+-	struct list_head            failed_requests;
+-	struct list_head            completed_requests;
+-
+-	/*
+-	 * Lock ordering (outermost first):
+-	 *
+-	 *   1. vbd->mutex
+-	 *   2. blkif->mutex        (td_xenblkif)
+-	 *   3. scheduler->mutex
+-	 *
+-	 * tapdisk_vbd_kick() calls completion callbacks (e.g.
+-	 * __tapdisk_xenblkif_request_cb) while holding vbd->mutex;
+-	 * those callbacks may acquire blkif->mutex.  Never acquire
+-	 * vbd->mutex while holding blkif->mutex or scheduler->mutex.
+-	 *
+-	 * For threaded drivers (TD_DRIVER_THREADED), the worker thread
+-	 * (e.g. block-qcow2) calls td_complete_request() then
+-	 * tapdisk_vbd_kick(vbd, true), both of which acquire
+-	 * vbd->mutex.  The main thread acquires vbd->mutex via
+-	 * tapdisk_vbd_issue_requests().
+-	 */
++	struct td_vbd_queue {
++		struct list_head    new_requests;
++		struct list_head    pending_requests;
++		struct list_head    failed_requests;
++		struct list_head    completed_requests;
++		struct timeval      ts;
++		uint64_t            secs_pending;
++		td_sector_count_t   secs;
++		pthread_mutex_t     mutex;
++		bool                watchdog_warned;
++		int		    efd;
++		event_id_t          event;
++		struct td_vbd_handle* vbd;
++	} queues[BLKIF_MAX_QUEUES];
+ 	pthread_mutex_t             mutex;
+ 
+ 	struct list_head            next;
+ 
+ 	uint16_t                    req_timeout; /* in seconds */
+-	struct timeval              ts;
+ 
+-	uint64_t                    received;
+-	uint64_t                    returned;
+-	uint64_t                    kicked;
+-	uint64_t                    secs_pending;
+-	uint64_t                    retries;
+-	uint64_t                    errors;
+-	td_sector_count_t           secs;
++	uint64_t                    received;   /* only for debug or display */
++	uint64_t                    returned;   /* only for debug or display */
++	uint64_t                    kicked;     /* only for debug or display */
++	uint64_t                    retries;    /* only for debug or display */
++	uint64_t                    errors;     /* only for debug or display */
+ 
+ 	struct td_nbdserver        *nbdserver;
+ 	struct td_nbdserver        *nbdserver_new;
+@@ -172,11 +161,7 @@ struct td_vbd_handle {
+ 
+ 	struct td_vbd_encryption   encryption;
+ 
+-	bool                       watchdog_warned;
+-
+ 	td_flag_t                  driver_flags;
+-	int                        efd;
+-	event_id_t                 event;
+ };
+ 
+ #define tapdisk_vbd_for_each_request(vreq, tmp, list)	                \
+@@ -221,20 +206,22 @@ void tapdisk_vbd_close_vdi(td_vbd_t *);
+ int tapdisk_vbd_attach(td_vbd_t *, const char *, int);
+ void tapdisk_vbd_detach(td_vbd_t *);
+ 
+-int tapdisk_vbd_queue_request(td_vbd_t *, td_vbd_request_t *, bool);
++int tapdisk_vbd_queue_request(td_vbd_t *, td_vbd_request_t *, td_queue_id_t, bool);
+ void tapdisk_vbd_forward_request(td_request_t);
+ 
+ int tapdisk_vbd_get_disk_info(td_vbd_t *, td_disk_info_t *);
+-bool tapdisk_vbd_retry_needed(td_vbd_t *);
++bool tapdisk_vbd_retry_needed(td_vbd_queue_t *);
++bool tapdisk_vbd_pending_queues(td_vbd_t *vbd);
++bool tapdisk_vbd_failed_queues(td_vbd_t *vbd);
+ int tapdisk_vbd_quiesce_queue(td_vbd_t *);
+ int tapdisk_vbd_start_queue(td_vbd_t *);
+-int tapdisk_vbd_issue_requests(td_vbd_t *);
++int tapdisk_vbd_issue_requests(td_vbd_queue_t *);
+ int tapdisk_vbd_kill_queue(td_vbd_t *);
+ int tapdisk_vbd_pause(td_vbd_t *);
+ void tapdisk_vbd_squash_pause_logging(bool squash);
+ int tapdisk_vbd_resume(td_vbd_t *, const char *, td_err *);
+-void tapdisk_vbd_kick(td_vbd_t *, bool);
+-void tapdisk_vbd_check_state(td_vbd_t *);
++void tapdisk_vbd_kick(td_vbd_queue_t *, bool);
++void tapdisk_vbd_check_state(td_vbd_queue_t *);
+ void tapdisk_vbd_free(td_vbd_t *);
+ int tapdisk_vbd_commit(td_vbd_t *, const char *);
+ int tapdisk_vbd_query_commit_job(td_vbd_t *, td_query_t *);
+@@ -242,7 +229,7 @@ int tapdisk_vbd_cancel_commit_job(td_vbd_t *, bool);
+ 
+ void tapdisk_vbd_complete_td_request(td_request_t, int);
+ int add_extent(tapdisk_extents_t *, td_request_t *);
+-int tapdisk_vbd_issue_request(td_vbd_t *, td_vbd_request_t *);
++int tapdisk_vbd_issue_request(td_vbd_queue_t *, td_vbd_request_t *);
+ 
+ /**
+  * Checks whether there are new requests and if so it submits them, prodived
+@@ -250,9 +237,9 @@ int tapdisk_vbd_issue_request(td_vbd_t *, td_vbd_request_t *);
+  *
+  * Returns 1 if new requests have been issued, otherwise it returns 0.
+  */
+-int tapdisk_vbd_recheck_state(td_vbd_t *);
++int tapdisk_vbd_recheck_state(td_vbd_queue_t *);
+ 
+-void tapdisk_vbd_check_progress(td_vbd_t *);
++void tapdisk_vbd_check_progress(td_vbd_queue_t *);
+ void tapdisk_vbd_debug(td_vbd_t *);
+ int tapdisk_vbd_start_nbdservers(td_vbd_t *);
+ void tapdisk_vbd_stats(td_vbd_t *, td_stats_t *);
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index dedb0eda..c19b4604 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -125,6 +125,7 @@ typedef struct td_image_handle       td_image_t;
+ typedef struct td_sector_count       td_sector_count_t;
+ typedef struct td_vbd_request        td_vbd_request_t;
+ typedef struct td_vbd_handle         td_vbd_t;
++typedef struct td_vbd_queue          td_vbd_queue_t;
+ typedef struct td_query              td_query_t;
+ 
+ /* 
+@@ -173,7 +174,7 @@ struct td_vbd_request {
+ 	/* When "reading-through" the local cache, don't write back to the source */
+ 	bool                        skip_mirror;
+ 
+-	td_vbd_t                   *vbd;
++	td_vbd_queue_t             *vqueue;
+ 	struct list_head            next;
+ 	struct list_head           *list_head;
+ };
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 40d800a9..1ac3ec15 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -737,7 +737,7 @@ tapdisk_xenblkif_parse_request(struct td_blkif_queue* const queue,
+ 			blkif->stats.xenvbd->st_rd_sect += nr_sect;
+ 		if (likely(blkif->vbd_stats.stats))
+ 			blkif->vbd_stats.stats->read_sectors += nr_sect;
+-    } 
++    }
+ 
+     vreq->token = queue;
+     vreq->cb = __tapdisk_xenblkif_request_cb;
+@@ -881,7 +881,10 @@ tapdisk_xenblkif_queue_request(struct td_blkif_queue * const queue,
+     }
+ 
+ 	if (likely(queue_request)) {
+-		err = tapdisk_vbd_queue_request(queue->blkif->vbd, &req->vreq, final);
++		td_queue_id_t qid = tapdisk_xenblkif_queue_id(queue);
++
++		// XXX: be careful to matching of queue IDs between blkif and VBD
++		err = tapdisk_vbd_queue_request(queue->blkif->vbd, &req->vreq, qid, final);
+ 		if (unlikely(err)) {
+ 			/* TODO log error */
+ 			queue->blkif->stats.errors.vbd++;
+diff --git a/mockatests/drivers/Makefile.am b/mockatests/drivers/Makefile.am
+index 2dab8c76..b77bfd3e 100644
+--- a/mockatests/drivers/Makefile.am
++++ b/mockatests/drivers/Makefile.am
+@@ -16,6 +16,7 @@ test_drivers_LDFLAGS += -Wl,--wrap=tapdisk_image_check_request
+ test_drivers_LDFLAGS += -Wl,--wrap=td_queue_block_status
+ test_drivers_LDFLAGS += -Wl,--wrap=send
+ test_drivers_LDFLAGS += -Wl,--wrap=tapdisk_server_register_event
++test_drivers_LDFLAGS += -Wl,--wrap=tapdisk_server_register_io_event
+ test_drivers_LDFLAGS += -Wl,--wrap=gettimeofday
+ 
+ # test-td-req includes td-req.c directly to exercise its static request
+diff --git a/mockatests/drivers/test-tapdisk-nbdserver.c b/mockatests/drivers/test-tapdisk-nbdserver.c
+index 0326cdec..029067a1 100644
+--- a/mockatests/drivers/test-tapdisk-nbdserver.c
++++ b/mockatests/drivers/test-tapdisk-nbdserver.c
+@@ -63,8 +63,9 @@ test_nbdserver_new_protocol_handshake(void **state)
+ 
+ 	client.server = &server;
+ 
+-	expect_ptr_value(__wrap_tapdisk_server_register_event, cb, tapdisk_nbdserver_handshake_cb);
+-	expect_int_value(__wrap_tapdisk_server_register_event, mode, SCHEDULER_POLL_READ_FD);
++	expect_ptr_value(__wrap_tapdisk_server_register_io_event, cb, tapdisk_nbdserver_handshake_cb);
++	expect_int_value(__wrap_tapdisk_server_register_io_event, mode, SCHEDULER_POLL_READ_FD);
++	expect_uint_value(__wrap_tapdisk_server_register_io_event, qid, NBD_SERVER_QUEUE_ID);
+ 	int err = tapdisk_nbdserver_new_protocol_handshake(&client, new_fd);
+ 	assert_int_equal(err, 0);
+ }
+diff --git a/mockatests/drivers/test-tapdisk-vbd.c b/mockatests/drivers/test-tapdisk-vbd.c
+index ef46992c..03bdecd4 100644
+--- a/mockatests/drivers/test-tapdisk-vbd.c
++++ b/mockatests/drivers/test-tapdisk-vbd.c
+@@ -73,7 +73,13 @@ test_vbd_issue_request(void **stat)
+ 	td_vbd_t vbd;
+ 	bzero(&vbd, sizeof(td_vbd_t));
+ 	INIT_LIST_HEAD(&vbd.images);
+-	INIT_LIST_HEAD(&vbd.pending_requests);
++	td_vbd_queue_t *queue = &vbd.queues[0];
++	queue->vbd = &vbd;
++	INIT_LIST_HEAD(&queue->new_requests);
++	INIT_LIST_HEAD(&queue->pending_requests);
++	INIT_LIST_HEAD(&queue->failed_requests);
++	INIT_LIST_HEAD(&queue->completed_requests);
++	pthread_mutex_init(&queue->mutex, NULL);
+ 	td_image_t *image = tapdisk_image_allocate("blah", DISK_TYPE_VHD, TD_OPEN_RDONLY | TD_OPEN_SHAREABLE);
+ 	list_add_tail(&image->next, &vbd.images);
+ 
+@@ -98,11 +104,11 @@ test_vbd_issue_request(void **stat)
+ 	my_treq.vreq           = &vreq;
+ 	my_treq.op = TD_OP_BLOCK_STATUS;
+ 	my_treq.cb = tapdisk_vbd_complete_block_status_request;
+-	
++
+ 	expect_memory(__wrap_td_queue_block_status, treq, &my_treq, sizeof(my_treq));
+-	
++
+ 	will_return(__wrap_tapdisk_image_check_request, 0);
+-	int err = tapdisk_vbd_issue_request(&vbd, &vreq);
++	int err = tapdisk_vbd_issue_request(queue, &vreq);
+ 	assert_int_equal(err, 0);
+ 	tapdisk_image_free(image);
+ }
+@@ -114,17 +120,23 @@ test_vbd_complete_block_status_request(void **stat)
+ 	td_vbd_t vbd;
+ 	bzero(&vbd, sizeof(td_vbd_t));
+ 	INIT_LIST_HEAD(&vbd.images);
+-	INIT_LIST_HEAD(&vbd.pending_requests);
++	td_vbd_queue_t *queue = &vbd.queues[0];
++	queue->vbd = &vbd;
++	INIT_LIST_HEAD(&queue->new_requests);
++	INIT_LIST_HEAD(&queue->pending_requests);
++	INIT_LIST_HEAD(&queue->failed_requests);
++	INIT_LIST_HEAD(&queue->completed_requests);
++	pthread_mutex_init(&queue->mutex, NULL);
+ 	td_image_t *image = tapdisk_image_allocate("blah", DISK_TYPE_VHD, TD_OPEN_RDONLY | TD_OPEN_SHAREABLE);
+ 	list_add_tail(&image->next, &vbd.images);
+ 
+ 	tapdisk_extents_t *extents = malloc(sizeof(*extents));
+ 	bzero(extents, sizeof(*extents));
+-	
++
+ 	td_vbd_request_t vreq;
+ 	bzero(&vreq, sizeof(td_vbd_request_t));
+ 	INIT_LIST_HEAD(&vreq.next);
+-	vreq.vbd = &vbd;
++	vreq.vqueue = queue;
+ 	vreq.iovcnt = 1;
+ 	struct td_iovec iov;
+ 	iov.base = 0;
+diff --git a/mockatests/drivers/test-td-req.c b/mockatests/drivers/test-td-req.c
+index 640e6ff5..f1286c0f 100644
+--- a/mockatests/drivers/test-td-req.c
++++ b/mockatests/drivers/test-td-req.c
+@@ -84,7 +84,7 @@ tapdisk_server_io_event_set_timeout(td_queue_id_t qid, event_id_t id,
+ 
+ int
+ tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq,
+-		bool locked)
++		td_queue_id_t qid, bool locked)
+ {
+ 	return 0;
+ }
+diff --git a/mockatests/drivers/vbd-wrappers.c b/mockatests/drivers/vbd-wrappers.c
+index 5781385f..6e8741ec 100644
+--- a/mockatests/drivers/vbd-wrappers.c
++++ b/mockatests/drivers/vbd-wrappers.c
+@@ -69,3 +69,13 @@ __wrap_tapdisk_server_register_event(char mode, int fd,
+ 	return 0;
+ }
+ 
++event_id_t
++__wrap_tapdisk_server_register_io_event(td_queue_id_t qid, char mode, int fd,
++                              struct timeval timeout, event_cb_t cb, void *data)
++{
++	check_expected_uint(qid);
++	check_expected_int(mode);
++	check_expected_ptr(cb);
++	return 0;
++}
++
+diff --git a/tapback/tapback.c b/tapback/tapback.c
+index 75383405..d3bd3913 100644
+--- a/tapback/tapback.c
++++ b/tapback/tapback.c
+@@ -498,6 +498,7 @@ usage(FILE * const stream, const char * const prog)
+ 
+     fprintf(stream,
+             "usage: %s\n"
++            "\t[-x|--domid]\n"
+             "\t[-d|--debug]\n"
+             "\t[-h|--help]\n"
+             "\t[-v|--verbose]\n"

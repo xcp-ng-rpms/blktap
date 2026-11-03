@@ -1,0 +1,523 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Wed, 1 Jul 2026 17:02:53 +0200
+Subject: [PATCH] WIP: fix blkif destroy (part 2)
+
+---
+ drivers/tapdisk-control.c        | 10 ++--
+ drivers/tapdisk-server.c         | 66 +++++++++++++++++++++-
+ drivers/tapdisk-server.h         |  6 ++
+ drivers/tapdisk-vbd.h            |  8 +--
+ drivers/td-blkif.c               | 94 ++++++++++++++++++++++----------
+ drivers/td-blkif.h               | 10 ++++
+ drivers/td-ctx.c                 |  9 +++
+ drivers/td-req.c                 | 76 +++++++++-----------------
+ mockatests/drivers/test-td-req.c |  5 ++
+ 9 files changed, 196 insertions(+), 88 deletions(-)
+
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index 157a4ad0..425a7121 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -941,9 +941,11 @@ tapdisk_control_close_image(struct tapdisk_ctl_conn *conn,
+ 
+ 	if(request->type != TAPDISK_MESSAGE_FORCE_SHUTDOWN) {
+ 		/*
+-		 * Wait for requests against dead rings to complete, otherwise, if we
+-		 * proceed with tearing down the VBD, we will free memory that will later
+-		 * be accessed by these requests, and this will lead to a crash.
++		 * Wait for requests against dead blkifs to complete, otherwise, if
++		 * we proceed with tearing down the VBD, we will free memory that
++		 * will later be accessed by these requests, and this will lead to
++		 * a crash. The reaper event destroys the drained blkifs as this
++		 * loop iterates the main scheduler.
+ 		 */
+ 
+ 		/* There's no concurrency issue since we are already called
+@@ -960,7 +962,7 @@ tapdisk_control_close_image(struct tapdisk_ctl_conn *conn,
+ 			tapdisk_server_iterate();
+ 	}
+ 	else {
+-		DPRINTF("Ignoring dead rings in forced shutdown mode\n");
++		DPRINTF("Ignoring dead blkifs in forced shutdown mode\n");
+ 	}
+ 
+ 	if (!err) {
+diff --git a/drivers/tapdisk-server.c b/drivers/tapdisk-server.c
+index e81b3ba4..daff4b8f 100644
+--- a/drivers/tapdisk-server.c
++++ b/drivers/tapdisk-server.c
+@@ -101,6 +101,14 @@ typedef struct tapdisk_server {
+ 	event_id_t                   tlog_reopen_evid;
+ 	event_id_t                   signal_handler_evid;
+ 	int			     sigfd;
++
++	/*
++	 * Written by IO threads when the last request of a dead blkif
++	 * completes; the handler on the main scheduler reaps the dead
++	 * blkifs (see tapdisk_xenblkif_reap()).
++	 */
++	int                          reaper_eventfd;
++	event_id_t                   reaper_evid;
+ } tapdisk_server_t;
+ 
+ static tapdisk_server_t server;
+@@ -312,6 +320,38 @@ tapdisk_server_set_io_max_timeout(td_queue_id_t qid, int seconds)
+ 	scheduler_set_max_timeout(&server.io_threads[qid].scheduler, TV_SECS(seconds));
+ }
+ 
++void
++tapdisk_server_reaper_wake(void)
++{
++	uint64_t incr = 1;
++	int n;
++
++	if (server.reaper_eventfd == -1)
++		return;
++
++	n = write(server.reaper_eventfd, &incr, sizeof(incr));
++	ASSERT(n == 8);
++}
++
++static void
++tapdisk_server_reaper_event(event_id_t id __attribute__((unused)),
++			    char mode __attribute__((unused)),
++			    void *private __attribute__((unused)))
++{
++	td_vbd_t *vbd, *tmp;
++	uint64_t cnt;
++	int n;
++
++	n = read(server.reaper_eventfd, &cnt, sizeof(cnt));
++	ASSERT(n == 8);
++
++	tapdisk_server_for_each_vbd(vbd, tmp) {
++		struct td_xenblkif *blkif, *tmpb;
++
++		list_for_each_entry_safe(blkif, tmpb, &vbd->dead_rings, entry)
++			tapdisk_xenblkif_reap(blkif);
++	}
++}
+ 
+ static void
+ tapdisk_server_set_retry_timeout(td_queue_id_t qid)
+@@ -469,6 +509,12 @@ tapdisk_server_close(void)
+ {
+ 	tapdisk_server_io_thread_release();
+ 
++	if (likely(server.reaper_evid >= 0))
++		tapdisk_server_unregister_event(server.reaper_evid);
++
++	if (likely(server.reaper_eventfd != -1))
++		close(server.reaper_eventfd);
++
+ 	if (likely(server.tlog_reopen_evid >= 0))
+ 		tapdisk_server_unregister_event(server.tlog_reopen_evid);
+ 
+@@ -897,6 +943,8 @@ tapdisk_server_init(void)
+ 
+ 	server.tlog_reopen_evid = -1;
+ 	server.signal_handler_evid = -1;
++	server.reaper_eventfd = -1;
++	server.reaper_evid = -1;
+ 
+ 	scheduler_initialize(&server.scheduler);
+ 
+@@ -968,7 +1016,6 @@ tapdisk_server_io_thread_init(void)
+ 			goto fail;
+ 		}
+ 		server.io_threads[qid].eventfd = fd;
+-
+ 		server.io_threads[qid].eventid =
+ 			tapdisk_server_register_io_event(qid,
+ 							 SCHEDULER_POLL_READ_FD,
+@@ -1026,6 +1073,23 @@ tapdisk_server_complete(void)
+ 	if (err)
+ 		goto fail;
+ 
++	/* Must exist before the IO threads that write to it are started. */
++	server.reaper_eventfd = eventfd(0, 0);
++	if (server.reaper_eventfd == -1) {
++		err = -errno;
++		EPRINTF("failed to create reaper eventfd: %s\n", strerror(errno));
++		goto fail;
++	}
++
++	err = tapdisk_server_register_event(SCHEDULER_POLL_READ_FD,
++					    server.reaper_eventfd, TV_INF,
++					    tapdisk_server_reaper_event, NULL);
++	if (err < 0) {
++		EPRINTF("failed to register reaper event: %s\n", strerror(-err));
++		goto fail;
++	}
++	server.reaper_evid = err;
++
+ 	err = tapdisk_server_io_thread_init();
+ 	if (err)
+ 		goto fail;
+diff --git a/drivers/tapdisk-server.h b/drivers/tapdisk-server.h
+index 2671a4b8..2cb2b2c7 100644
+--- a/drivers/tapdisk-server.h
++++ b/drivers/tapdisk-server.h
+@@ -72,6 +72,12 @@ void tapdisk_server_mask_io_event(td_queue_id_t qid, event_id_t, int);
+ void tapdisk_server_set_io_max_timeout(td_queue_id_t qid, int);
+ void tapdisk_server_io_scheduler_wake(td_queue_id_t);
+ 
++/*
++ * Callable from IO threads: asks the main thread to reap the dead
++ * blkifs (destroy those whose queues are all drained).
++ */
++void tapdisk_server_reaper_wake(void);
++
+ int tapdisk_server_init(void);
+ int tapdisk_server_initialize(const char *, const char *);
+ int tapdisk_server_complete(void);
+diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
+index a8418a74..1dbf1323 100644
+--- a/drivers/tapdisk-vbd.h
++++ b/drivers/tapdisk-vbd.h
+@@ -81,10 +81,10 @@ struct td_vbd_handle {
+ 	struct list_head           rings;
+ 
+ 	/**
+-	 * List of rings that contain pending requests but a disconnection was
+-	 * issued. We need to maintain these rings until all their pending requests
+-	 * complete. When the last request completes, the ring is destroyed and
+-	 * removed from this list.
++	 * List of blkifs for which a disconnection was issued. We need to
++	 * maintain them until all their pending requests complete. Once every
++	 * queue is drained, the reaper on the main thread destroys the blkif
++	 * and removes it from this list.
+ 	 */
+ 	struct list_head            dead_rings;
+ 
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index 136ce8a9..73d79d37 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -285,11 +285,49 @@ tapdisk_xenblkif_reqs_pending(const struct td_blkif_queue * const queue)
+ }
+ 
+ 
++/**
++ * Destroys the block interface once it is fully drained. Must only be
++ * called from the main thread, the sole owner of blkif teardown: IO
++ * threads wake the reaper (tapdisk_server_reaper_wake()) instead of
++ * destroying anything themselves.
++ *
++ * Taking and releasing each queue's lock is a handshake: the completion
++ * epilogue runs under the lock, so a queue observed drained here cannot
++ * have an IO thread still inside its critical section. New requests
++ * cannot come in either: process_ring bails out on dead blkifs.
++ *
++ * @param blkif a dead block interface
++ * @returns true if the block interface was destroyed
++ */
++bool
++tapdisk_xenblkif_reap(struct td_xenblkif *blkif)
++{
++    ASSERT(blkif);
++    ASSERT(blkif->dead);
++
++    for (int qid = 0; qid < blkif->nr_queues; qid++) {
++        struct td_blkif_queue *queue = &blkif->queues[qid];
++        bool pending;
++
++        pthread_mutex_lock(&queue->mutex);
++        pending = tapdisk_xenblkif_reqs_pending(queue) != 0;
++        pthread_mutex_unlock(&queue->mutex);
++
++        if (pending)
++            return false;
++    }
++
++    RING_DEBUG(blkif, "destroying dead ring\n");
++    tapdisk_xenblkif_destroy(blkif);
++
++    return true;
++}
++
++
+ int
+ tapdisk_xenblkif_disconnect(const domid_t domid, const int devid)
+ {
+     int err;
+-    bool pending = false;
+     struct td_xenblkif *blkif;
+ 
+     blkif = tapdisk_xenblkif_find(domid, devid);
+@@ -306,38 +344,38 @@ tapdisk_xenblkif_disconnect(const domid_t domid, const int devid)
+                 RING_ERR(blkif, "disconnect from ring with %d pending requests "
+                          "and the VBD paused\n",
+                          queue->ring_size - queue->n_reqs_free);
+-
+-            if (queue->ctx) {
+-                tapdisk_xenio_ctx_unbind_queue(queue->ctx, queue);
+-            }
+-
+-            if (!blkif->dead) {
+-                list_move(&blkif->entry, &blkif->vbd->dead_rings);
+-                blkif->dead = true;
+-
+-                err = td_metrics_vbd_stop(&blkif->vbd_stats);
+-                if (unlikely(err))
+-                    EPRINTF("failed to destroy blkfront stats file: %s\n", strerror(-err));
+-
+-                err = tapdisk_xenblkif_stats_destroy(blkif);
+-                if (unlikely(err))
+-                    EPRINTF("failed to clean up ring stats file: %s (error ignored)\n",
+-                            strerror(-err));
+-            }
+-
+-            pending = true;
+         }
+     }
+ 
+-    if (pending)
++    if (!blkif->dead) {
+         /*
+-         * FIXME shall we unmap the ring or will that lead to some fatal error
+-         * in tapdisk? IIUC if we don't unmap it we'll get errors during grant
+-         * copy.
++         * Mark the blkif dead first: process_ring bails out on dead
++         * blkifs, so no new request can be picked up once this store is
++         * visible. Event channels and ring mappings stay in place until
++         * tapdisk_xenblkif_destroy() -- spurious events are ignored
++         * thanks to the dead check, and in-flight completions still need
++         * the ring to drain.
+          */
+-        return 0;
+-    else
+-        return tapdisk_xenblkif_destroy(blkif);
++        blkif->dead = true;
++        list_move(&blkif->entry, &blkif->vbd->dead_rings);
++
++        err = td_metrics_vbd_stop(&blkif->vbd_stats);
++        if (unlikely(err))
++            EPRINTF("failed to destroy blkfront stats file: %s\n", strerror(-err));
++
++        err = tapdisk_xenblkif_stats_destroy(blkif);
++        if (unlikely(err))
++            EPRINTF("failed to clean up ring stats file: %s (error ignored)\n",
++                    strerror(-err));
++    }
++
++    /*
++     * Destroy right away if every queue is already drained; otherwise the
++     * IO threads wake the reaper when the last request completes.
++     */
++    tapdisk_xenblkif_reap(blkif);
++
++    return 0;
+ }
+ 
+ 
+diff --git a/drivers/td-blkif.h b/drivers/td-blkif.h
+index 24561d1d..cdcea12d 100644
+--- a/drivers/td-blkif.h
++++ b/drivers/td-blkif.h
+@@ -277,6 +277,16 @@ tapdisk_xenblkif_disconnect(const domid_t domid, const int devid);
+ int
+ tapdisk_xenblkif_destroy(struct td_xenblkif * blkif);
+ 
++/**
++ * Destroys a dead block interface if all its queues are drained.
++ * Main thread only.
++ *
++ * @param blkif a dead block interface
++ * @returns true if the block interface was destroyed
++ */
++bool
++tapdisk_xenblkif_reap(struct td_xenblkif *blkif);
++
+ /**
+  * Searches all block interfaces in all contexts for a block interface
+  * having the specified domain and device ID. Dead block interfaces are
+diff --git a/drivers/td-ctx.c b/drivers/td-ctx.c
+index 1a854597..ced0563f 100644
+--- a/drivers/td-ctx.c
++++ b/drivers/td-ctx.c
+@@ -245,6 +245,15 @@ tapdisk_xenio_ctx_process_ring(struct td_blkif_queue *queue, bool final)
+     pthread_mutex_lock(&queue->mutex);
+     start = queue->n_reqs_free;
+ 
++    /*
++     * The blkif is being torn down: stop taking new requests so the drain
++     * state observed by tapdisk_xenblkif_reap() is stable.
++     */
++    if (unlikely(blkif->dead)) {
++        pthread_mutex_unlock(&queue->mutex);
++        return 0;
++    }
++
+     if (unlikely(queue->barrier.msg)) {
+         pthread_mutex_unlock(&queue->mutex);
+         return 0;
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 71cc6e46..c8c2086e 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -451,17 +451,18 @@ out:
+ 
+ 
+ /**
+- * Completes a request. If this is the last pending request of a dead block
+- * interface, the block interface is destroyed, the caller must not access it
+- * any more.
++ * Completes a request. Never destroys the block interface: when the last
++ * pending request of a dead block interface completes, the reaper on the
++ * main thread is woken up and performs the destruction once every queue
++ * is drained (see tapdisk_xenblkif_reap()).
+  *
+  * @blkif the VBD the request belongs belongs to
+  * @req the request to complete
+  * @error completion status of the request
+  * @final controls whether the other end should be notified
+- * @lock must always be true except in this function to control recursion
++ * @lock false when the caller already holds queue->mutex (barrier paths)
+  */
+-static bool
++static void
+ tapdisk_xenblkif_complete_request(struct td_blkif_queue * const queue,
+ 		struct td_xenblkif_req* req, int err, const bool final,
+ 		bool lock)
+@@ -469,8 +470,8 @@ tapdisk_xenblkif_complete_request(struct td_blkif_queue * const queue,
+ 	int _err;
+ 	long long *max = NULL, *sum = NULL, *cnt = NULL;
+ 	bool processing_barrier_message;
+-	bool blkif_destroyed = false;
+ 	uint64_t *ticks = NULL;
++	bool drained = false;
+ 
+ 	ASSERT(queue);
+ 	ASSERT(req);
+@@ -582,46 +583,25 @@ tapdisk_xenblkif_complete_request(struct td_blkif_queue * const queue,
+ 		/*
+ 		 * If this is the last request, complete the barrier request.
+ 		 */
+-		if (tapdisk_xenblkif_barrier_should_complete(queue)) {
+-			blkif_destroyed = tapdisk_xenblkif_complete_request(queue,
+-					msg_to_tapreq(queue->barrier.msg), 0, 1, false);
+-			/*
+-			 * blkif_destroyed must be false here: the recursive call
+-			 * above runs with queue->complete_depth > 1, so it cannot
+-			 * take the ring-destruction branch. It must not, since we
+-			 * still dereference queue and blkif below.
+-			 */
+-			ASSERT(!blkif_destroyed);
+-		}
++		if (tapdisk_xenblkif_barrier_should_complete(queue))
++			tapdisk_xenblkif_complete_request(queue,
++					msg_to_tapreq(queue->barrier.msg), 0, true, false);
+ 	}
+ 
+ 	/*
+-	 * Last request of a dead ring completes, destroy the ring.
++	 * Last request of a dead ring completed: wake up the reaper on the
++	 * main thread, which destroys the blkif once every queue is drained.
++	 * IO threads never destroy the blkif themselves.
+ 	 */
+-	if (unlikely(1 == queue->complete_depth
+-		&& blkif->dead
+-		&& !tapdisk_xenblkif_reqs_pending(queue))) {
++	drained = unlikely(blkif->dead) && !tapdisk_xenblkif_reqs_pending(queue);
+ 
+-		RING_DEBUG(blkif, "destroying dead ring\n");
+-		queue->complete_depth--;
+-		/*
+-		 * Unlock before destroy: tapdisk_xenblkif_destroy() frees the
+-		 * blkif and its queues (mutex included), so don't touch the
+-		 * queue past this point.
+-		 */
++out:
++	queue->complete_depth--;
++	if (lock)
+ 		pthread_mutex_unlock(&queue->mutex);
+-		tapdisk_xenblkif_destroy(blkif);
+-		blkif_destroyed = true;
+-		lock = false; /* blkif with its mutex were destroyed above so don't try to unlock it */
+-	}
+ 
+-out:
+-	if (!blkif_destroyed) {
+-		queue->complete_depth--;
+-		if (lock)
+-			pthread_mutex_unlock(&queue->mutex);
+-	}
+-	return blkif_destroyed;
++	if (unlikely(drained))
++		tapdisk_server_reaper_wake();
+ }
+ 
+ /**
+@@ -798,7 +778,6 @@ tapdisk_xenblkif_make_vbd_request(struct td_blkif_queue* queue,
+     int err = 0;
+     td_vbd_request_t *vreq;
+     struct td_xenblkif * const blkif = queue->blkif;
+-    bool blkif_freed = false;
+ 
+     ASSERT(queue);
+     ASSERT(req);
+@@ -863,12 +842,11 @@ tapdisk_xenblkif_make_vbd_request(struct td_blkif_queue* queue,
+     } else {
+         pthread_mutex_lock(&queue->mutex);
+         if (tapdisk_xenblkif_barrier_should_complete(queue)) {
+-            blkif_freed = tapdisk_xenblkif_complete_request(queue,
+-                    msg_to_tapreq(queue->barrier.msg), 0, 1, false);
++            tapdisk_xenblkif_complete_request(queue,
++                    msg_to_tapreq(queue->barrier.msg), 0, true, false);
+             err = 0;
+         }
+-        if (!blkif_freed)
+-            pthread_mutex_unlock(&queue->mutex);
++        pthread_mutex_unlock(&queue->mutex);
+     }
+ out:
+     return err;
+@@ -936,12 +914,11 @@ tapdisk_xenblkif_queue_requests(struct td_blkif_queue * const queue,
+     int i;
+     int err;
+     int nr_errors = 0;
+-    bool blkif_freed = false;
+ 
+     ASSERT(reqs);
+     ASSERT(nr_reqs >= 0);
+ 
+-    for (i = 0; i < nr_reqs && !blkif_freed; i++) { /* for each request in the ring... */
++    for (i = 0; i < nr_reqs; i++) { /* for each request in the ring... */
+         blkif_request_t *msg = reqs[i];
+         struct td_xenblkif_req *req;
+ 
+@@ -955,14 +932,11 @@ tapdisk_xenblkif_queue_requests(struct td_blkif_queue * const queue,
+         if (err) {
+             /* TODO log error */
+             nr_errors++;
+-            blkif_freed = tapdisk_xenblkif_complete_request(queue, req, err, 1, true);
++            tapdisk_xenblkif_complete_request(queue, req, err, 1, true);
+         }
+     }
+ 
+-    /* there is a possibility of blkif getting freed if ring is 
+-       dead and current request is the last one, hence adding 
+-       this check to avoid seg fault */
+-    if (nr_errors && !blkif_freed) {
++    if (nr_errors) {
+ 	struct td_xenblkif * const blkif = queue->blkif;
+ 
+ 	ASSERT(blkif);
+diff --git a/mockatests/drivers/test-td-req.c b/mockatests/drivers/test-td-req.c
+index f1286c0f..d7dfe5e6 100644
+--- a/mockatests/drivers/test-td-req.c
++++ b/mockatests/drivers/test-td-req.c
+@@ -82,6 +82,11 @@ tapdisk_server_io_event_set_timeout(td_queue_id_t qid, event_id_t id,
+ 	return 0;
+ }
+ 
++void
++tapdisk_server_reaper_wake(void)
++{
++}
++
+ int
+ tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq,
+ 		td_queue_id_t qid, bool locked)

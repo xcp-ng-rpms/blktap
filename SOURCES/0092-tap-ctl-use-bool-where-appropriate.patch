@@ -1,0 +1,233 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Thu, 5 Feb 2026 10:51:23 +0100
+Subject: [PATCH] tap-ctl: use bool where appropriate
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ control/tap-ctl-allocate.c |  4 ++--
+ control/tap-ctl-close.c    |  2 +-
+ control/tap-ctl-destroy.c  |  4 ++--
+ control/tap-ctl-ipc.c      |  2 +-
+ control/tap-ctl.c          | 32 ++++++++++++++++++--------------
+ include/tap-ctl.h          |  8 ++++----
+ 6 files changed, 28 insertions(+), 24 deletions(-)
+
+diff --git a/control/tap-ctl-allocate.c b/control/tap-ctl-allocate.c
+index b692261b..e719aa39 100644
+--- a/control/tap-ctl-allocate.c
++++ b/control/tap-ctl-allocate.c
+@@ -172,7 +172,7 @@ tap_ctl_allocate_device(int *minor, char **devname)
+ 	char *name;
+ 	int fd, err;
+ 	struct blktap2_handle handle;
+-	char free_devname = 0;
++	bool free_devname = false;
+ 
+ 	*minor = -1;
+ 	if (!devname)
+@@ -216,7 +216,7 @@ tap_ctl_allocate_device(int *minor, char **devname)
+ 			goto fail;
+ 		}
+ 		*devname = name;
+-		free_devname = 1;
++		free_devname = true;
+ 	}
+ 
+ 	err = tap_ctl_make_device(name, handle.device,
+diff --git a/control/tap-ctl-close.c b/control/tap-ctl-close.c
+index 00fa8887..6f46b984 100644
+--- a/control/tap-ctl-close.c
++++ b/control/tap-ctl-close.c
+@@ -29,7 +29,7 @@
+ #include "tap-ctl.h"
+ 
+ int
+-tap_ctl_close(const int id, const int minor, const int force,
++tap_ctl_close(const int id, const int minor, const bool force,
+             struct timeval *timeout)
+ {
+     int err;
+diff --git a/control/tap-ctl-destroy.c b/control/tap-ctl-destroy.c
+index e93d1030..29afba3e 100644
+--- a/control/tap-ctl-destroy.c
++++ b/control/tap-ctl-destroy.c
+@@ -31,11 +31,11 @@
+ 
+ int
+ tap_ctl_destroy(const int id, const int minor,
+-		int force, struct timeval *timeout)
++		bool force, struct timeval *timeout)
+ {
+ 	int err;
+ 
+-	err = tap_ctl_close(id, minor, 0, timeout);
++	err = tap_ctl_close(id, minor, false, timeout);
+ 	if (err)
+ 		return err;
+ 
+diff --git a/control/tap-ctl-ipc.c b/control/tap-ctl-ipc.c
+index 2c741056..0c18bac9 100644
+--- a/control/tap-ctl-ipc.c
++++ b/control/tap-ctl-ipc.c
+@@ -35,7 +35,7 @@
+ #include "compiler.h"
+ #include "util.h"
+ 
+-int tap_ctl_debug = 0;
++bool tap_ctl_debug = false;
+ 
+ #define eintr_retry(res, op) \
+ 	do {		     \
+diff --git a/control/tap-ctl.c b/control/tap-ctl.c
+index b27b4f82..235ffeb0 100644
+--- a/control/tap-ctl.c
++++ b/control/tap-ctl.c
+@@ -115,7 +115,8 @@ int
+ tap_cli_list(int argc, char **argv, td_err *error)
+ {
+ 	struct list_head list = LIST_HEAD_INIT(list);
+-	int c, minor, tty, err;
++	int c, minor, err;
++	bool tty;
+ 	const char *type, *file;
+ 	tap_list_t *entry;
+ 	pid_t pid;
+@@ -206,7 +207,7 @@ tap_cli_allocate(int argc, char **argv, td_err *error)
+ {
+ 	char *devname;
+ 	int c, minor, err;
+-	char d_flag = 0;
++	bool d_flag = false;
+ 
+ 	devname = NULL;
+ 	td_err_init_errno(error);
+@@ -216,7 +217,7 @@ tap_cli_allocate(int argc, char **argv, td_err *error)
+ 		switch (c) {
+ 		case 'd':
+ 			devname = optarg;
+-			d_flag = 1;
++			d_flag = true;
+ 			break;
+ 		case '?':
+ 			goto usage;
+@@ -300,7 +301,7 @@ tap_cli_create(int argc, char **argv, td_err *error)
+ {
+ 	int c, flags, prt_minor, timeout, err;
+ 	char *args, *devname, *secondary;
+-	char d_flag = 0;
++	bool d_flag = false;
+ 	char *logpath = NULL;
+ 
+ 	args      = NULL;
+@@ -319,7 +320,7 @@ tap_cli_create(int argc, char **argv, td_err *error)
+ 			break;
+ 		case 'd':
+ 			devname = optarg;
+-			d_flag = 1;
++			d_flag = true;
+ 			break;
+ 		case 'R':
+ 			flags |= TAPDISK_MESSAGE_FLAG_RDONLY;
+@@ -448,7 +449,8 @@ tap_cli_spawn_usage(FILE *stream)
+ static int
+ tap_cli_spawn(int argc, char **argv, td_err *error)
+ {
+-	int c, tty;
++	int c;
++	bool tty;
+ 	pid_t pid;
+ 	td_err_init_errno(error);
+ 
+@@ -579,12 +581,13 @@ tap_cli_close_usage(FILE *stream)
+ static int
+ tap_cli_close(int argc, char **argv, td_err *error)
+ {
+-	int c, pid, minor, force, err;
++	int c, pid, minor, err;
++	bool force;
+ 	struct timeval *timeout;
+ 
+ 	pid     = -1;
+ 	minor   = -1;
+-	force   = 0;
++	force   = false;
+ 	timeout = NULL;
+ 	td_err_init_errno(error);
+ 
+@@ -598,7 +601,7 @@ tap_cli_close(int argc, char **argv, td_err *error)
+ 			minor = atoi(optarg);
+ 			break;
+ 		case 'f':
+-			force = -1;
++			force = true;
+ 			break;
+ 		case 't':
+ 			timeout = tap_cli_timeout(optarg);
+@@ -750,18 +753,19 @@ tap_cli_major_usage(FILE *stream)
+ static int
+ tap_cli_major(int argc, char **argv, td_err *error)
+ {
+-	int c, chr, major;
++	int c, major;
++	bool chr;
+ 
+-	chr = 0;
++	chr = false;
+ 	td_err_init_errno(error);
+ 
+ 	while ((c = getopt(argc, argv, "bch")) != -1) {
+ 		switch (c) {
+ 		case 'b':
+-			chr = 0;
++			chr = false;
+ 			break;
+ 		case 'c':
+-			chr = 1;
++			chr = true;
+ 			break;
+ 		case '?':
+ 			goto usage;
+@@ -1248,7 +1252,7 @@ main(int argc, char *argv[])
+ 		char *arg = argv[i + (argc - cargc)];
+ 
+ 		if (!strcmp(arg, "--debug")) {
+-			tap_ctl_debug = 1;
++			tap_ctl_debug = true;
+ 			continue;
+ 		}
+ 
+diff --git a/include/tap-ctl.h b/include/tap-ctl.h
+index 73bdb586..95e5dd91 100644
+--- a/include/tap-ctl.h
++++ b/include/tap-ctl.h
+@@ -31,7 +31,7 @@
+ 
+ #define TAPCTL_COMM_RETRY_TIMEOUT 120
+ 
+-extern int tap_ctl_debug;
++extern bool tap_ctl_debug;
+ 
+ #ifdef TAPCTL
+ #define DBG(_f, _a...)				\
+@@ -98,9 +98,9 @@ int tap_ctl_find_minor(const char *type, const char *path);
+ int tap_ctl_allocate(int *minor, char **devname);
+ int tap_ctl_free(const int minor);
+ 
+-int tap_ctl_create(const char *params, char **devname, int flags, 
++int tap_ctl_create(const char *params, char **devname, int flags,
+ 		   int prt_minor, char *secondary, int timeout, const char *logpath);
+-int tap_ctl_destroy(const int id, const int minor, int force,
++int tap_ctl_destroy(const int id, const int minor, bool force,
+ 		    struct timeval *timeout);
+ 
+ int tap_ctl_spawn(void);
+@@ -112,7 +112,7 @@ int tap_ctl_detach(const int id, const int minor);
+ int tap_ctl_open(const int id, const int minor, const char *params, int flags,
+ 		 const int prt_minor, const char *secondary, int timeout,
+ 		 const char *logpath, uint8_t key_size, uint8_t *encryption_key);
+-int tap_ctl_close(const int id, const int minor, const int force,
++int tap_ctl_close(const int id, const int minor, const bool force,
+ 		  struct timeval *timeout);
+ 
+ /**

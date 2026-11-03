@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Fri, 16 Jan 2026 09:47:45 +0100
+Subject: [PATCH] build: add C11 compatibility flag (-std=gnu11 in fact for
+ GCC)
+
+Some part of the project won't compile with ISO C11, and some part
+requires atomics from C11.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ configure.ac | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/configure.ac b/configure.ac
+index 735d468c..7aecfbf7 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -3,6 +3,8 @@ AC_INIT([blktap], BLKTAP_VERSION)
+ AM_INIT_AUTOMAKE([foreign])
+ # AM_SILENT_RULES([yes])
+ 
++CFLAGS="$CFLAGS -std=gnu11"
++
+ AC_PROG_CC
+ AC_PROG_LIBTOOL
+ AC_PROG_INSTALL
