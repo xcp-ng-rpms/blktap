@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 30 Jun 2026 22:32:02 +0200
+Subject: [PATCH] util: add __unused macro
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ include/util.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/include/util.h b/include/util.h
+index f96b5f2a..6552c9cf 100644
+--- a/include/util.h
++++ b/include/util.h
+@@ -23,6 +23,8 @@
+ 
+ #define ARRAY_SIZE(_a) (sizeof(_a)/sizeof((_a)[0]))
+ 
++#define __unused __attribute__((unused))
++
+ /*
+  * Strncpy variant that guarantees to terminate the string
+  */

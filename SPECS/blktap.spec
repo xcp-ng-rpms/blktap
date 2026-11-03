@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.3%{?dist}
+Release: %{?xsrel}.perf.1%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -46,7 +46,7 @@ Conflicts: sm < 3.0.1
 Provides: blktap(nbd) = 2.0
 
 # XCP-ng patches
-# git format-patch XS-v3.55.5-12..v3.55.5-qcow2 --no-signature --no-numbered --zero-commit
+# git format-patch XS-v3.55.5-12..multi-queue-nbd-indir-splice-kd-nokick --no-signature --no-numbered --zero-commit
 # Required by sm (qcow2). Upstream PR: https://github.com/xapi-project/blktap/pull/417
 Patch1001: 0001-Add-an-option-to-use-backup-footer-when-vhd-util-que.patch
 Patch1002: 0002-tapdisk-deduplicate-double-assignment-code.patch
@@ -128,6 +128,100 @@ Patch1077: 0077-mockatests-migrate-deprecated-check_expected-to-type.patch
 Patch1078: 0078-mockatests-migrate-deprecated-assert_in_range-will_r.patch
 Patch1079: 0079-mockatests-wrap-both-mknod-and-__xmknod.patch
 Patch1080: 0080-tapdisk-wait-for-the-NBD-requests-in-flight-before-c.patch
+Patch1081: 0081-tapdisk-nbdserver-reuse-the-data-buffer-of-the-reque.patch
+Patch1082: 0082-vhd-replace-atomicio-with-in-tree-io-util-helpers.patch
+Patch1083: 0083-blktap-change-MAINTAINERS-to-switch-maintenance-to-V.patch
+Patch1084: 0084-tapdisk-replace-list.h-BSD-version-by-GPLv2-from-lin.patch
+Patch1085: 0085-aio-rewrite-BSD-code-with-GPLv2-code-from-fio.patch
+Patch1086: 0086-build-remove-autogen.sh-file-because-of-GPLv2-licens.patch
+Patch1087: 0087-blktap-Change-blktap-license-from-BSD-to-GPLv2.patch
+Patch1088: 0088-build-add-C11-compatibility-flag-std-gnu11-in-fact-f.patch
+Patch1089: 0089-tapdisk-remove-uneeded-struct-keyword-in-malloc.patch
+Patch1090: 0090-tap-ctl-print-commit-progress-with-PRIu64.patch
+Patch1091: 0091-tapdisk-remove-request-name.patch
+Patch1092: 0092-tap-ctl-use-bool-where-appropriate.patch
+Patch1093: 0093-tapdisk-use-bool-where-appropriate.patch
+Patch1094: 0094-tapdisk-improve-a-trace.patch
+Patch1095: 0095-tapdisk-remove-some-uneeded-include-in-VBD.patch
+Patch1096: 0096-qcow2-disable-AVX2-AVX512-optimizations.patch
+Patch1097: 0097-tapdisk-improve-errno-handling-on-error-and-signal-p.patch
+Patch1098: 0098-tapdisk-document-mutex-lock-ordering-in-VBD.patch
+Patch1099: 0099-tap-ctl-fix-memory-leak-in-tap-ct-list.patch
+Patch1100: 0100-tapdisk-fix-server-initialization-error-path.patch
+Patch1101: 0101-tapdisk-do-not-count-write-barrier-requests.patch
+Patch1102: 0102-build-add-a-simple-autogen.sh.patch
+Patch1103: 0103-tapdisk-blkif-make-data-structures-and-IPC-multi-que.patch
+Patch1104: 0104-tapdisk-xenio-split-context-into-shared-and-per-queu.patch
+Patch1105: 0105-tapdisk-server-add-dedicated-IO-threads-with-per-que.patch
+Patch1106: 0106-tapdisk-vbd-split-per-queue-state-into-td_vbd_queue_.patch
+Patch1107: 0107-tapdisk-handle-TIOCBS-in-IO-threads-WARNING.patch
+Patch1108: 0108-tapdisk-support-multi-threading-ie-multi-queue-in-AI.patch
+Patch1109: 0109-util-add-__unused-macro.patch
+Patch1110: 0110-tapdisk-add-support-for-LTTng-tracepoints.patch
+Patch1111: 0111-tapdisk-tracepoints-encode-phase-begin-end-as-ASCII-.patch
+Patch1112: 0112-drivers-fix-LTTng-issue-with-fork-and-daemonization.patch
+Patch1113: 0113-qcow2-check-if-the-complete-should-notify.patch
+Patch1114: 0114-tapdisk-blkif-all-push-the-responses-even-if-not-not.patch
+Patch1115: 0115-tapdisk-send-response-before-computing-stats.patch
+Patch1116: 0116-tapdisk-vbd-move-some-counters-in-queues.patch
+Patch1117: 0117-tapdisk-vbd-consolidate-per-queue-stats.patch
+Patch1118: 0118-tapdisk-vbd-reduce-locking-1-4-make-VBD-state-atomic.patch
+Patch1119: 0119-tapdisk-vbd-reduce-locking-2-4-drop-vbd-mutex-on-mos.patch
+Patch1120: 0120-tapdisk-vbd-reduce-locking-3-4-document-remaining-ho.patch
+Patch1121: 0121-tapdisk-vbd-reduce-locking-4-4-make-request-counters.patch
+Patch1122: 0122-tapdisk-ctrl-fix-chaotic-indentation.patch
+Patch1123: 0123-tapdisk-server-avoid-expected-signals-for-threads.patch
+Patch1124: 0124-tapdisk-vbd-fix-pause-and-close-since-multi-threadin.patch
+Patch1125: 0125-tapdisk-enable-multi-queue-based-on-driver-capabilit.patch
+Patch1126: 0126-tapback-add-options-to-disable-multi-queue.patch
+Patch1127: 0127-tapdisk-small-improvements.patch
+Patch1128: 0128-tapdisk-vbd-rename-a-callback-and-define-as-static.patch
+Patch1129: 0129-scheduler-fix-race-between-mask_event-and-check_fd_e.patch
+Patch1130: 0130-tapdisk-move-td_panic-to-utils.patch
+Patch1131: 0131-tapdisk-server-properly-terminate-IO-threads.patch
+Patch1132: 0132-tapdisk-fix-use-after-free-on-pause-by-draining-back.patch
+Patch1133: 0133-qcow2-wake-up-bh-only-when-all-the-iovec-are-queued.patch
+Patch1134: 0134-tapdisk-drop-queue-mutex-before-the-eventfd-write-in.patch
+Patch1135: 0135-WIP-fix-blkif-destroy-part-1.patch
+Patch1136: 0136-WIP-fix-blkif-destroy-part-2.patch
+Patch1137: 0137-tapback-fix-long-option-table.patch
+Patch1138: 0138-drivers-declare-qcow2-as-multi-queue-capable.patch
+Patch1139: 0139-tapdisk-set-default-ASan-options.patch
+Patch1140: 0140-drivers-fix-blkif-initialization-order.patch
+Patch1141: 0141-drivers-fix-blktap-concurrency-issue.patch
+Patch1142: 0142-tapdisk-refactor-to-clarify-function-contract.patch
+Patch1143: 0143-tapdisk-don-t-re-arm-req_event-while-polling-in-proc.patch
+Patch1144: 0144-drivers-move-queue-events-allocation-from-VDI-openin.patch
+Patch1145: 0145-drivers-protect-CBT-log-in-multi-queue.patch
+Patch1146: 0146-nbd-split-the-request-type-field-into-flags-and-type.patch
+Patch1147: 0147-nbdserver-honour-NBD_CMD_FLAG_REQ_ONE-in-block-statu.patch
+Patch1148: 0148-nbdserver-send-a-valid-NBD-error-code-in-simple-repl.patch
+Patch1149: 0149-nbdserver-report-errors-on-structured-read-and-block.patch
+Patch1150: 0150-block-nbd-avoid-undefined-behavior-when-integer-over.patch
+Patch1151: 0151-block-nbd-replace-the-closed-magic-numbers-with-an-e.patch
+Patch1152: 0152-block-nbd-flush-and-drain-the-connection-before-send.patch
+Patch1153: 0153-block-nbd-remove-uneeded-memcpy-to-display-handle.patch
+Patch1154: 0154-block-nbd-mask-the-writer-event-instead-of-re-regist.patch
+Patch1155: 0155-nbd-server-small-refactoring.patch
+Patch1156: 0156-tapdisk-code-cleanup.patch
+Patch1157: 0157-block-nbd-NBD-client-driver-as-multi-queue-capable.patch
+Patch1158: 0158-tapdisk-wake-the-main-scheduler-on-remote-changes.patch
+Patch1159: 0159-tapdisk-wake-the-queue-thread-on-remote-completions.patch
+Patch1160: 0160-drivers-destroy-queue-mutex-at-the-right-place.patch
+Patch1161: 0161-tapdisk-compute-the-VBD-driver-flags-from-its-whole-.patch
+Patch1162: 0162-block-nbd-give-the-slot-of-a-cancelled-request-back.patch
+Patch1163: 0163-block-nbd-report-the-requests-in-flight-with-td_pend.patch
+Patch1164: 0164-block-vindex-report-the-requests-in-flight-with-td_p.patch
+Patch1165: 0165-tapdisk-wake-the-queue-on-remote-completions-except-.patch
+Patch1166: 0166-tapdisk-reduce-MAX_QUEUES-to-2.patch
+Patch1167: 0167-tapdisk-support-indirect-requests.patch
+Patch1168: 0168-tapback-announce-indirect-segments-to-the-front-ends.patch
+Patch1169: 0169-tapdisk-count-the-sectors-of-the-requests-retried-at.patch
+Patch1170: 0170-tapdisk-vbd-drain-completed_requests-via-a-private-s.patch
+Patch1171: 0171-tapdisk-defer-the-ring-kick-while-other-requests-are.patch
+Patch1172: 0172-tapdisk-reduce-the-timer-slack-of-the-IO-threads-to-.patch
+Patch1173: 0173-WIP-no-kick.patch
+
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -208,6 +302,7 @@ rm -f %{buildroot}%{_libdir}/*.a
 %{_sysconfdir}/xensource/bugtool/tapdisk-logs/description.xml
 %{_localstatedir}/log/blktap
 %{_unitdir}/tapback.service
+%config(noreplace) %{_sysconfdir}/sysconfig/tapback
 %{_unitdir}/cpumond.service
 
 %files devel
@@ -257,6 +352,15 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Tue Nov 3 2026 Emmanuel Varagnat <emmanuel.varagnat@vates.tech> - 3.55.5-12.4
+- Multi-queue: up to 2 queues per VBD, each with its own IO thread (AIO, QCOW2, NBD).
+- Indirect requests: guest requests larger than 44 KiB, up to 1 MiB (128 KiB by default).
+- Performance: less locking, and deferred ring notifications under load.
+- NBD: better protocol compliance, error reporting and client reliability.
+- Observability: LTTng tracepoints and per-queue statistics.
+- Fixes: pause and close races, and CBT logs protected in multi-queue mode.
+- Licensing: relicensed from BSD to GPLv2, with maintenance moving to Vates.
+
 * Fri Oct 23 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.3
 - Wait for the NBD requests in flight before closing an image
 

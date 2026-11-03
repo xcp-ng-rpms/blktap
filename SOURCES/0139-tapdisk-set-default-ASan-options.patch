@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 6 Oct 2026 08:53:53 +0200
+Subject: [PATCH] tapdisk: set default ASan options
+
+tapdisk is spawned by tap-ctl, from SM, so ASAN_OPTIONS can't easily
+be set in its environment, and libasan reads it before main(). In an
+ASan build, provide the defaults with __asan_default_options():
+
+- handle_abort, to get the stack of an abort() such as a failed ASSERT,
+  whose message is otherwise lost with the buffered syslog;
+- symbolize=0, since symbolizing in the crashing process can crash
+  again and hide the report;
+- log_path, to keep the report whatever stderr is redirected to.
+
+ASAN_OPTIONS still overrides these defaults.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/tapdisk2.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/drivers/tapdisk2.c b/drivers/tapdisk2.c
+index c0f9d013..3a5087fd 100644
+--- a/drivers/tapdisk2.c
++++ b/drivers/tapdisk2.c
+@@ -48,6 +48,22 @@
+ void tdnbd_fdreceiver_start();
+ void tdnbd_fdreceiver_stop();
+ 
++#ifdef __SANITIZE_ADDRESS__
++/*
++ * Default ASan options, read by libasan before main(): tapdisk is spawned
++ * by tap-ctl, whose environment we don't control. ASAN_OPTIONS still
++ * overrides them.
++ * - handle_abort: report the stack of an abort(), e.g. a failed ASSERT
++ * - symbolize=0: don't symbolize in the crashing process, which can crash
++ *   again; symbolize offline with addr2line
++ * - log_path: write the report to <log_path>.<pid>, whatever stderr is
++ */
++const char *__asan_default_options(void)
++{
++	return "handle_abort=1:symbolize=0:log_path=/var/log/blktap/asan";
++}
++#endif
++
+ static void
+ usage(const char *app, int err)
+ {

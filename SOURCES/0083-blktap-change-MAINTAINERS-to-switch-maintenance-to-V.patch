@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 21 Apr 2026 15:05:41 +0200
+Subject: [PATCH] blktap: change MAINTAINERS to switch maintenance to Vates
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ MAINTAINERS | 13 ++++++-------
+ 1 file changed, 6 insertions(+), 7 deletions(-)
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index e1d2171a..c862ed8b 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -1,13 +1,12 @@
+ Maintainers list
+ ----------------
+ 
+-The project is maintained by many people but as a reference
+-person contact
++The project is maintained by
+ 
+-* Mark Syms <mark.syms@citrix.com>
++* Ronan Abhamon <ronan.abhamon@vates.tech>
++* Damien Thenot <damien.thenot@vates.tech>
++* Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+ 
+-while for technical discussions of general interest
+-use the public mailing lists
++Issues and pull requests can be created at
+ 
+-* xs-devel@lists.xenserver.org
+-* xen-api@lists.xen.org 
++* https://github.com/xapi-project/blktap

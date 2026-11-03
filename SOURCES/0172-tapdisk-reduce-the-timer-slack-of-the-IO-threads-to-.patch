@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Wed, 28 Oct 2026 17:58:56 +0100
+Subject: [PATCH] tapdisk: reduce the timer slack of the IO threads to 5 us
+
+The deferred kick arms deadlines of a few tens of microseconds on the
+scheduler of the IO thread of the queue, and select() honours the timer
+slack of the thread, 50 us by default: a deadline of 80 us could fire
+up to 130 us after it was armed. Set the slack to 5 us in each IO
+thread.
+
+The drawback is that the kernel can merge fewer timer expiries, so the
+IO threads may wake up a little more often, at a small CPU and power
+cost. Only their own timeouts are affected (deferred kick, end of
+polling, buffer cache expiry), a handful per queue, and the setting
+needs no privilege and doesn't change the scheduling priority.
+
+Assisted-by: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/tapdisk-server.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/tapdisk-server.c b/drivers/tapdisk-server.c
+index f4f8cdc0..415b0c92 100644
+--- a/drivers/tapdisk-server.c
++++ b/drivers/tapdisk-server.c
+@@ -30,6 +30,7 @@
+ #include <sys/signalfd.h>
+ #ifdef HAVE_EVENTFD
+ #include <sys/eventfd.h>
++#include <sys/prctl.h>
+ #else
+ #include <sys/syscall.h>
+ #endif
+@@ -53,6 +54,13 @@
+ #define DBG(_level, _f, _a...)       tlog_write(_level, _f, ##_a)
+ #define ERR(_err, _f, _a...)         tlog_error(_err, _f, ##_a)
+ 
++/*
++ * Timer slack of the IO threads, in nanoseconds. select() may return up to
++ * the slack of the thread after its timeout (50 us by default), too late for
++ * the deferred kick deadline (80 us by default).
++ */
++#define TAPDISK_IO_THREAD_TIMER_SLACK_NS 5000
++
+ #define TAPDISK_TIOCBS_PER_QUEUE    (MAX_REQUESTS * BLKIF_MAX_SEGMENTS_PER_REQUEST + 50)
+ 
+ typedef struct tapdisk_server {
+@@ -629,6 +637,8 @@ __tapdisk_io_thread_run(void* arg)
+ {
+ 	td_queue_id_t  qid = (unsigned long)arg;
+ 
++	prctl(PR_SET_TIMERSLACK, TAPDISK_IO_THREAD_TIMER_SLACK_NS);
++
+ 	while (atomic_load(&server.run))
+ 		tapdisk_io_iterate(qid);
+ 

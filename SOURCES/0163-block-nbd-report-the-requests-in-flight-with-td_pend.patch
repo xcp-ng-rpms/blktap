@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Wed, 21 Oct 2026 16:27:39 +0200
+Subject: [PATCH] block-nbd: report the requests in flight with td_pending
+
+Like aio, the NBD reply path completes a request with
+td_complete_request(), then gives its slot back and unregisters its
+timeout: a pause can see no pending request in the VBD and close the
+driver in between (see "tapdisk: fix use-after-free on pause by draining
+backend IO").
+
+Count the slots in use, under prv->lock, which the reply path holds
+until it is done with the request.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/block-nbd.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/block-nbd.c b/drivers/block-nbd.c
+index 20cc6738..f9c6bee2 100644
+--- a/drivers/block-nbd.c
++++ b/drivers/block-nbd.c
+@@ -1106,6 +1106,19 @@ tdnbd_validate_parent(td_driver_t *driver,
+ 	return -EINVAL;
+ }
+ 
++static int
++tdnbd_pending(td_driver_t *driver)
++{
++	struct tdnbd_data *prv = (struct tdnbd_data *)driver->data;
++	int n_pending;
++
++	pthread_mutex_lock(&prv->lock);
++	n_pending = MAX_NBD_REQS - prv->nr_free_count;
++	pthread_mutex_unlock(&prv->lock);
++
++	return n_pending;
++}
++
+ struct tap_disk tapdisk_nbd = {
+ 	.disk_type          = "tapdisk_nbd",
+ 	.private_data_size  = sizeof(struct tdnbd_data),
+@@ -1116,4 +1129,5 @@ struct tap_disk tapdisk_nbd = {
+ 	.td_queue_write     = tdnbd_queue_write,
+ 	.td_get_parent_id   = tdnbd_get_parent_id,
+ 	.td_validate_parent = tdnbd_validate_parent,
++	.td_pending         = tdnbd_pending,
+ };
