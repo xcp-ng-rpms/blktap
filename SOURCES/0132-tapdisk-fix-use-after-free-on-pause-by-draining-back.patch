@@ -1,0 +1,167 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Wed, 18 Mar 2026 19:51:56 +0100
+Subject: [PATCH] tapdisk: fix use-after-free on pause by draining backend IO
+
+When pausing a VBD, tapdisk_vbd_quiesce_queue() only checked the VBD
+pending_requests list, but backend drivers (aio, vhd, qcow2) may still
+have IO requests in-flight at the kernel/driver level. This allowed
+tapdisk_vbd_close_vdi() to free the driver while libaio completion
+callbacks still referenced it.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/block-aio.c   | 10 +++++++++-
+ drivers/block-qcow2.c | 14 ++++++++++++++
+ drivers/block-vhd.c   |  9 +++++++++
+ drivers/tapdisk-vbd.c | 22 +++++++++++++++++++++-
+ drivers/tapdisk.h     |  1 +
+ 5 files changed, 54 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/block-aio.c b/drivers/block-aio.c
+index fadb0a82..600e9a28 100644
+--- a/drivers/block-aio.c
++++ b/drivers/block-aio.c
+@@ -246,7 +246,7 @@ int tdaio_validate_parent(td_driver_t *driver,
+ 	return -EINVAL;
+ }
+ 
+-void tdaio_stats(td_driver_t *driver, td_stats_t *st)
++int tdaio_pending(td_driver_t *driver)
+ {
+ 	struct tdaio_state *prv = (struct tdaio_state *)driver->data;
+ 	int n_pending;
+@@ -255,6 +255,13 @@ void tdaio_stats(td_driver_t *driver, td_stats_t *st)
+ 	n_pending = MAX_AIO_REQS - prv->aio_free_count;
+ 	pthread_mutex_unlock(&prv->aio_lock);
+ 
++	return n_pending;
++}
++
++void tdaio_stats(td_driver_t *driver, td_stats_t *st)
++{
++	int n_pending = tdaio_pending(driver);
++
+ 	tapdisk_stats_field(st, "reqs", "{");
+ 	tapdisk_stats_field(st, "max", "lu", MAX_AIO_REQS);
+ 	tapdisk_stats_field(st, "pending", "d", n_pending);
+@@ -272,5 +279,6 @@ struct tap_disk tapdisk_aio = {
+ 	.td_get_parent_id   = tdaio_get_parent_id,
+ 	.td_validate_parent = tdaio_validate_parent,
+ 	.td_debug           = NULL,
++	.td_pending         = tdaio_pending,
+ 	.td_stats           = tdaio_stats,
+ };
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index 02f73699..20c188e5 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -1290,6 +1290,19 @@ qcow2_debug(td_driver_t *driver)
+ #endif
+ }
+ 
++static int
++qcow2_pending(td_driver_t *driver)
++{
++	struct qcow2_state *s = (struct qcow2_state *)driver->data;
++	int n_pending;
++
++	pthread_mutex_lock(&s->lock);
++	n_pending = QCOW2_REQS - s->vreq_free_count;
++	pthread_mutex_unlock(&s->lock);
++
++	return n_pending;
++}
++
+ struct tap_disk tapdisk_qcow = {
+ 	.disk_type          = "tapdisk_qcow2",
+ 	.flags              = TD_DRIVER_THREADED,
+@@ -1301,6 +1314,7 @@ struct tap_disk tapdisk_qcow = {
+ 	.td_queue_write     = qcow2_queue_write,
+ 	.td_get_parent_id   = qcow2_get_parent_id,
+ 	.td_validate_parent = qcow2_validate_parent,
++	.td_pending         = qcow2_pending,
+ 	.td_commit          = qcow2_commit,
+ 	.td_query_commit_job = qcow2_query_commit_job,
+ 	.td_cancel_commit_job = qcow2_cancel_commit_job,
+diff --git a/drivers/block-vhd.c b/drivers/block-vhd.c
+index 5962fd19..7e8ae4d6 100644
+--- a/drivers/block-vhd.c
++++ b/drivers/block-vhd.c
+@@ -2731,6 +2731,14 @@ vhd_debug(td_driver_t *driver)
+ */
+ }
+ 
++static int
++vhd_pending(td_driver_t *driver)
++{
++	struct vhd_state *s = (struct vhd_state *)driver->data;
++
++	return VHD_REQS_DATA - s->vreq_free_count;
++}
++
+ struct tap_disk tapdisk_vhd = {
+ 	.disk_type          = "tapdisk_vhd",
+ 	.flags              = 0,
+@@ -2743,5 +2751,6 @@ struct tap_disk tapdisk_vhd = {
+ 	.td_queue_write     = vhd_queue_write,
+ 	.td_get_parent_id   = vhd_get_parent_id,
+ 	.td_validate_parent = vhd_validate_parent,
++	.td_pending         = vhd_pending,
+ 	.td_debug           = vhd_debug,
+ };
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 67ebafb0..56837871 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1020,10 +1020,27 @@ tapdisk_vbd_lock(td_vbd_t *vbd)
+ 	return 0;
+ }
+ 
++static bool
++tapdisk_vbd_drivers_pending(td_vbd_t *vbd)
++{
++       td_image_t *image;
++
++       tapdisk_for_each_image(image, &vbd->images) {
++               td_driver_t *driver = image->driver;
++
++               if (driver && driver->ops->td_pending &&
++                   driver->ops->td_pending(driver))
++                       return true;
++       }
++
++       return false;
++}
++
+ static int
+ tapdisk_vbd_quiesce_queue(td_vbd_t *vbd)
+ {
+-	bool any_pending = tapdisk_vbd_pending_queues(vbd);
++	bool any_pending = tapdisk_vbd_pending_queues(vbd) ||
++			   tapdisk_vbd_drivers_pending(vbd);
+ 	int ret = 0;
+ 
+ 	if (any_pending) {
+@@ -1190,6 +1207,9 @@ resume_failed:
+ 	list_for_each_entry(blkif, &vbd->rings, entry)
+ 		tapdisk_xenblkif_resume(blkif);
+ 
++	for (int qid = 0; qid < ARRAY_SIZE(vbd->queues); qid++)
++	      tapdisk_server_io_scheduler_wake(qid);
++
+ 	DBG(TLOG_DBG, "state checked\n");
+ 
+ 	return td_err_set_success(error);
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index 9615dc2e..fce49f99 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -239,6 +239,7 @@ struct tap_disk {
+ 	void (*td_queue_block_status)(td_driver_t *, td_request_t);
+ 	void (*td_queue_write)       (td_driver_t *, td_request_t);
+ 	void (*td_debug)             (td_driver_t *);
++	int  (*td_pending)           (td_driver_t *);
+ 	void (*td_stats)             (td_driver_t *, td_stats_t *);
+ 	int (*td_commit)             (td_driver_t *, const char *);
+ 	int (*td_query_commit_job)   (td_driver_t *, td_query_t *);

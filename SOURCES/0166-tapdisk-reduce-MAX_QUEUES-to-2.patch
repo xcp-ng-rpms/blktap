@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 20 Oct 2026 07:24:37 +0200
+Subject: [PATCH] tapdisk: reduce MAX_QUEUES to 2
+
+QCOW2 thread is quite busy already.
+---
+ include/tapdisk-common.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/tapdisk-common.h b/include/tapdisk-common.h
+index f063378d..2aa39529 100644
+--- a/include/tapdisk-common.h
++++ b/include/tapdisk-common.h
+@@ -31,7 +31,7 @@
+ #ifndef _TAPDISK_COMMON_H_
+ #define _TAPDISK_COMMON_H_
+ 
+-#define BLKIF_MAX_QUEUES           4
++#define BLKIF_MAX_QUEUES           2
+ 
+ #define TAPDISK_MAX_VBD_THREADS    BLKIF_MAX_QUEUES
+ 

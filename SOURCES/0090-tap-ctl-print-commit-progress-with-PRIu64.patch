@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 30 Jun 2026 17:41:23 +0200
+Subject: [PATCH] tap-ctl: print commit progress with PRIu64
+
+current_progress/total_progress are uint64_t; print them with PRIu64
+instead of %lu, which is wrong on platforms where unsigned long is not
+64-bit. Include <inttypes.h> for the format macros.
+---
+ control/tap-ctl-commit.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/control/tap-ctl-commit.c b/control/tap-ctl-commit.c
+index 56549deb..2b747fc8 100644
+--- a/control/tap-ctl-commit.c
++++ b/control/tap-ctl-commit.c
+@@ -38,6 +38,7 @@
+ #include <unistd.h>
+ #include <string.h>
+ #include <getopt.h>
++#include <inttypes.h>
+ 
+ #include "tap-ctl.h"
+ #include "util.h"
+@@ -90,7 +91,7 @@ tap_ctl_query_commit_job(const int id, const int minor)
+ 		return err;
+ 
+ 	if (message.type == TAPDISK_MESSAGE_QUERY_COMMIT_JOB_RSP) {
+-		printf("Commit status '%s' (%lu/%lu)\n", message.u.query.status, message.u.query.current_progress, message.u.query.total_progress);
++		printf("Commit status '%s' (%" PRIu64 "/%" PRIu64 ")\n", message.u.query.status, message.u.query.current_progress, message.u.query.total_progress);
+ 		err = 0;
+ 	} else if (message.type == TAPDISK_MESSAGE_ERROR) {
+ 		err = -message.u.response.error;

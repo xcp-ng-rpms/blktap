@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Thu, 9 Jul 2026 10:08:16 +0200
+Subject: [PATCH] build: add a simple autogen.sh
+
+So that documentation and package build doesn't change.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ autogen.sh | 2 ++
+ 1 file changed, 2 insertions(+)
+ create mode 100755 autogen.sh
+
+diff --git a/autogen.sh b/autogen.sh
+new file mode 100755
+index 00000000..28a183b0
+--- /dev/null
++++ b/autogen.sh
+@@ -0,0 +1,2 @@
++#!/bin/sh
++autoreconf -fi

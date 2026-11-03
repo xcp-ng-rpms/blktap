@@ -1,0 +1,772 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Fri, 13 Feb 2026 14:26:30 +0100
+Subject: [PATCH] tapdisk: add support for LTTng tracepoints
+
+Useful to get some insight on latencies.
+See README-lttng.md on how to use it.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ configure.ac                |  16 +++
+ control/tap-ctl-spawn.c     |  17 ++-
+ drivers/Makefile.am         |   9 ++
+ drivers/README-lttng.md     | 107 ++++++++++++++++
+ drivers/tapdisk-interface.c |  15 ++-
+ drivers/tapdisk-server.c    |   6 +
+ drivers/tapdisk-vbd.c       |   5 +
+ drivers/tapdisk.h           |   5 +
+ drivers/td-blkif.c          |   3 +-
+ drivers/td-ctx.c            |   8 ++
+ drivers/td-req.c            |  32 ++++-
+ drivers/td-tracepoints.c    |  11 ++
+ drivers/td-tracepoints.h    | 242 ++++++++++++++++++++++++++++++++++++
+ 13 files changed, 470 insertions(+), 6 deletions(-)
+ create mode 100644 drivers/README-lttng.md
+ create mode 100644 drivers/td-tracepoints.c
+ create mode 100644 drivers/td-tracepoints.h
+
+diff --git a/configure.ac b/configure.ac
+index 7aecfbf7..0110f39f 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -55,8 +55,24 @@ AC_ARG_ENABLE([tests],
+ 	      [],
+ 	      [enable_tests=no])
+ 
++AC_ARG_ENABLE([lttng],
++	      [AS_HELP_STRING([--enable-lttng],
++			      [enable LTTng-UST tracepoints])],
++	      [],
++	      [enable_lttng=no])
++
++AS_IF([test x$enable_lttng = xyes],
++      [PKG_CHECK_MODULES([LTTNG_UST], [lttng-ust],
++			 [AC_DEFINE([HAVE_LTTNG], [1],
++				    [Define if LTTng-UST is available])],
++			 [AC_MSG_ERROR([--enable-lttng requires lttng-ust development files])])])
++
+ AM_CONDITIONAL([ENABLE_TESTS],
+ 	       [test x$enable_tests = xyes])
++AM_CONDITIONAL([ENABLE_LTTNG],
++	       [test x$enable_lttng = xyes])
++AM_CONDITIONAL([ENABLE_STATIC],
++	       [test "x$enable_static" = "xyes"])
+ 
+ AC_CHECK_FUNCS([eventfd])
+ 
+diff --git a/control/tap-ctl-spawn.c b/control/tap-ctl-spawn.c
+index 813f11c8..cf281383 100644
+--- a/control/tap-ctl-spawn.c
++++ b/control/tap-ctl-spawn.c
+@@ -21,6 +21,7 @@
+ 
+ #include <stdio.h>
+ #include <errno.h>
++#include <fcntl.h>
+ #include <unistd.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -56,9 +57,19 @@ __tap_ctl_spawn(int *readfd)
+ 		exit(errno);
+ 	}
+ 
+-	if (dup2(channel[1], STDERR_FILENO) == -1) {
+-		EPRINTF("dup2 failed: %d\n", errno);
+-		exit(errno);
++	/*
++	 * Redirect stderr to /dev/null rather than the pipe: third-party
++	 * libraries (e.g. liblttng-ust) may write diagnostic messages to
++	 * stderr before tapdisk's main() runs, which would corrupt the
++	 * control socket path we need to parse from the pipe.
++	 * Early tapdisk errors are already reported via syslog (DPRINTF).
++	 */
++	{
++		int devnull = open("/dev/null", O_WRONLY);
++		if (devnull >= 0) {
++			dup2(devnull, STDERR_FILENO);
++			close(devnull);
++		}
+ 	}
+ 
+ 	close(channel[0]);
+diff --git a/drivers/Makefile.am b/drivers/Makefile.am
+index cbba8230..b19d0e38 100644
+--- a/drivers/Makefile.am
++++ b/drivers/Makefile.am
+@@ -101,12 +101,21 @@ libtapdisk_la_SOURCES += td-ctx.h
+ libtapdisk_la_SOURCES += td-stats.c
+ libtapdisk_la_SOURCES += td-stats.h
+ 
++if ENABLE_LTTNG
++libtapdisk_la_SOURCES += td-tracepoints.c
++libtapdisk_la_SOURCES += td-tracepoints.h
++AM_CPPFLAGS += $(LTTNG_UST_CFLAGS)
++endif
++
+ libtapdisk_la_LIBADD  = ../vhd/lib/libvhd.la
+ libtapdisk_la_LIBADD += ../qcow2/lib/libqcow2.la
+ libtapdisk_la_LIBADD += -laio
+ libtapdisk_la_LIBADD += -lxenevtchn
+ libtapdisk_la_LIBADD += -lxengnttab
+ libtapdisk_la_LIBADD += -lz
++if ENABLE_LTTNG
++libtapdisk_la_LIBADD += $(LTTNG_UST_LIBS) -ldl
++endif
+ libtapdisk_la_LIBADD += -lrt
+ libtapdisk_la_LIBADD += -ldl
+ libtapdisk_la_LIBADD += -lm
+diff --git a/drivers/README-lttng.md b/drivers/README-lttng.md
+new file mode 100644
+index 00000000..6e0148d3
+--- /dev/null
++++ b/drivers/README-lttng.md
+@@ -0,0 +1,107 @@
++# Tapdisk LTTng Tracing
++
++LTTng userspace tracepoints let you measure per-request latency at each phase of the I/O path without modifying the running process.
++
++## Build
++
++Install lttng-ust development files, then configure with the flag:
++
++```bash
++./configure --enable-lttng && make
++```
++
++Without `--enable-lttng`, all `tracepoint()` calls compile to no-ops and no LTTng dependency is needed.
++
++## Tracepoints
++
++Four tracepoints bracket the I/O path. Requests are correlated across all of them via the `req_id` field.
++
++| Tracepoint | Location | Emitted when |
++|---|---|---|
++| `tapdisk:request_pull` | `td-ctx.c` | Request parsed from blkif ring (+ grant copy for writes) |
++| `tapdisk:driver_queue` | `tapdisk-interface.c` | Request handed to storage driver |
++| `tapdisk:driver_complete` | `tapdisk-interface.c` | Storage driver signals completion |
++| `tapdisk:response_push` | `td-req.c` | Response written to ring (+ grant copy for reads) |
++
++### Fields
++
++All four tracepoints carry:
++
++| Field | Type | Notes |
++|---|---|---|
++| `req_id` | `uint64_t` | Correlate across tracepoints |
++| `operation` / `op` | `uint8_t` / `int` | 0=read, 1=write |
++| `sector` | `uint64_t` | Starting sector |
++| `nr_segments` / `secs` | `uint8_t` / `int` | Size of the request |
++
++### Latency phases
++
++```
++request_pull    : ring parse + grant copy (writes only)
++driver_queue    : VBD queuing + driver dispatch
++driver_complete : storage backend I/O (qcow2, AIO, ...)
++response_push   : grant copy (reads only) + ring response
++```
++
++## Capture a trace
++
++```bash
++# Install: lttng-tools, lttng-ust (runtime)
++
++# 1. Create session
++lttng create tapdisk-trace --output=/tmp/tapdisk-trace
++
++# 2. Enable UST channel and all tapdisk events
++lttng enable-channel -u tapdisk-chan
++lttng enable-event --userspace 'tapdisk:*' --channel=tapdisk-chan
++
++# 3. Start tracing
++lttng start
++
++# 4. Run workload
++fio --filename=/dev/xvdb --rw=randread --bs=4k --numjobs=1 --runtime=10 --name=test
++
++# 5. Stop and destroy
++lttng stop
++lttng destroy tapdisk-trace
++```
++
++Trace data is in `/tmp/tapdisk-trace` (CTF format).
++
++## Convert to text
++
++```bash
++# babeltrace (v1)
++babeltrace /tmp/tapdisk-trace > tapdisk-trace.txt
++
++# or babeltrace2
++babeltrace2 /tmp/tapdisk-trace > tapdisk-trace.txt
++```
++
++Output lines look like:
++
++```
++[13:42:01.123456789] (+0.000012345) hostname tapdisk:request_pull: { req_id = 42, operation = 0, nr_segments = 1, sector = 8192 }
++[13:42:01.123461234] (+0.000004445) hostname tapdisk:driver_queue: { req_id = 42, op = 0, sector = 8192, secs = 8 }
++[13:42:01.124100000] (+0.000638766) hostname tapdisk:driver_complete: { req_id = 42, op = 0, sector = 8192, secs = 8 }
++[13:42:01.124105678] (+0.000005678) hostname tapdisk:response_push: { req_id = 42, operation = 0, sector = 8192 }
++```
++
++## Filter specific events
++
++```bash
++# Enable only request boundaries
++lttng enable-event --userspace 'tapdisk:request_pull' --channel=tapdisk-chan
++lttng enable-event --userspace 'tapdisk:response_push' --channel=tapdisk-chan
++
++# Enable all tapdisk events (wildcard)
++lttng enable-event --userspace 'tapdisk:*' --channel=tapdisk-chan
++```
++
++## Troubleshooting
++
++**No events captured** — tapdisk must be built with `--enable-lttng` and the lttng session must be started *before* tapdisk processes the first request (UST registers on library load; events fired before the session attaches are lost).
++
++**`lttng enable-event` fails with "UST channel not found"** — create the channel explicitly before enabling events (`lttng enable-channel -u tapdisk-chan`). Required on lttng-tools < 2.5.
++
++**tapdisk crashes on start** — lttng-ust runtime library not installed; install `lttng-ust` (not just `lttng-tools`).
+diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
+index 2ea98dd8..bcc60971 100644
+--- a/drivers/tapdisk-interface.c
++++ b/drivers/tapdisk-interface.c
+@@ -30,6 +30,9 @@
+ #include "tapdisk-server.h"
+ #include "tapdisk-interface.h"
+ #include "tapdisk-log.h"
++#include "util.h"
++
++#include "td-tracepoints.h"
+ 
+ int
+ td_load(td_image_t *image)
+@@ -179,6 +182,10 @@ td_queue_write(td_image_t *image, td_request_t treq)
+ 	if (err)
+ 		goto fail;
+ 
++	td_queue_id_t __unused qid = treq.vreq->vqueue - treq.vreq->vqueue->vbd->queues;
++	tracepoint(tapdisk, driver_queue,
++		qid, treq.vreq->req_id, treq.op, treq.sec, treq.secs);
++
+ 	driver->ops->td_queue_write(driver, treq);
+ 
+ 	return;
+@@ -214,6 +221,10 @@ td_queue_read(td_image_t *image, td_request_t treq)
+ 	if (err)
+ 		goto fail;
+ 
++	td_queue_id_t __unused qid = treq.vreq->vqueue - treq.vreq->vqueue->vbd->queues;
++	tracepoint(tapdisk, driver_queue,
++		qid, treq.vreq->req_id, treq.op, treq.sec, treq.secs);
++
+ 	driver->ops->td_queue_read(driver, treq);
+ 
+ 	return;
+@@ -341,6 +352,9 @@ td_forward_request(td_request_t treq)
+ void
+ td_complete_request(td_request_t treq, int res)
+ {
++	td_queue_id_t __unused qid = treq.vreq->vqueue - treq.vreq->vqueue->vbd->queues;
++	tracepoint(tapdisk, driver_complete,
++		   qid, treq.vreq->req_id, treq.op, treq.sec, treq.secs/*, res*/);
+ 	treq.cb(treq, res);
+ }
+ 
+@@ -371,7 +385,6 @@ td_debug(td_image_t *image)
+ 
+ 	driver = image->driver;
+ 	if (!driver || !td_flag_test(driver->state, TD_DRIVER_OPEN))
+-
+ 		return;
+ 
+ 	tapdisk_driver_debug(driver);
+diff --git a/drivers/tapdisk-server.c b/drivers/tapdisk-server.c
+index 8717cde7..5243592f 100644
+--- a/drivers/tapdisk-server.c
++++ b/drivers/tapdisk-server.c
+@@ -44,6 +44,7 @@
+ #include "td-blkif.h"
+ #include "timeout-math.h"
+ #include "util.h"
++#include "td-tracepoints.h"
+ 
+ #include <sys/mman.h>
+ #include <sys/stat.h>
+@@ -376,8 +377,13 @@ tapdisk_server_check_progress(td_queue_id_t qid)
+ static void
+ tapdisk_server_submit_tiocbs(td_queue_id_t qid)
+ {
++	tracepoint(tapdisk, aio_submit, qid, 0, 0);
+ 	server.rw_backend->submit_all(server.rw_queue[qid]);
++	tracepoint(tapdisk, aio_submit, qid, 1, 0);
++
++	tracepoint(tapdisk, aio_submit, qid, 0, 1);
+ 	server.ro_backend->submit_all(server.ro_queue[qid]);
++	tracepoint(tapdisk, aio_submit, qid, 1, 1);
+ }
+ 
+ static void
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index ed8498b5..b294f746 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -34,6 +34,7 @@
+ #include "tapdisk-driver.h"
+ #include "tapdisk-server.h"
+ #include "tapdisk-vbd.h"
++#include "td-tracepoints.h"
+ #include "tapdisk-metrics.h"
+ #include "tapdisk-disktype.h"
+ #include "tapdisk-interface.h"
+@@ -1789,6 +1790,10 @@ tapdisk_vbd_issue_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq)
+ 
+ 	tapdisk_vbd_move_request(vreq, &queue->pending_requests);
+ 
++	td_queue_id_t __unused qid = queue - queue->vbd->queues;
++	tracepoint(tapdisk, vbd_issue, qid,
++	    vreq->req_id, vreq->op, vreq->sec, vreq->iovcnt);
++
+ 	err = tapdisk_vbd_check_queue(vbd);
+ 	pthread_mutex_unlock(&queue->mutex);
+ 	pthread_mutex_unlock(&vbd->mutex);
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index c19b4604..e4f3218d 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -156,6 +156,11 @@ struct td_iovec {
+ struct td_vbd_request {
+ 	int                         op;
+ 	td_sector_t                 sec;
++
++#ifdef HAVE_LTTNG
++	uint64_t                    req_id;
++#endif
++
+ 	struct td_iovec            *iov;
+ 	int                         iovcnt;
+ 
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index 1948266b..d1aa5440 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -30,7 +30,6 @@
+ #include "blktap3.h"
+ #include "tapdisk.h"
+ #include "tapdisk-log.h"
+-#include "util.h"
+ #include "tapdisk-server.h"
+ #include "tapdisk-metrics.h"
+ #include "timeout-math.h"
+@@ -39,6 +38,8 @@
+ #include "td-ctx.h"
+ #include "td-req.h"
+ 
++#include "util.h"
++
+ struct td_xenblkif *
+ tapdisk_xenblkif_find(const domid_t domid, const int devid)
+ {
+diff --git a/drivers/td-ctx.c b/drivers/td-ctx.c
+index 9f0f3a84..1a854597 100644
+--- a/drivers/td-ctx.c
++++ b/drivers/td-ctx.c
+@@ -27,6 +27,7 @@
+ #include <alloca.h>
+ 
+ #include "blktap-xenif.h"
++#include "config.h"
+ #include "debug.h"
+ #include "tapdisk-server.h"
+ #include "td-ctx.h"
+@@ -34,6 +35,8 @@
+ #include "timeout-math.h"
+ #include "util.h"
+ 
++#include "td-tracepoints.h"
++
+ #define ERROR(_f, _a...)           tlog_syslog(TLOG_WARN, "td-ctx: " _f, ##_a)
+ 
+ struct list_head _td_xenio_ctxs = LIST_HEAD_INIT(_td_xenio_ctxs);
+@@ -169,6 +172,11 @@ __xenio_blkif_get_requests(struct td_blkif_queue * const queue,
+ 
+         xenio_blkif_get_request(queue, dst, rc);
+ 
++        tracepoint(tapdisk, request_pull,
++            tapdisk_xenblkif_queue_id(queue),
++            dst->id, dst->operation, dst->nr_segments,
++            dst->sector_number);
++
+         if (unlikely(dst->operation == BLKIF_OP_WRITE_BARRIER))
+             barrier = true;
+     }
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 1ac3ec15..158abc03 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -31,6 +31,7 @@
+ #endif
+ 
+ #include "blktap-xenif.h"
++#include "config.h"
+ #include "debug.h"
+ #include "td-req.h"
+ #include "td-blkif.h"
+@@ -43,6 +44,8 @@
+ #include "timeout-math.h"
+ #include "util.h"
+ 
++#include "td-tracepoints.h"
++
+ #ifdef DEBUG
+ #define BLKIF_MSG_POISON 0xdeadbeef
+ #endif
+@@ -295,6 +298,11 @@ xenio_blkif_put_response(struct td_blkif_queue * const queue,
+         msg->status = status;
+ 
+         ring->rsp_prod_pvt++;
++
++        tracepoint(tapdisk, response_push,
++                   tapdisk_xenblkif_queue_id(queue),
++                   req->msg.id, req->msg.operation,
++                   req->msg.sector_number/*, status*/);
+     }
+ 
+     if (final) {
+@@ -302,7 +310,12 @@ xenio_blkif_put_response(struct td_blkif_queue * const queue,
+         RING_PUSH_RESPONSES_AND_CHECK_NOTIFY(ring, notify);
+         if (notify) {
+             struct td_xenblkif* const blkif = queue->blkif;
++            uint16_t __unused qid = tapdisk_xenblkif_queue_id(queue);
++
++            tracepoint(tapdisk, evtchn_notify, qid, 0);
+             int err = xenevtchn_notify(queue->ctx->xce_handle, queue->ctx->port);
++            tracepoint(tapdisk, evtchn_notify, qid, 1);
++
+             if (err < 0) {
+                 err = -errno;
+                 if (req) {
+@@ -367,9 +380,14 @@ guest_copy2(struct td_xenblkif * const blkif, const struct td_xenio_shared_ctx*
+     ASSERT(req->msg.nr_segments > 0);
+     ASSERT(req->msg.nr_segments <= ARRAY_SIZE(req->gcopy_segs));
+ 
++    int dir __unused = blkif_rq_wr(&req->msg) ? 0 : 1;
++    tracepoint(tapdisk, guest_copy,
++               req->msg.id, 0, dir, req->msg.nr_segments);
++
+     for (i = 0; i < req->msg.nr_segments; i++) {
+         struct blkif_request_segment *blkif_seg = &req->msg.seg[i];
+         struct gntdev_grant_copy_segment *gcopy_seg = &req->gcopy_segs[i];
++
+         if (blkif_rq_wr(&req->msg)) {
+             /* copy from guest */
+             gcopy_seg->dest.virt = req->vma + (i << PAGE_SHIFT)
+@@ -396,7 +414,14 @@ guest_copy2(struct td_xenblkif * const blkif, const struct td_xenio_shared_ctx*
+     gcopy.count = req->msg.nr_segments;
+     gcopy.segments = req->gcopy_segs;
+ 
++    tracepoint(tapdisk, grant_copy,
++	       req->msg.id, 0, dir, req->msg.nr_segments);
++
+     err = -ioctl(ctx->gntdev_fd, IOCTL_GNTDEV_GRANT_COPY, &gcopy);
++
++    tracepoint(tapdisk, grant_copy,
++	       req->msg.id, 1, dir, req->msg.nr_segments);
++
+     if (err) {
+         err = -errno;
+         RING_ERR(blkif, "failed to grant-copy request %"PRIu64" "
+@@ -414,13 +439,15 @@ guest_copy2(struct td_xenblkif * const blkif, const struct td_xenio_shared_ctx*
+ 			 * user space)
+ 			 */
+ 			RING_ERR(blkif, "req %lu: failed to grant-copy segment %d: %d\n",
+-                    req->msg.id, i, gcopy_seg->status);
++				req->msg.id, i, gcopy_seg->status);
+ 			err = -EIO;
+ 			goto out;
+ 		}
+ 	}
+ 
+ out:
++    tracepoint(tapdisk, guest_copy,
++               req->msg.id, 1, dir, req->msg.nr_segments);
+     return err;
+ }
+ 
+@@ -720,6 +747,9 @@ tapdisk_xenblkif_parse_request(struct td_blkif_queue* const queue,
+     vreq->iov = req->iov;
+     vreq->iovcnt = iov - req->iov + 1;
+     vreq->sec = req->msg.sector_number;
++#ifdef HAVE_LTTNG
++    vreq->req_id = req->msg.id;
++#endif
+ 
+     if (blkif_rq_wr(&req->msg)) {
+         err = guest_copy2(blkif, queue->ctx->shared, req);
+diff --git a/drivers/td-tracepoints.c b/drivers/td-tracepoints.c
+new file mode 100644
+index 00000000..76d31086
+--- /dev/null
++++ b/drivers/td-tracepoints.c
+@@ -0,0 +1,11 @@
++/*
++ * LTTng-UST tracepoint provider for tapdisk.
++ *
++ * This file must be compiled separately — it instantiates the tracepoint
++ * probes defined in td-tracepoints.h.
++ */
++
++#define TRACEPOINT_CREATE_PROBES
++#define TRACEPOINT_DEFINE
++
++#include "td-tracepoints.h"
+diff --git a/drivers/td-tracepoints.h b/drivers/td-tracepoints.h
+new file mode 100644
+index 00000000..ef23c171
+--- /dev/null
++++ b/drivers/td-tracepoints.h
+@@ -0,0 +1,242 @@
++/*
++ * Tapdisk tracepoint definitions.
++ *
++ * When built with --enable-lttng, provides LTTng-UST tracepoints.
++ * Otherwise, tracepoint() calls compile to nothing.
++ *
++ * Usage:
++ *   Build with: ./configure --enable-lttng && make
++ *   Trace with: tools/lttng-tapdisk.sh start
++ */
++
++#include "config.h"
++
++#ifdef HAVE_LTTNG
++#undef TRACEPOINT_PROVIDER
++#define TRACEPOINT_PROVIDER tapdisk
++#undef TRACEPOINT_INCLUDE
++#define TRACEPOINT_INCLUDE "td-tracepoints.h"
++#endif
++
++#if !defined(_TD_TRACEPOINTS_H) || defined(TRACEPOINT_HEADER_MULTI_READ)
++#define _TD_TRACEPOINTS_H
++
++#ifdef HAVE_LTTNG
++
++#include <lttng/tracepoint.h>
++#include <stdint.h>
++
++#define TAPDISK_TP_PROVIDER	tapdisk
++
++/*
++ * Emitted when a request is pulled from the shared ring.
++ * Correlate with response_push using (queue, req_id).
++ */
++TRACEPOINT_EVENT(
++	TAPDISK_TP_PROVIDER,
++	request_pull,	/* name */
++	TP_ARGS(
++		uint16_t, queue,
++		uint64_t, req_id,
++		uint8_t, operation,
++		uint8_t, nr_segments,
++		uint64_t, sector
++	),
++	TP_FIELDS(
++		ctf_integer(uint16_t, queue, queue)
++		ctf_integer(uint64_t, req_id, req_id)
++		ctf_integer(uint8_t, operation, operation)
++		ctf_integer(uint8_t, nr_segments, nr_segments)
++		ctf_integer(uint64_t, sector, sector)
++	)
++)
++
++/*
++ * Emitted when a response is written to the shared ring.
++ * Correlate with request_pull using (queue, req_id).
++ */
++TRACEPOINT_EVENT(
++	TAPDISK_TP_PROVIDER,
++	response_push,
++	TP_ARGS(
++		uint16_t, queue,
++		uint64_t, req_id,
++		uint8_t, operation,
++		uint64_t, sector
++		//int, status
++	),
++	TP_FIELDS(
++		ctf_integer(uint16_t, queue, queue)
++		ctf_integer(uint64_t, req_id, req_id)
++		ctf_integer(uint8_t, operation, operation)
++		ctf_integer(uint64_t, sector, sector)
++		//ctf_integer(int, status, status)
++	)
++)
++
++/*
++ * Emitted when a request is dispatched to the storage driver (read or write).
++ * Correlate with request_pull/response_push using req_id.
++ */
++TRACEPOINT_EVENT(
++	TAPDISK_TP_PROVIDER,
++	driver_queue,
++	TP_ARGS(
++		uint16_t, queue,
++		uint64_t, req_id,
++		int, op,
++		uint64_t, sector,
++		int, secs
++	),
++	TP_FIELDS(
++		ctf_integer(uint16_t, queue, queue)
++		ctf_integer(uint64_t, req_id, req_id)
++		ctf_integer(int, op, op)
++		ctf_integer(uint64_t, sector, sector)
++		ctf_integer(int, secs, secs)
++	)
++)
++
++/*
++ * Emitted when the storage driver completes a request.
++ * Correlate with driver_queue/request_pull/response_push using req_id.
++ */
++TRACEPOINT_EVENT(
++	TAPDISK_TP_PROVIDER,
++	driver_complete,
++	TP_ARGS(
++		uint16_t, queue,
++		uint64_t, req_id,
++		int, op,
++		uint64_t, sector,
++		int, secs
++		//int, res
++	),
++	TP_FIELDS(
++		ctf_integer(uint16_t, queue, queue)
++		ctf_integer(uint64_t, req_id, req_id)
++		ctf_integer(int, op, op)
++		ctf_integer(uint64_t, sector, sector)
++		ctf_integer(int, secs, secs)
++		//ctf_integer(int, res, res)
++	)
++)
++
++/*
++ * Emitted around the event channel notification to the guest.
++ * phase: 0 = begin (before xenevtchn_notify), 1 = end (after).
++ */
++TRACEPOINT_EVENT(
++	TAPDISK_TP_PROVIDER,
++	evtchn_notify,
++	TP_ARGS(
++		uint16_t, queue,
++		int, phase
++	),
++	TP_FIELDS(
++		ctf_integer(uint16_t, queue, queue)
++		ctf_integer(int, phase, phase)
++	)
++)
++
++/*
++ * Emitted when a VBD request is issued from the new_requests queue to the
++ * driver chain (moved to pending_requests).
++ */
++TRACEPOINT_EVENT(
++	TAPDISK_TP_PROVIDER,
++	vbd_issue,
++	TP_ARGS(
++		uint16_t, queue,
++		uint64_t, req_id,
++		int, op,
++		uint64_t, sector,
++		int, nr_iov
++	),
++	TP_FIELDS(
++		ctf_integer(uint16_t, queue, queue)
++		ctf_integer(uint64_t, req_id, req_id)
++		ctf_integer(int, op, op)
++		ctf_integer(uint64_t, sector, sector)
++		ctf_integer(int, nr_iov, nr_iov)
++	)
++)
++
++
++/*
++ * Emitted around the full guest_copy2() call (grant copy + segment handling).
++ * phase: 0 = begin, 1 = end.
++ * direction: 0 = from guest (write path), 1 = to guest (read completion).
++ */
++TRACEPOINT_EVENT(
++	TAPDISK_TP_PROVIDER,
++	guest_copy,
++	TP_ARGS(
++		uint64_t, req_id,
++		int, phase,
++		int, direction,
++		int, nr_segments
++	),
++	TP_FIELDS(
++		ctf_integer(uint64_t, req_id, req_id)
++		ctf_integer(int, phase, phase)
++		ctf_integer(int, direction, direction)
++		ctf_integer(int, nr_segments, nr_segments)
++	)
++)
++
++/*
++ * Emitted around the grant-copy ioctl (Xen hypercall).
++ * phase: 0 = begin (before ioctl), 1 = end (after ioctl).
++ * direction: 0 = from guest (write path), 1 = to guest (read completion).
++ */
++TRACEPOINT_EVENT(
++	TAPDISK_TP_PROVIDER,
++	grant_copy,
++	TP_ARGS(
++		//uint16_t, queue,
++		uint64_t, req_id,
++		int, phase,
++		int, direction,
++		int, nr_segments
++	),
++	TP_FIELDS(
++		//ctf_integer(uint16_t, queue, queue)
++		ctf_integer(uint64_t, req_id, req_id)
++		ctf_integer(int, phase, phase)
++		ctf_integer(int, direction, direction)
++		ctf_integer(int, nr_segments, nr_segments)
++	)
++)
++
++/*
++ * Emitted around backend submit_all calls (wraps io_submit / lio_listio).
++ * phase: 0 = begin, 1 = end.
++ * rw: 0 = read-write backend, 1 = read-only backend.
++ */
++TRACEPOINT_EVENT(
++	TAPDISK_TP_PROVIDER,
++	aio_submit,
++	TP_ARGS(
++		uint16_t, queue,
++		int, phase,
++		int, rw
++	),
++	TP_FIELDS(
++		ctf_integer(uint16_t, queue, queue)
++		ctf_integer(int, phase, phase)
++		ctf_integer(int, rw, rw)
++	)
++)
++
++#else /* !HAVE_LTTNG */
++
++#define tracepoint(...)
++
++#endif /* HAVE_LTTNG */
++
++#endif /* _TD_TRACEPOINTS_H */
++
++#ifdef HAVE_LTTNG
++#include <lttng/tracepoint-event.h>
++#endif

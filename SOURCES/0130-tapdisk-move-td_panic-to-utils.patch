@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 17 Mar 2026 15:32:25 +0100
+Subject: [PATCH] tapdisk: move td_panic() to utils
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/tapdisk-interface.c |  8 --------
+ drivers/tapdisk-utils.c     | 24 +++++++++++++++++++-----
+ 2 files changed, 19 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
+index 34c3e021..ff14e3a9 100644
+--- a/drivers/tapdisk-interface.c
++++ b/drivers/tapdisk-interface.c
+@@ -389,11 +389,3 @@ td_debug(td_image_t *image)
+ 
+ 	tapdisk_driver_debug(driver);
+ }
+-
+-__noreturn void
+-td_panic(void)
+-{
+-	tlog_precious(1);
+-	raise(SIGABRT);
+-	_exit(-1); /* not reached */
+-}
+diff --git a/drivers/tapdisk-utils.c b/drivers/tapdisk-utils.c
+index b139d7be..9e8d5c6b 100644
+--- a/drivers/tapdisk-utils.c
++++ b/drivers/tapdisk-utils.c
+@@ -24,6 +24,7 @@
+ #include <stdio.h>
+ #include <string.h>
+ #include <unistd.h>
++#include <signal.h>
+ #include <linux/fs.h>
+ #include <sys/stat.h>
+ #include <sys/mman.h>
+@@ -47,13 +48,26 @@
+ 
+ #define MIN(a,b) (((a) < (b)) ? (a) : (b))
+ 
+-#define ASSERT(_p)										\
+-	if (!(_p)) {											\
+-		EPRINTF("%s:%d: FAILED ASSERTION: '%s'\n",			\
+-			__FILE__, __LINE__, #_p);						\
+-		td_panic();											\
++#define ASSERT(_p)						\
++	if (!(_p)) {						\
++		EPRINTF("%s:%d: FAILED ASSERTION: '%s'\n",	\
++			__FILE__, __LINE__, #_p);		\
++		td_panic();					\
+ 	}
+ 
++__noreturn void
++td_panic(void)
++{
++	tlog_precious(1);
++#if 0
++	fprintf(stderr, "!!!! abort !!!!\n");
++	fflush(stderr);
++	while(1);
++#endif
++	raise(SIGABRT);
++	_exit(-1); /* not reached */
++}
++
+ static int
+ tapdisk_syslog_facility_by_name(const char *name)
+ {

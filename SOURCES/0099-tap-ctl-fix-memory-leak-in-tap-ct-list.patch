@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Fri, 23 Jan 2026 15:46:44 +0100
+Subject: [PATCH] tap-ctl: fix memory leak in tap-ct list
+
+If tapdisk PID is not found, temporary structure must be freed.
+Not a big deal, except when enabling Address Sanitizer during tests.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ control/tap-ctl-list.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/control/tap-ctl-list.c b/control/tap-ctl-list.c
+index b34aa1dc..0c9d0ecf 100644
+--- a/control/tap-ctl-list.c
++++ b/control/tap-ctl-list.c
+@@ -379,9 +379,10 @@ tap_ctl_list_pid(pid_t pid, struct list_head *list)
+ 	}
+ 
+ 	err = _tap_ctl_list_tapdisk(t->pid, list);
+-
+ 	if (err || list_empty(list))
+ 		list_add_tail(&t->entry, list);
++	else
++		_tap_list_free(t);
+ 
+ 	return 0;
+ }
