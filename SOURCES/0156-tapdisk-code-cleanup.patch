@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Mon, 19 Oct 2026 19:54:08 +0200
+Subject: [PATCH] tapdisk: code cleanup
+
+Declare static the functions and variables only used in their file, drop
+a needless forward declaration and reflow a few lines.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/block-nbd.c         | 12 ++++--------
+ drivers/block-ram.c         |  8 ++++----
+ drivers/tapdisk-interface.c |  2 +-
+ drivers/tapdisk-interface.h |  1 -
+ drivers/tapdisk-vbd.c       |  2 +-
+ 5 files changed, 10 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/block-nbd.c b/drivers/block-nbd.c
+index 5480b493..0243b35e 100644
+--- a/drivers/block-nbd.c
++++ b/drivers/block-nbd.c
+@@ -61,7 +61,7 @@
+  * too.
+  */
+ 
+-struct td_fdreceiver *fdreceiver = NULL;
++static struct td_fdreceiver *fdreceiver = NULL;
+ 
+ struct tdnbd_passed_fd {
+ 	char                    id[40];
+@@ -803,8 +803,6 @@ tdnbd_connect_import_session(struct tdnbd_data *prv, td_driver_t* driver)
+ 
+ /* -- interface -- */
+ 
+-static int tdnbd_close(td_driver_t*);
+-
+ static int
+ tdnbd_open(td_driver_t* driver, const char* name,
+ 	   struct td_vbd_encryption *encryption, td_flag_t flags)
+@@ -916,11 +914,9 @@ tdnbd_open(td_driver_t* driver, const char* name,
+ 	prv->state = TDNBD_OPEN;
+ 
+ 	if (flags & TD_OPEN_SECONDARY)
+-		INFO("Opening in secondary mode: Read requests will be "
+-				"forwarded");
++		INFO("Opening in secondary mode: Read requests will be forwarded");
+ 
+ 	return 0;
+-
+ }
+ 
+ #define TDNBD_CLOSE_TIMEOUT_MS (10 * 1000)
+@@ -1055,8 +1051,8 @@ tdnbd_queue_write(td_driver_t* driver, td_request_t treq)
+ 	int      size    = treq.secs * driver->info.sector_size;
+ 	uint64_t offset  = treq.sec * (uint64_t)driver->info.sector_size;
+ 
+-	tdnbd_queue_request(prv, TAPDISK_NBD_CMD_WRITE,
+-			offset, treq.buf, size, treq, 0);
++	tdnbd_queue_request(prv, TAPDISK_NBD_CMD_WRITE, offset, treq.buf, size,
++			    treq, 0);
+ }
+ 
+ static int
+diff --git a/drivers/block-ram.c b/drivers/block-ram.c
+index c4ef639c..038e60cd 100644
+--- a/drivers/block-ram.c
++++ b/drivers/block-ram.c
+@@ -34,10 +34,10 @@
+ #include "tapdisk-driver.h"
+ #include "tapdisk-interface.h"
+ 
+-void *img;
+-long int   disksector_size;
+-long int   disksize;
+-long int   diskinfo;
++static void *img;
++static long int   disksector_size;
++static long int   disksize;
++static long int   diskinfo;
+ static int connections = 0;
+ 
+ struct tdram_state {
+diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
+index ff14e3a9..4cedcb5e 100644
+--- a/drivers/tapdisk-interface.c
++++ b/drivers/tapdisk-interface.c
+@@ -57,7 +57,7 @@ td_load(td_image_t *image)
+ 	return 0;
+ }
+ 
+-int
++static int
+ __td_open(td_image_t *image, struct td_vbd_encryption *encryption, td_disk_info_t *info)
+ {
+ 	int err;
+diff --git a/drivers/tapdisk-interface.h b/drivers/tapdisk-interface.h
+index e8299bde..ba3af957 100644
+--- a/drivers/tapdisk-interface.h
++++ b/drivers/tapdisk-interface.h
+@@ -24,7 +24,6 @@
+ #include "tapdisk-driver.h"
+ 
+ int td_open(td_image_t *, struct td_vbd_encryption *);
+-int __td_open(td_image_t *, struct td_vbd_encryption *, td_disk_info_t *);
+ int td_load(td_image_t *);
+ int td_close(td_image_t *);
+ int td_get_parent_id(td_image_t *, td_disk_id_t *);
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 436abfb2..a7b255da 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -456,7 +456,7 @@ done:
+ 	return 0;
+ }
+ 
+-int
++static int
+ tapdisk_vbd_add_secondary(td_vbd_t *vbd)
+ {
+ 	td_image_t *leaf, *second = NULL;

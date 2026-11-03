@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varaganat <emmanuel.varagnat@vates.tech>
+Date: Tue, 10 Feb 2026 09:51:53 +0100
+Subject: [PATCH] qcow2: take reqs_lock for tracked_requests
+
+Apply commit 9b9ee60c07f52009f9bb659f54c42afae95c1d94 from upstream
+QEMU:
+ bdrv_co_get_self_request() does not take a lock around iterating
+ through bs->tracked_requests.  With multiqueue, it may thus iterate
+ over a list that is in the process of being modified, producing an
+ assertion failure:
+
+  block/file-posix.c:3702: raw_do_pwrite_zeroes: Assertion `req' failed
+---
+ qcow2/lib/block/io.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/qcow2/lib/block/io.c b/qcow2/lib/block/io.c
+index f5aaade3..788c8c96 100644
+--- a/qcow2/lib/block/io.c
++++ b/qcow2/lib/block/io.c
+@@ -723,11 +723,14 @@ BdrvTrackedRequest *coroutine_fn bdrv_co_get_self_request(BlockDriverState *bs)
+     Coroutine *self = qemu_coroutine_self();
+     IO_CODE();
+ 
++    qemu_mutex_lock(&bs->reqs_lock);
+     QLIST_FOREACH(req, &bs->tracked_requests, list) {
+         if (req->co == self) {
++            qemu_mutex_unlock(&bs->reqs_lock);
+             return req;
+         }
+     }
++    qemu_mutex_unlock(&bs->reqs_lock);
+ 
+     return NULL;
+ }

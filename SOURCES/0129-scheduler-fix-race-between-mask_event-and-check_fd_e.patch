@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 17 Mar 2026 19:38:36 +0100
+Subject: [PATCH] scheduler: fix race between mask_event and check_fd_events
+
+When another thread (e.g. main thread during pause/suspend) masks an
+event while the IO thread is blocked in select(), the fd may still be
+reported as ready. scheduler_check_fd_events() would then set the event
+as pending despite it being masked, triggering the BUG_ON in
+scheduler_check_timeouts().
+
+Ideally, event masking should be done in the same thread than the
+scheduler but this would complicate the code.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/scheduler.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/scheduler.c b/drivers/scheduler.c
+index 369f8980..38b686eb 100644
+--- a/drivers/scheduler.c
++++ b/drivers/scheduler.c
+@@ -146,21 +146,21 @@ scheduler_check_fd_events(scheduler_t *s, int nfds)
+ 		if ((event->mode & SCHEDULER_POLL_READ_FD) &&
+ 		    FD_ISSET(event->fd, &s->read_fds)) {
+ 			FD_CLR(event->fd, &s->read_fds);
+-			event->pending |= SCHEDULER_POLL_READ_FD;
++			event->pending |= (event->masked) ? 0 : SCHEDULER_POLL_READ_FD;
+ 			--nfds;
+ 		}
+ 
+ 		if ((event->mode & SCHEDULER_POLL_WRITE_FD) &&
+ 		    FD_ISSET(event->fd, &s->write_fds)) {
+ 			FD_CLR(event->fd, &s->write_fds);
+-			event->pending |= SCHEDULER_POLL_WRITE_FD;
++			event->pending |= (event->masked) ? 0 : SCHEDULER_POLL_WRITE_FD;
+ 			--nfds;
+ 		}
+ 
+ 		if ((event->mode & SCHEDULER_POLL_EXCEPT_FD) &&
+ 		    FD_ISSET(event->fd, &s->except_fds)) {
+ 			FD_CLR(event->fd, &s->except_fds);
+-			event->pending |= SCHEDULER_POLL_EXCEPT_FD;
++			event->pending |= (event->masked) ? 0 : SCHEDULER_POLL_EXCEPT_FD;
+ 			--nfds;
+ 		}
+ 	}

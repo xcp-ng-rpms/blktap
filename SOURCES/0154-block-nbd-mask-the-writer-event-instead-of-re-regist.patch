@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Fri, 2 Oct 2026 18:14:20 +0200
+Subject: [PATCH] block-nbd: mask the writer event instead of re-registering it
+
+The writer event was unregistered once all the requests were sent and
+registered again for the next batch. Masking and unmasking it gives the
+same result at a much lower cost: no allocation, no search for a free
+event id and no garbage collection of the dead event by the scheduler.
+
+Register it once at open time, masked, and unmask it only while
+requests are waiting to be sent.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/block-nbd.c | 43 +++++++++++++++++++++++--------------------
+ 1 file changed, 23 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/block-nbd.c b/drivers/block-nbd.c
+index 0e8670a7..5480b493 100644
+--- a/drivers/block-nbd.c
++++ b/drivers/block-nbd.c
+@@ -227,6 +227,8 @@ tdnbd_disable(struct tdnbd_data *prv, int e)
+ 
+ 	tapdisk_server_unregister_event(prv->writer_event_id);
+ 	tapdisk_server_unregister_event(prv->reader_event_id);
++	prv->writer_event_id = -1;
++	prv->reader_event_id = -1;
+ 
+ 	INFO("NBD client cancelling sent reqs");
+ 	list_for_each_entry_safe(pos, q, &prv->sent_reqs, queue)
+@@ -333,31 +335,20 @@ tdnbd_writer_cb(event_id_t eb, char mode, void *data)
+ 	return;
+ }
+ 
+-static int
++/*
++ * The writer event is registered once at open time and only masked while
++ * there is nothing to send.
++ */
++static void
+ enable_write_queue(struct tdnbd_data *prv)
+ {
+-	if (prv->writer_event_id >= 0) 
+-		return 0;
+-
+-	prv->writer_event_id = 
+-		tapdisk_server_register_event(SCHEDULER_POLL_WRITE_FD,
+-				prv->socket,
+-				TV_ZERO,
+-				tdnbd_writer_cb,
+-				prv);
+-
+-	return prv->writer_event_id;
++	tapdisk_server_mask_event(prv->writer_event_id, 0);
+ }
+ 
+ static void
+ disable_write_queue(struct tdnbd_data *prv)
+ {
+-	if (prv->writer_event_id < 0)
+-		return;
+-
+-	tapdisk_server_unregister_event(prv->writer_event_id);
+-
+-	prv->writer_event_id = -1;
++	tapdisk_server_mask_event(prv->writer_event_id, 1);
+ }
+ 
+ static int
+@@ -402,8 +393,7 @@ tdnbd_queue_request(struct tdnbd_data *prv, int type, uint64_t offset,
+ 	list_move_tail(&req->queue, &prv->pending_reqs);
+ 	prv->nr_free_count--;
+ 
+-	if (prv->writer_event_id < 0)
+-		enable_write_queue(prv);
++	enable_write_queue(prv);
+ 
+ 	return 0;
+ }
+@@ -909,6 +899,19 @@ tdnbd_open(td_driver_t* driver, const char* name,
+ 				tdnbd_reader_cb,
+ 				(void *)prv);
+ 
++	prv->writer_event_id =
++		tapdisk_server_register_event(SCHEDULER_POLL_WRITE_FD,
++				prv->socket, TV_ZERO,
++				tdnbd_writer_cb,
++				(void *)prv);
++	if (prv->writer_event_id < 0) {
++		ERROR("Failed to register the writer event: %d",
++		      prv->writer_event_id);
++		tapdisk_server_unregister_event(prv->reader_event_id);
++		return -1;
++	}
++	tapdisk_server_mask_event(prv->writer_event_id, 1);
++
+ 	prv->flags = flags;
+ 	prv->state = TDNBD_OPEN;
+ 

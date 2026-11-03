@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 13 Oct 2026 20:03:52 +0200
+Subject: [PATCH] qcow2: count the pending requests of each queue
+
+Since each queue has its own QCOW2_REQS requests, qcow2_pending() returned
+QCOW2_REQS minus the free requests of all the queues: a negative count when
+the driver is idle, so tapdisk_vbd_quiesce_queue() always saw pending
+requests and pausing a qcow2 VBD never completed.
+
+Count the requests in use in each queue, under the lock of the queue, which
+protects its free list.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/block-qcow2.c | 16 +++++++++-------
+ 1 file changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index 2744aeb7..9fb9827b 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -1529,14 +1529,16 @@ static int
+ qcow2_pending(td_driver_t *driver)
+ {
+ 	struct qcow2_state *s = (struct qcow2_state *)driver->data;
+-	int n_pending;
+-	unsigned int n_count = 0;
++	int n_pending = 0;
+ 
+-	pthread_mutex_lock(&s->lock);
+-	for (int i = 0; i < ARRAY_SIZE(s->queue); i++)
+-	    n_count += s->queue[i].vreq_free_count;
+-	n_pending = QCOW2_REQS - n_count;
+-	pthread_mutex_unlock(&s->lock);
++	/* Each queue has its own QCOW2_REQS requests, protected by its lock. */
++	for (int i = 0; i < ARRAY_SIZE(s->queue); i++) {
++		struct qcow2_queue *q = &s->queue[i];
++
++		pthread_mutex_lock(&q->lock);
++		n_pending += QCOW2_REQS - q->vreq_free_count;
++		pthread_mutex_unlock(&q->lock);
++	}
+ 
+ 	return n_pending;
+ }

@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Thu, 27 Feb 2025 17:42:47 +0100
+Subject: [PATCH] qcow2: tail check for new requests
+
+Conflicts:
+	drivers/block-qcow2.c
+---
+ drivers/block-qcow2.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index a69d613f..48843dae 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -758,6 +758,8 @@ signal_completion(struct qcow2_request *r)
+ 
+ 	s->returned++;
+ 	TRACE(s);
++
++	qcow2_handle_requests(s);
+ }
+ 
+ #if DEBUGGING != 0

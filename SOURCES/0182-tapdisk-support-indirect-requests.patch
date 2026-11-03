@@ -1,0 +1,744 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 13 Oct 2026 22:02:22 +0200
+Subject: [PATCH] tapdisk: support indirect requests
+
+Accept BLKIF_OP_INDIRECT requests when the blkif was connected with a
+maximum number of indirect segments (feature-max-indirect-segments, up to
+TD_MAX_INDIRECT_SEGMENTS), so that a guest can send requests larger than the
+11 segments (44 KiB) of a direct request.
+
+Each request gets its operation and segments in one place (op, nr_segs,
+segs): those of the ring descriptor for a direct request, and for an
+indirect request its data operation and the segments grant-copied from its
+indirect pages, PAGE_SIZE / sizeof(struct blkif_request_segment) per page.
+The id and the sector of both kinds of requests are at the same place. The
+data buffer of the requests is sized for the largest request of the blkif,
+and the per-request arrays for TD_MAX_INDIRECT_SEGMENTS.
+
+The response of an indirect request carries its data operation, as blkback
+does. Since nr_segments isn't a field of an indirect request, whether the
+request has data, and must be queued, and has a buffer to release, no longer
+depends on it.
+
+Based on the indirect-desc branch of Anthoine Bourgeois, for the
+multi-queue rings.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/td-blkif.c               |   8 ++
+ drivers/td-blkif.h               |   7 +
+ drivers/td-ctx.c                 |  19 +--
+ drivers/td-req.c                 | 216 +++++++++++++++++++++++--------
+ drivers/td-req.h                 |  38 ++++--
+ include/xen_blkif.h              |  51 ++++++++
+ mockatests/drivers/test-td-req.c |  13 +-
+ 7 files changed, 270 insertions(+), 82 deletions(-)
+
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index a18758d4..f9decabc 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -597,6 +597,14 @@ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t grefs[][MAX
+     td_blkif->poll_idle_threshold = poll_idle_threshold;
+     td_blkif->nr_queues = nr_queues;
+ 
++    if (indirect_max_segments > TD_MAX_INDIRECT_SEGMENTS) {
++        RING_ERR(td_blkif, "too many indirect segments (%u), max %u\n",
++                 indirect_max_segments, TD_MAX_INDIRECT_SEGMENTS);
++        err = -EINVAL;
++        goto fail;
++    }
++    td_blkif->indirect_max_segments = indirect_max_segments;
++
+     td_blkif->xenvbd_stats.root = NULL;
+     shm_init(&td_blkif->xenvbd_stats.io_ring);
+     shm_init(&td_blkif->xenvbd_stats.stats);
+diff --git a/drivers/td-blkif.h b/drivers/td-blkif.h
+index cdcea12d..d7e81f70 100644
+--- a/drivers/td-blkif.h
++++ b/drivers/td-blkif.h
+@@ -222,6 +222,13 @@ struct td_xenblkif {
+ 
+ 	int poll_duration; /* microseconds; 0 means no polling. */
+ 	int poll_idle_threshold;
++
++	/*
++	 * Maximum number of segments of an indirect request, as announced to
++	 * the front-end in feature-max-indirect-segments. 0 = no indirect
++	 * requests.
++	 */
++	unsigned int indirect_max_segments;
+ };
+ 
+ #define RING_DEBUG(blkif, fmt, args...)                                     \
+diff --git a/drivers/td-ctx.c b/drivers/td-ctx.c
+index c2c108e3..bd7a9586 100644
+--- a/drivers/td-ctx.c
++++ b/drivers/td-ctx.c
+@@ -65,21 +65,6 @@ tapdisk_xenio_shared_ctx_close(struct td_xenio_shared_ctx * const ctx)
+     free(ctx);
+ }
+ 
+-#define blkif_get_req(dst, src)                 \
+-{                                               \
+-    int i, n = BLKIF_MAX_SEGMENTS_PER_REQUEST;  \
+-    dst->operation = src->operation;            \
+-    dst->nr_segments = src->nr_segments;        \
+-    dst->handle = src->handle;                  \
+-    dst->id = src->id;                          \
+-    dst->sector_number = src->sector_number;    \
+-    xen_rmb();                                  \
+-    if (n > dst->nr_segments)                   \
+-        n = dst->nr_segments;                   \
+-    for (i = 0; i < n; i++)                     \
+-        dst->seg[i] = src->seg[i];              \
+-}
+-
+ /**
+  * Utility function that retrieves a request using @idx as the ring index,
+  * copying it to the @dst in a H/W independent way.
+@@ -112,7 +97,7 @@ xenio_blkif_get_request(struct td_blkif_queue * const queue,
+             {
+                 blkif_x86_32_request_t *src;
+                 src = RING_GET_REQUEST(&rings->x86_32, idx);
+-                blkif_get_req(dst, src);
++                blkif_get_x86_32_req(dst, src);
+                 break;
+             }
+ 
+@@ -120,7 +105,7 @@ xenio_blkif_get_request(struct td_blkif_queue * const queue,
+             {
+                 blkif_x86_64_request_t *src;
+                 src = RING_GET_REQUEST(&rings->x86_64, idx);
+-                blkif_get_req(dst, src);
++                blkif_get_x86_64_req(dst, src);
+                 break;
+             }
+ 
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 23f83d6f..16829f90 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -53,6 +53,17 @@
+ #define ERR(blkif, fmt, args...) \
+     EPRINTF("%d/%d: "fmt, (blkif)->domid, (blkif)->devid, ##args);
+ 
++/*
++ * The fields of a ring request read whatever its kind, direct or indirect,
++ * through req->msg.
++ */
++_Static_assert(offsetof(blkif_request_t, operation) ==
++               offsetof(blkif_request_indirect_t, operation), "operation");
++_Static_assert(offsetof(blkif_request_t, id) ==
++               offsetof(blkif_request_indirect_t, id), "id");
++_Static_assert(offsetof(blkif_request_t, sector_number) ==
++               offsetof(blkif_request_indirect_t, sector_number), "sector_number");
++
+ #define TD_REQS_BUFCACHE_EXPIRE 3 // time in seconds
+ #define TD_REQS_BUFCACHE_MIN    1 // buffers to always keep in the cache
+ 
+@@ -105,6 +116,20 @@ td_xenblkif_bufcache_evt_reg(struct td_blkif_queue* queue)
+                                       queue);
+ }
+ 
++/**
++ * Size of the data buffer of a request: enough for the largest request the
++ * front-end may send, direct or indirect.
++ */
++static inline size_t
++td_xenblkif_req_buffer_size(const struct td_blkif_queue * const queue)
++{
++    unsigned int segs = queue->blkif->indirect_max_segments;
++
++    if (segs < BLKIF_MAX_SEGMENTS_PER_REQUEST)
++        segs = BLKIF_MAX_SEGMENTS_PER_REQUEST;
++    return (size_t)segs << PAGE_SHIFT;
++}
++
+ /**
+  * Free request buffer cache.
+  *
+@@ -117,7 +142,7 @@ td_xenblkif_bufcache_free(struct td_blkif_queue* queue)
+ 
+     while (queue->n_reqs_bufcache_free > TD_REQS_BUFCACHE_MIN){
+         munmap(queue->reqs_bufcache[--queue->n_reqs_bufcache_free],
+-               (size_t)TD_REQ_BUFFER_SIZE);
++               td_xenblkif_req_buffer_size(queue));
+     }
+ }
+ 
+@@ -134,7 +159,7 @@ td_xenblkif_bufcache_get(struct td_blkif_queue * const queue)
+     ASSERT(queue);
+ 
+     if (!queue->n_reqs_bufcache_free) {
+-	    buf = mmap(NULL, (size_t)TD_REQ_BUFFER_SIZE,
++	    buf = mmap(NULL, td_xenblkif_req_buffer_size(queue),
+                    PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+         if (unlikely(buf == MAP_FAILED))
+             buf = NULL;
+@@ -186,13 +211,14 @@ static void
+ tapdisk_xenblkif_free_request(struct td_blkif_queue * const queue,
+ 			      struct td_xenblkif_req * const req)
+ {
+-    bool put_bufcache;
++    void *vma;
+ 
+     ASSERT(queue);
+     ASSERT(req);
+     ASSERT(queue->n_reqs_free < queue->ring_size);
+ 
+-    put_bufcache = req->msg.nr_segments != 0;
++    vma = req->vma;
++    req->vma = NULL;
+ 
+ #ifdef DEBUG
+     memset(&req->msg, BLKIF_MSG_POISON, sizeof(req->msg));
+@@ -200,8 +226,8 @@ tapdisk_xenblkif_free_request(struct td_blkif_queue * const queue,
+ 
+     queue->reqs_free[queue->ring_size - (++queue->n_reqs_free)] = &req->msg;
+ 
+-    if (likely(put_bufcache))
+-        td_xenblkif_bufcache_put(queue, req->vma);
++    if (likely(vma))
++        td_xenblkif_bufcache_put(queue, vma);
+ }
+ 
+ /**
+@@ -294,7 +320,7 @@ xenio_blkif_put_response(struct td_blkif_queue * const queue,
+ 
+         msg->id = req->msg.id;
+ 
+-        msg->operation = req->msg.operation;
++        msg->operation = req->op;
+ 
+         msg->status = status;
+ 
+@@ -302,7 +328,7 @@ xenio_blkif_put_response(struct td_blkif_queue * const queue,
+ 
+         tracepoint(tapdisk, response_push,
+                    tapdisk_xenblkif_queue_id(queue),
+-                   req->msg.id, req->msg.operation,
++                   req->msg.id, req->op,
+                    req->msg.sector_number/*, status*/);
+     }
+ 
+@@ -336,9 +362,9 @@ xenio_blkif_put_response(struct td_blkif_queue * const queue,
+  * Tells whether the request requires data to be read.
+  */
+ static inline bool
+-blkif_rq_rd(blkif_request_t const * const msg)
++blkif_rq_rd(struct td_xenblkif_req const * const req)
+ {
+-	return BLKIF_OP_READ == msg->operation;
++	return BLKIF_OP_READ == req->op;
+ }
+ 
+ 
+@@ -346,10 +372,10 @@ blkif_rq_rd(blkif_request_t const * const msg)
+  * Tells whether the request requires data to be written.
+  */
+ static inline bool
+-blkif_rq_wr(blkif_request_t const * const msg)
++blkif_rq_wr(struct td_xenblkif_req const * const req)
+ {
+-	return BLKIF_OP_WRITE == msg->operation ||
+-		(BLKIF_OP_WRITE_BARRIER == msg->operation && msg->nr_segments);
++	return BLKIF_OP_WRITE == req->op ||
++		(BLKIF_OP_WRITE_BARRIER == req->op && req->nr_segs);
+ }
+ 
+ 
+@@ -357,9 +383,9 @@ blkif_rq_wr(blkif_request_t const * const msg)
+  * Tells whether the request requires data to transferred.
+  */
+ static inline bool
+-blkif_rq_data(blkif_request_t const * const msg)
++blkif_rq_data(struct td_xenblkif_req const * const req)
+ {
+-	return blkif_rq_rd(msg) || blkif_rq_wr(msg);
++	return blkif_rq_rd(req) || blkif_rq_wr(req);
+ }
+ 
+ 
+@@ -374,19 +400,19 @@ guest_copy2(struct td_xenblkif * const blkif, const struct td_xenio_shared_ctx*
+     ASSERT(blkif);
+     ASSERT(ctx);
+     ASSERT(req);
+-    ASSERT(blkif_rq_data(&req->msg));
+-    ASSERT(req->msg.nr_segments > 0);
+-    ASSERT(req->msg.nr_segments <= ARRAY_SIZE(req->gcopy_segs));
++    ASSERT(blkif_rq_data(req));
++    ASSERT(req->nr_segs > 0);
++    ASSERT(req->nr_segs <= ARRAY_SIZE(req->gcopy_segs));
+ 
+-    int dir __unused = blkif_rq_wr(&req->msg) ? 0 : 1;
++    int dir __unused = blkif_rq_wr(req) ? 0 : 1;
+     tracepoint(tapdisk, guest_copy,
+-               req->msg.id, TP_PHASE_BEGIN, dir, req->msg.nr_segments);
++               req->msg.id, TP_PHASE_BEGIN, dir, req->nr_segs);
+ 
+-    for (i = 0; i < req->msg.nr_segments; i++) {
+-        struct blkif_request_segment *blkif_seg = &req->msg.seg[i];
++    for (i = 0; i < req->nr_segs; i++) {
++        struct blkif_request_segment *blkif_seg = &req->segs[i];
+         struct gntdev_grant_copy_segment *gcopy_seg = &req->gcopy_segs[i];
+ 
+-        if (blkif_rq_wr(&req->msg)) {
++        if (blkif_rq_wr(req)) {
+             /* copy from guest */
+             gcopy_seg->dest.virt = req->vma + (i << PAGE_SHIFT)
+                 + (blkif_seg->first_sect << SECTOR_SHIFT);
+@@ -409,26 +435,26 @@ guest_copy2(struct td_xenblkif * const blkif, const struct td_xenio_shared_ctx*
+                 + 1)
+             << SECTOR_SHIFT;
+     }
+-    gcopy.count = req->msg.nr_segments;
++    gcopy.count = req->nr_segs;
+     gcopy.segments = req->gcopy_segs;
+ 
+     tracepoint(tapdisk, grant_copy,
+-	       req->msg.id, TP_PHASE_BEGIN, dir, req->msg.nr_segments);
++	       req->msg.id, TP_PHASE_BEGIN, dir, req->nr_segs);
+ 
+     err = -ioctl(ctx->gntdev_fd, IOCTL_GNTDEV_GRANT_COPY, &gcopy);
+ 
+     tracepoint(tapdisk, grant_copy,
+-	       req->msg.id, TP_PHASE_END, dir, req->msg.nr_segments);
++	       req->msg.id, TP_PHASE_END, dir, req->nr_segs);
+ 
+     if (err) {
+         err = -errno;
+         RING_ERR(blkif, "failed to grant-copy request %"PRIu64" "
+                 "(%d segments): %s\n", req->msg.id,
+-                req->msg.nr_segments, strerror(-err));
++                req->nr_segs, strerror(-err));
+         goto out;
+     }
+ 
+-	for (i = 0; i < req->msg.nr_segments; i++) {
++	for (i = 0; i < req->nr_segs; i++) {
+ 		struct gntdev_grant_copy_segment *gcopy_seg = &req->gcopy_segs[i];
+ 		if (gcopy_seg->status != GNTST_okay) {
+ 			/*
+@@ -445,7 +471,7 @@ guest_copy2(struct td_xenblkif * const blkif, const struct td_xenio_shared_ctx*
+ 
+ out:
+     tracepoint(tapdisk, guest_copy,
+-               req->msg.id, TP_PHASE_END, dir, req->msg.nr_segments);
++               req->msg.id, TP_PHASE_END, dir, req->nr_segs);
+     return err;
+ }
+ 
+@@ -498,7 +524,7 @@ tapdisk_xenblkif_complete_request(struct td_blkif_queue * const queue,
+ 	 */
+ 	if (unlikely(processing_barrier_message)) {
+ 		ASSERT(queue->barrier.msg == &req->msg);
+-		if (req->msg.nr_segments && !queue->barrier.io_done) {
++		if (req->nr_segs && !queue->barrier.io_done) {
+ 			queue->barrier.io_err = err;
+ 			queue->barrier.io_done = true;
+ 		}
+@@ -507,7 +533,7 @@ tapdisk_xenblkif_complete_request(struct td_blkif_queue * const queue,
+ 	}
+ 
+ 	if (likely(!blkif->dead)) {
+-		if (blkif_rq_rd(&req->msg) && likely(!err)) {
++		if (blkif_rq_rd(req) && likely(!err)) {
+ 			_err = guest_copy2(blkif, queue->ctx->shared, req);
+                         if (unlikely(_err)) {
+                                 err = _err;
+@@ -525,7 +551,7 @@ tapdisk_xenblkif_complete_request(struct td_blkif_queue * const queue,
+ 
+ 		xenio_blkif_put_response(queue, req, _err, final);
+ 
+-		if (blkif_rq_rd(&req->msg)) {
++		if (blkif_rq_rd(req)) {
+ 			if (likely(blkif->stats.xenvbd)) {
+ 				cnt = &blkif->stats.xenvbd->st_rd_cnt;
+ 				sum = &blkif->stats.xenvbd->st_rd_sum_usecs;
+@@ -533,7 +559,7 @@ tapdisk_xenblkif_complete_request(struct td_blkif_queue * const queue,
+ 			}
+ 			blkif->vbd_stats.stats->read_reqs_completed++;
+ 			ticks = &blkif->vbd_stats.stats->read_total_ticks;
+-		} else if (blkif_rq_wr(&req->msg)) {
++		} else if (blkif_rq_wr(req)) {
+ 			if (likely(blkif->stats.xenvbd)) {
+ 				cnt = &blkif->stats.xenvbd->st_wr_cnt;
+ 				sum = &blkif->stats.xenvbd->st_wr_sum_usecs;
+@@ -669,8 +695,8 @@ tapdisk_xenblkif_parse_request(struct td_blkif_queue* const queue,
+         goto out;
+     }
+ 
+-    for (i = 0; i < req->msg.nr_segments; i++) {
+-        struct blkif_request_segment *seg = &req->msg.seg[i];
++    for (i = 0; i < req->nr_segs; i++) {
++        struct blkif_request_segment *seg = &req->segs[i];
+ 
+         /*
+          * Note that first and last may be equal, which means only one sector
+@@ -706,8 +732,8 @@ tapdisk_xenblkif_parse_request(struct td_blkif_queue* const queue,
+     last = NULL;
+     page = req->vma;
+ 
+-    for (i = 0; i < req->msg.nr_segments; i++) { /* for each segment */
+-        struct blkif_request_segment *seg = &req->msg.seg[i];
++    for (i = 0; i < req->nr_segs; i++) { /* for each segment */
++        struct blkif_request_segment *seg = &req->segs[i];
+         size_t size;
+ 
+         /* first_sect/last_sect are already validated, above */
+@@ -734,7 +760,7 @@ tapdisk_xenblkif_parse_request(struct td_blkif_queue* const queue,
+     vreq->req_id = req->msg.id;
+ #endif
+ 
+-    if (blkif_rq_wr(&req->msg)) {
++    if (blkif_rq_wr(req)) {
+         err = guest_copy2(blkif, queue->ctx->shared, req);
+         if (err) {
+             RING_ERR(blkif, "req %lu: failed to copy from guest: %s\n",
+@@ -760,6 +786,81 @@ out:
+ }
+ 
+ 
++/**
++ * Copies the segments of an indirect request from the pages the guest granted
++ * to req->indirect_segs, and sets the operation and the segments of the
++ * request.
++ *
++ * @returns 0 on success, a positive error code otherwise
++ */
++static int
++tapdisk_xenblkif_get_indirect_segments(struct td_blkif_queue * const queue,
++        struct td_xenblkif_req * const req)
++{
++    struct td_xenblkif * const blkif = queue->blkif;
++    struct ioctl_gntdev_grant_copy gcopy;
++    unsigned int i, pages;
++
++    if (unlikely(!blkif->indirect_max_segments)) {
++        RING_ERR(blkif, "req %lu: indirect request, not announced\n",
++                 req->ind.id);
++        return EINVAL;
++    }
++
++    req->op = req->ind.indirect_op;
++    req->nr_segs = req->ind.nr_segments;
++    if (unlikely(req->op != BLKIF_OP_READ && req->op != BLKIF_OP_WRITE)) {
++        RING_ERR(blkif, "req %lu: invalid indirect request type %d\n",
++                 req->ind.id, req->op);
++        return EOPNOTSUPP;
++    }
++    if (unlikely(!req->nr_segs ||
++                 req->nr_segs > blkif->indirect_max_segments)) {
++        RING_ERR(blkif, "req %lu: bad number of segments in indirect "
++                 "request (%u)\n", req->ind.id, req->nr_segs);
++        return EINVAL;
++    }
++
++    /* The segments fill the indirect pages in order */
++    pages = (req->nr_segs + TD_INDIRECT_SEGMENTS_PER_PAGE - 1) /
++            TD_INDIRECT_SEGMENTS_PER_PAGE;
++    ASSERT(pages <= BLKIF_MAX_INDIRECT_PAGES_PER_REQUEST);
++    for (i = 0; i < pages; i++) {
++        struct gntdev_grant_copy_segment *gcopy_seg = &req->gcopy_segs[i];
++        unsigned int first = i * TD_INDIRECT_SEGMENTS_PER_PAGE;
++        unsigned int n = req->nr_segs - first;
++
++        if (n > TD_INDIRECT_SEGMENTS_PER_PAGE)
++            n = TD_INDIRECT_SEGMENTS_PER_PAGE;
++        gcopy_seg->dest.virt = &req->indirect_segs[first];
++        gcopy_seg->source.foreign.ref = req->ind.indirect_grefs[i];
++        gcopy_seg->source.foreign.offset = 0;
++        gcopy_seg->source.foreign.domid = blkif->domid;
++        gcopy_seg->flags = GNTCOPY_source_gref;
++        gcopy_seg->len = n * sizeof(struct blkif_request_segment);
++    }
++    gcopy.count = pages;
++    gcopy.segments = req->gcopy_segs;
++
++    if (ioctl(queue->ctx->shared->gntdev_fd, IOCTL_GNTDEV_GRANT_COPY, &gcopy)) {
++        int err = errno;
++
++        RING_ERR(blkif, "req %lu: failed to grant-copy the indirect pages: "
++                 "%s\n", req->ind.id, strerror(err));
++        return err;
++    }
++    for (i = 0; i < pages; i++) {
++        if (req->gcopy_segs[i].status != GNTST_okay) {
++            RING_ERR(blkif, "req %lu: failed to grant-copy indirect page "
++                     "%u: %d\n", req->ind.id, i, req->gcopy_segs[i].status);
++            return EIO;
++        }
++    }
++
++    req->segs = req->indirect_segs;
++    return 0;
++}
++
+ /**
+  * Initialises the standard tapdisk request (td_vbd_request_t) from the
+  * intermediate ring request (td_xenblkif_req) in order to prepare it
+@@ -787,7 +888,16 @@ tapdisk_xenblkif_make_vbd_request(struct td_blkif_queue* queue,
+     memset(vreq, 0, sizeof(*vreq));
+ 
+     req->vma = NULL;
+-    switch (req->msg.operation) {
++    req->op = req->msg.operation;
++    req->nr_segs = req->msg.nr_segments;
++    req->segs = req->msg.seg;
++    if (req->msg.operation == BLKIF_OP_INDIRECT) {
++        err = tapdisk_xenblkif_get_indirect_segments(queue, req);
++        if (unlikely(err))
++            goto out;
++    }
++
++    switch (req->op) {
+     case BLKIF_OP_READ:
+         if (likely(queue->stats.xenvbd))
+                 blkif->stats.xenvbd->st_rd_req++;
+@@ -798,16 +908,16 @@ tapdisk_xenblkif_make_vbd_request(struct td_blkif_queue* queue,
+         break;
+     case BLKIF_OP_WRITE:
+     case BLKIF_OP_WRITE_BARRIER:
+-        if (likely(blkif->stats.xenvbd) && req->msg.nr_segments)
++        if (likely(blkif->stats.xenvbd) && req->nr_segs)
+ 		blkif->stats.xenvbd->st_wr_req++;
+-	if (likely(blkif->vbd_stats.stats) && req->msg.nr_segments)
++	if (likely(blkif->vbd_stats.stats) && req->nr_segs)
+ 		blkif->vbd_stats.stats->write_reqs_submitted++;
+         req->prot = PROT_READ;
+         vreq->op = TD_OP_WRITE;
+         break;
+     default:
+         RING_ERR(blkif, "req %lu: invalid request type %d\n",
+-                req->msg.id, req->msg.operation);
++                req->msg.id, req->op);
+         err = EOPNOTSUPP;
+         goto out;
+     }
+@@ -817,19 +927,21 @@ tapdisk_xenblkif_make_vbd_request(struct td_blkif_queue* queue,
+     /*
+      * Check that the number of segments is sane. nr_segments is guest-
+      * controlled; the blkif protocol permits at most
+-     * BLKIF_MAX_SEGMENTS_PER_REQUEST segments per request, which is how the
+-     * ring descriptor and our per-request buffers are sized.
++     * BLKIF_MAX_SEGMENTS_PER_REQUEST segments per direct request, which is
++     * how the ring descriptor is sized. The segments of an indirect request
++     * are checked against what we announced when they are read.
+      */
+-    if (unlikely((req->msg.nr_segments == 0 &&
+-                req->msg.operation != BLKIF_OP_WRITE_BARRIER) ||
+-            req->msg.nr_segments > BLKIF_MAX_SEGMENTS_PER_REQUEST)) {
+-        RING_ERR(blkif, "req %lu: bad number of segments in request (%d)\n",
+-                req->msg.id, req->msg.nr_segments);
++    if (unlikely((req->nr_segs == 0 &&
++                req->op != BLKIF_OP_WRITE_BARRIER) ||
++            (req->msg.operation != BLKIF_OP_INDIRECT &&
++             req->nr_segs > BLKIF_MAX_SEGMENTS_PER_REQUEST))) {
++        RING_ERR(blkif, "req %lu: bad number of segments in request (%u)\n",
++                req->msg.id, req->nr_segs);
+         err = EINVAL;
+         goto out;
+     }
+ 
+-    if (likely(req->msg.nr_segments)) {
++    if (likely(req->nr_segs)) {
+         err = tapdisk_xenblkif_parse_request(queue, req);
+     /*
+      * If we only got one request from the ring and that was a barrier one,
+@@ -877,7 +989,9 @@ tapdisk_xenblkif_queue_request(struct td_blkif_queue * const queue,
+     ASSERT(msg);
+     ASSERT(req);
+ 
+-    queue_request = req->msg.nr_segments != 0;
++    /* nr_segments isn't a field of an indirect request, which has data */
++    queue_request = req->msg.operation == BLKIF_OP_INDIRECT ||
++                    req->msg.nr_segments != 0;
+ 
+     /*
+      * Do not use req after tapdisk_xenblkif_make_vbd_request
+diff --git a/drivers/td-req.h b/drivers/td-req.h
+index 2623aecb..5476e0d6 100644
+--- a/drivers/td-req.h
++++ b/drivers/td-req.h
+@@ -28,12 +28,19 @@
+ #include "td-blkif.h"
+ 
+ /*
+- * A ring request descriptor (blkif_request_t) carries at most
+- * BLKIF_MAX_SEGMENTS_PER_REQUEST segments, each mapping a single page, so the
+- * per-request data buffer and the vectorised segment arrays below only ever
+- * need that many entries. (This backend does not implement BLKIF_OP_INDIRECT,
+- * which is the only mechanism that would raise the per-request segment count.)
++ * A direct request (blkif_request_t) carries at most
++ * BLKIF_MAX_SEGMENTS_PER_REQUEST segments, each mapping a single page. An
++ * indirect request (BLKIF_OP_INDIRECT) carries the grant references of pages
++ * holding up to the number of segments the back-end announced in
++ * feature-max-indirect-segments, at most TD_MAX_INDIRECT_SEGMENTS.
+  */
++#define TD_MAX_INDIRECT_SEGMENTS 256
++#define TD_INDIRECT_SEGMENTS_PER_PAGE (PAGE_SIZE / sizeof(struct blkif_request_segment))
++#define TD_MAX_SEGMENTS_PER_REQUEST \
++	(TD_MAX_INDIRECT_SEGMENTS > BLKIF_MAX_SEGMENTS_PER_REQUEST ? \
++	 TD_MAX_INDIRECT_SEGMENTS : BLKIF_MAX_SEGMENTS_PER_REQUEST)
++
++/* The data buffer of a direct request */
+ #define TD_REQ_BUFFER_SIZE (BLKIF_MAX_SEGMENTS_PER_REQUEST << PAGE_SHIFT)
+ 
+ /**
+@@ -52,7 +59,20 @@ struct td_xenblkif_req {
+      * only copy the descriptor and not the actual data, the guest is free
+      * to modify the data and corrupt itself if it wants to.
+      */
+-    blkif_request_t msg;
++    union {
++        blkif_request_t msg;
++        blkif_request_indirect_t ind;
++    };
++
++    /*
++     * The operation and the segments of the request, direct or indirect: the
++     * data operation of an indirect request, and its segments, copied from
++     * the indirect pages to indirect_segs. The other fields (id,
++     * sector_number) are at the same place in both kinds of request.
++     */
++    uint8_t op;
++    unsigned int nr_segs;
++    struct blkif_request_segment *segs;
+ 
+     /*
+      * Queue number the request is originating from.
+@@ -75,12 +95,14 @@ struct td_xenblkif_req {
+     /**
+      * The scatter/gather list td_vbd_request_t.iov points to.
+      */
+-    struct td_iovec iov[BLKIF_MAX_SEGMENTS_PER_REQUEST];
++    struct td_iovec iov[TD_MAX_SEGMENTS_PER_REQUEST];
+ 
+     int prot;
+ 
+ 	struct gntdev_grant_copy_segment
+-		gcopy_segs[BLKIF_MAX_SEGMENTS_PER_REQUEST];
++		gcopy_segs[TD_MAX_SEGMENTS_PER_REQUEST];
++
++    struct blkif_request_segment indirect_segs[TD_MAX_INDIRECT_SEGMENTS];
+ };
+ 
+ struct td_blkif_queue;
+diff --git a/include/xen_blkif.h b/include/xen_blkif.h
+index 29ce232f..d9294bb9 100644
+--- a/include/xen_blkif.h
++++ b/include/xen_blkif.h
+@@ -48,7 +48,18 @@ struct blkif_x86_32_response {
+ 	uint8_t         operation;       /* copied from request */
+ 	int16_t         status;          /* BLKIF_RSP_???       */
+ };
++struct blkif_x86_32_request_indirect {
++	uint8_t        operation;    /* BLKIF_OP_INDIRECT                    */
++	uint8_t        indirect_op;  /* BLKIF_OP_{READ/WRITE}                */
++	uint16_t       nr_segments;  /* number of segments                   */
++	uint64_t       id;           /* private guest value, echoed in resp  */
++	blkif_sector_t sector_number;/* start sector idx on disk (r/w only)  */
++	blkif_vdev_t   handle;       /* same as for read/write requests      */
++	grant_ref_t    indirect_grefs[BLKIF_MAX_INDIRECT_PAGES_PER_REQUEST];
++	uint64_t       pad;          /* Make it 64 byte aligned on i386      */
++};
+ typedef struct blkif_x86_32_request blkif_x86_32_request_t;
++typedef struct blkif_x86_32_request_indirect blkif_x86_32_request_indirect_t;
+ typedef struct blkif_x86_32_response blkif_x86_32_response_t;
+ #pragma pack(pop)
+ 
+@@ -66,7 +77,17 @@ struct blkif_x86_64_response {
+ 	uint8_t         operation;       /* copied from request */
+ 	int16_t         status;          /* BLKIF_RSP_???       */
+ };
++struct blkif_x86_64_request_indirect {
++	uint8_t        operation;    /* BLKIF_OP_INDIRECT                    */
++	uint8_t        indirect_op;  /* BLKIF_OP_{READ/WRITE}                */
++	uint16_t       nr_segments;  /* number of segments                   */
++	uint64_t       __attribute__((__aligned__(8))) id;
++	blkif_sector_t sector_number;/* start sector idx on disk (r/w only)  */
++	blkif_vdev_t   handle;       /* same as for read/write requests      */
++	grant_ref_t    indirect_grefs[BLKIF_MAX_INDIRECT_PAGES_PER_REQUEST];
++};
+ typedef struct blkif_x86_64_request blkif_x86_64_request_t;
++typedef struct blkif_x86_64_request_indirect blkif_x86_64_request_indirect_t;
+ typedef struct blkif_x86_64_response blkif_x86_64_response_t;
+ 
+ DEFINE_RING_TYPES(blkif_common, struct blkif_common_request, struct blkif_common_response);
+@@ -92,6 +113,21 @@ static inline void blkif_get_x86_32_req(blkif_request_t *dst, blkif_x86_32_reque
+ 	int i, n = BLKIF_MAX_SEGMENTS_PER_REQUEST;
+ 
+ 	dst->operation = src->operation;
++	/* The layout of the request depends on its operation: read it once */
++	asm volatile ("" ::: "memory");
++	if (dst->operation == BLKIF_OP_INDIRECT) {
++		blkif_x86_32_request_indirect_t *s = (void *)src;
++		blkif_request_indirect_t *d = (void *)dst;
++
++		d->indirect_op = s->indirect_op;
++		d->nr_segments = s->nr_segments;
++		d->id = s->id;
++		d->sector_number = s->sector_number;
++		d->handle = s->handle;
++		for (i = 0; i < BLKIF_MAX_INDIRECT_PAGES_PER_REQUEST; i++)
++			d->indirect_grefs[i] = s->indirect_grefs[i];
++		return;
++	}
+ 	dst->nr_segments = src->nr_segments;
+ 	dst->handle = src->handle;
+ 	dst->id = src->id;
+@@ -107,6 +143,21 @@ static inline void blkif_get_x86_64_req(blkif_request_t *dst, blkif_x86_64_reque
+ 	int i, n = BLKIF_MAX_SEGMENTS_PER_REQUEST;
+ 
+ 	dst->operation = src->operation;
++	/* The layout of the request depends on its operation: read it once */
++	asm volatile ("" ::: "memory");
++	if (dst->operation == BLKIF_OP_INDIRECT) {
++		blkif_x86_64_request_indirect_t *s = (void *)src;
++		blkif_request_indirect_t *d = (void *)dst;
++
++		d->indirect_op = s->indirect_op;
++		d->nr_segments = s->nr_segments;
++		d->id = s->id;
++		d->sector_number = s->sector_number;
++		d->handle = s->handle;
++		for (i = 0; i < BLKIF_MAX_INDIRECT_PAGES_PER_REQUEST; i++)
++			d->indirect_grefs[i] = s->indirect_grefs[i];
++		return;
++	}
+ 	dst->nr_segments = src->nr_segments;
+ 	dst->handle = src->handle;
+ 	dst->id = src->id;
+diff --git a/mockatests/drivers/test-td-req.c b/mockatests/drivers/test-td-req.c
+index d7dfe5e6..590be8cf 100644
+--- a/mockatests/drivers/test-td-req.c
++++ b/mockatests/drivers/test-td-req.c
+@@ -243,10 +243,11 @@ test_reject_inverted_sectors(void **state)
+ 
+ /*
+  * Regression guard for the sizing that made the above bounds meaningful: the
+- * validation bound, the per-request buffer and the vectorised arrays must all
+- * be able to hold exactly the ring descriptor's seg[] capacity. Historically
+- * they diverged (arrays sized 32 while seg[] holds 11), which is what allowed
+- * the out-of-bounds accesses.
++ * validation bound and the per-request buffer must match the ring descriptor's
++ * seg[] capacity, and the vectorised arrays must be able to hold at least that
++ * many segments (they are larger, to fit indirect requests). Historically they
++ * diverged (arrays sized 32 while seg[] holds 11), which is what allowed the
++ * out-of-bounds accesses.
+  */
+ static void
+ test_segment_arrays_match_ring_capacity(void **state)
+@@ -254,8 +255,8 @@ test_segment_arrays_match_ring_capacity(void **state)
+ 	struct td_xenblkif_req req;
+ 
+ 	assert_int_equal(ARRAY_SIZE(req.msg.seg), BLKIF_MAX_SEGMENTS_PER_REQUEST);
+-	assert_int_equal(ARRAY_SIZE(req.gcopy_segs), ARRAY_SIZE(req.msg.seg));
+-	assert_int_equal(ARRAY_SIZE(req.iov), ARRAY_SIZE(req.msg.seg));
++	assert_true(ARRAY_SIZE(req.gcopy_segs) >= ARRAY_SIZE(req.msg.seg));
++	assert_true(ARRAY_SIZE(req.iov) >= ARRAY_SIZE(req.msg.seg));
+ 	assert_int_equal((size_t)TD_REQ_BUFFER_SIZE,
+ 			(size_t)ARRAY_SIZE(req.msg.seg) << PAGE_SHIFT);
+ }

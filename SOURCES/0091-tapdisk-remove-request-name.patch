@@ -1,0 +1,223 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 2 Dec 2025 09:32:38 +0100
+Subject: [PATCH] tapdisk: remove request name
+
+Mainly useful for debug, and error report, but can hurt performances.
+---
+ drivers/block-vhd.c         |  5 ++---
+ drivers/tapdisk-blktap.c    |  4 ----
+ drivers/tapdisk-image.c     |  4 ++--
+ drivers/tapdisk-nbdserver.c |  1 -
+ drivers/tapdisk-stream.c    |  1 -
+ drivers/tapdisk-vbd.c       | 27 +++++++++++++--------------
+ drivers/tapdisk.h           |  1 -
+ drivers/td-req.c            |  8 --------
+ drivers/td-req.h            |  6 ------
+ 9 files changed, 17 insertions(+), 40 deletions(-)
+
+diff --git a/drivers/block-vhd.c b/drivers/block-vhd.c
+index ce8fce6d..5962fd19 100644
+--- a/drivers/block-vhd.c
++++ b/drivers/block-vhd.c
+@@ -2677,11 +2677,10 @@ vhd_debug(td_driver_t *driver)
+ 	for (i = 0; i < VHD_REQS_DATA; i++) {
+ 		struct vhd_request *r = &s->vreq_list[i];
+ 		td_request_t *t       = &r->treq;
+-		const char *vname     = t->vreq ? t->vreq->name: NULL;
+ 		if (t->secs)
+-			DBG(TLOG_WARN, "%d: vreq: %s.%d, err: %d, op: %d,"
++			DBG(TLOG_WARN, "%d: vreq: %d, err: %d, op: %d,"
+ 			    " lsec: 0x%08"PRIx64", flags: %d, this: %p, "
+-			    "next: %p, tx: %p\n", i, vname, t->sidx, r->error, r->op,
++			    "next: %p, tx: %p\n", i, t->sidx, r->error, r->op,
+ 			    t->sec, r->flags, r, r->next, r->tx);
+ 	}
+ 
+diff --git a/drivers/tapdisk-blktap.c b/drivers/tapdisk-blktap.c
+index 9c2e4855..e08f7987 100644
+--- a/drivers/tapdisk-blktap.c
++++ b/drivers/tapdisk-blktap.c
+@@ -364,11 +364,7 @@ tapdisk_blktap_parse_request(td_blktap_t *tap,
+ 		goto fail;
+ 
+ 	req->id = msg->id;
+-	snprintf(req->name, sizeof(req->name),
+-		 "tap-%d.%d", tap->minor, req->id);
+-
+ 	vreq->op    = op;
+-	vreq->name  = req->name;
+ 	vreq->token = tap;
+ 	vreq->cb    = __tapdisk_blktap_request_cb;
+ 
+diff --git a/drivers/tapdisk-image.c b/drivers/tapdisk-image.c
+index 6dcf44ac..0f49ddfa 100644
+--- a/drivers/tapdisk-image.c
++++ b/drivers/tapdisk-image.c
+@@ -163,8 +163,8 @@ tapdisk_image_check_request(td_image_t *image, td_vbd_request_t *vreq)
+ 	return 0;
+ 
+ fail:
+-	ERR(err, "bad request on %s (%s, %"PRIu64"): req %s op %d at %"PRIu64,
+-	    image->name, (rdonly ? "ro" : "rw"), info->size, vreq->name,
++	ERR(err, "bad request on %s (%s, %"PRIu64"): req op %d at %"PRIu64,
++	    image->name, (rdonly ? "ro" : "rw"), info->size,
+ 	    vreq->op, vreq->sec + secs);
+ 
+ 	return err;
+diff --git a/drivers/tapdisk-nbdserver.c b/drivers/tapdisk-nbdserver.c
+index 7e036007..560b84cc 100644
+--- a/drivers/tapdisk-nbdserver.c
++++ b/drivers/tapdisk-nbdserver.c
+@@ -1275,7 +1275,6 @@ static td_vbd_request_t *create_request_vreq(
+ 	vreq->iov = &req->iov;
+ 	vreq->iov->secs = len >> SECTOR_SHIFT;
+ 	vreq->token = client;
+-	vreq->name = req->id;
+ 	vreq->vbd = server->vbd;
+ 
+ 	return vreq;
+diff --git a/drivers/tapdisk-stream.c b/drivers/tapdisk-stream.c
+index 578d0538..49245971 100644
+--- a/drivers/tapdisk-stream.c
++++ b/drivers/tapdisk-stream.c
+@@ -276,7 +276,6 @@ tapdisk_stream_queue_request(td_stream_t *s, td_stream_req_t *req)
+ 	vreq->iovcnt        = 1;
+ 	vreq->sec           = s->sec_in;
+ 	vreq->op            = TD_OP_READ;
+-	vreq->name          = NULL;
+ 	vreq->token         = s;
+ 	vreq->cb            = __tapdisk_stream_request_cb;
+ 
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index b355a962..d9683dfb 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1202,8 +1202,8 @@ __tapdisk_vbd_request_timeout(td_vbd_request_t *vreq,
+ 	timeout = tapdisk_vbd_request_ttl(vreq, now) < 0;
+ 	if (timeout)
+ 		ERR(vreq->error,
+-		    "req %s timed out, retried %d times\n",
+-		    vreq->name, vreq->num_retries);
++		    "request timed out, retried %d times\n",
++		    vreq->num_retries);
+ 
+ 	return timeout;
+ }
+@@ -1412,10 +1412,9 @@ __tapdisk_vbd_complete_td_request(td_vbd_t *vbd, td_vbd_request_t *vreq,
+ 			if (!vreq->error &&
+ 			    err != vreq->prev_error)
+ 				tlog_drv_error(image->driver, err,
+-					       "req %s: %s %s 0x%04x secs @ 0x%08"PRIx64" - %s",
+-					       vreq->name,
++					       "req: %s %s 0x%04x secs @ 0x%08"PRIx64" - %s",
+ 					       op_strings[treq.op],
+-						   image->name,
++					       image->name,
+ 					       treq.secs, treq.sec, strerror(abs(err)));
+ 			vbd->errors++;
+ 		}
+@@ -1595,9 +1594,9 @@ tapdisk_vbd_complete_block_status_request(td_request_t treq, int res)
+ 		res = -ENOMEM;
+ 	}
+ 
+-	DBG(TLOG_DBG, "%s: req %s seg %d sec 0x%08"PRIx64
++	DBG(TLOG_DBG, "%s: req seg %d sec 0x%08"PRIx64
+ 	    " secs 0x%04x buf %p op %d res %d\n", image->name,
+-	    vreq->name, treq.sidx, treq.sec, treq.secs,
++	    treq.sidx, treq.sec, treq.secs,
+ 	    treq.buf, vreq->op, res);
+ 
+ 	__tapdisk_vbd_complete_td_request(vbd, vreq, treq, res);
+@@ -1640,7 +1639,7 @@ tapdisk_vbd_complete_td_request(td_request_t treq, int res)
+ 			((image == vbd->secondary) || 
+ 			 (image == vbd->retired))) {
+ 		ERROR("Got non-zero res %d for NBD secondary - disabling "
+-		      "mirroring: %s", res, vreq->name);
++		      "mirroring.", res);
+ 		vbd->nbd_mirror_failed = 1;
+ 		res = 0; /* Pretend the writes have completed successfully */
+ 
+@@ -1653,9 +1652,9 @@ tapdisk_vbd_complete_td_request(td_request_t treq, int res)
+ 		}
+ 	}
+ 
+-	DBG(TLOG_DBG, "%s: req %s seg %d sec 0x%08"PRIx64
++	DBG(TLOG_DBG, "%s: req seg %d sec 0x%08"PRIx64
+ 	    " secs 0x%04x buf %p op %d res %d\n", image->name,
+-	    vreq->name, treq.sidx, treq.sec, treq.secs,
++	    treq.sidx, treq.sec, treq.secs,
+ 	    treq.buf, vreq->op, res);
+ 
+ 	__tapdisk_vbd_complete_td_request(vbd, vreq, treq, res);
+@@ -1759,8 +1758,8 @@ tapdisk_vbd_issue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ 			break;
+ 		}
+ 
+-		DBG(TLOG_DBG, "%s: req %s seg %d sec 0x%08"PRIx64" secs 0x%04x "
+-		    "buf %p op %d\n", image->name, vreq->name, i, treq.sec, treq.secs,
++		DBG(TLOG_DBG, "%s: req seg %d sec 0x%08"PRIx64" secs 0x%04x "
++		    "buf %p op %d\n", image->name, i, treq.sec, treq.secs,
+ 		    treq.buf, vreq->op);
+ 		sec += iov->secs;
+ 	}
+@@ -1820,9 +1819,9 @@ tapdisk_vbd_reissue_failed_requests(td_vbd_t *vbd)
+ 		vreq->error      = 0;
+ 
+ 		pthread_mutex_unlock(&vbd->mutex);
+-		DBG(TLOG_DBG, "retry #%d of req %s, "
++		DBG(TLOG_DBG, "retry #%d of req, "
+ 		    "sec 0x%08"PRIx64", iovcnt: %d\n", vreq->num_retries,
+-		    vreq->name, vreq->sec, vreq->iovcnt);
++		    vreq->sec, vreq->iovcnt);
+ 
+ 		err = tapdisk_vbd_issue_request(vbd, vreq);
+ 
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index 674f0715..fa2e0c1b 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -159,7 +159,6 @@ struct td_vbd_request {
+ 	td_vreq_callback_t          cb;
+ 	void                       *token;
+ 	void			   *data;
+-	const char                 *name;
+ 
+ 	int                         error;
+ 	int                         prev_error;
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 1dcb36aa..7564cc43 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -725,14 +725,6 @@ tapdisk_xenblkif_parse_request(struct td_xenblkif * const blkif,
+ 			blkif->vbd_stats.stats->read_sectors += nr_sect;
+     } 
+ 
+-    /*
+-     * TODO Isn't this kind of expensive to do for each requests? Why does
+-     * the tapdisk need this in the first place?
+-     */
+-    snprintf(req->name, sizeof(req->name), "xenvbd-%d-%d.%"SCNx64"",
+-             blkif->domid, blkif->devid, req->msg.id);
+-
+-    vreq->name = req->name;
+     vreq->token = blkif;
+     vreq->cb = __tapdisk_xenblkif_request_cb;
+ 
+diff --git a/drivers/td-req.h b/drivers/td-req.h
+index f8faa715..1de5dd8d 100644
+--- a/drivers/td-req.h
++++ b/drivers/td-req.h
+@@ -65,12 +65,6 @@ struct td_xenblkif_req {
+      */
+     void *vma;
+ 
+-    /*
+-     * TODO Why 16+1? This member is copied to the corresponding one in
+-     * td_vbd_request_t, so check the limit of that, if there is one.
+-     */
+-    char name[16 + 1];
+-
+     struct timeval ts;
+ 
+     /**

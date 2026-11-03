@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Fri, 2 Oct 2026 13:03:06 +0200
+Subject: [PATCH] nbd: split the request type field into flags and type
+
+The NBD request header carries a 16-bit command flags field followed
+by a 16-bit command type, but struct nbd_request declared a single
+32-bit type. The server decoded it with ntohl(), so any request with a
+command flag set (e.g. NBD_CMD_FLAG_REQ_ONE on NBD_CMD_BLOCK_STATUS,
+which qemu sends) ended up as an unknown type like 0x00080007 and was
+rejected as an unsupported operation, killing the client.
+
+Declare the two fields separately and convert each with ntohs/htons
+on both the server and the block-nbd client side.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/block-nbd.c         | 13 +++++++------
+ drivers/tapdisk-nbdserver.c |  3 ++-
+ drivers/tapdisk-nbdserver.h |  3 ++-
+ 3 files changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/block-nbd.c b/drivers/block-nbd.c
+index 286cc4d6..33a05251 100644
+--- a/drivers/block-nbd.c
++++ b/drivers/block-nbd.c
+@@ -204,7 +204,7 @@ __cancel_req(int i, struct td_nbd_request *pos, int e)
+ 	memcpy(handle, pos->nreq.handle, 8);
+ 	handle[8] = 0;
+ 	INFO("Entry %d: handle='%s' type=%d, len=%d: %s",
+-	     i, handle, ntohl(pos->nreq.type), ntohl(pos->nreq.len), strerror(e));
++	     i, handle, ntohs(pos->nreq.type), ntohl(pos->nreq.len), strerror(e));
+ 
+ 	if (pos->timeout_event >= 0) {
+ 		tapdisk_server_unregister_event(pos->timeout_event);
+@@ -315,12 +315,12 @@ tdnbd_writer_cb(event_id_t eb, char mode, void *data)
+ 		if (tdnbd_write_some(prv->socket, &pos->header) > 0)
+ 			return;
+ 
+-		if (ntohl(pos->nreq.type) == TAPDISK_NBD_CMD_WRITE) {
++		if (ntohs(pos->nreq.type) == TAPDISK_NBD_CMD_WRITE) {
+ 			if (tdnbd_write_some(prv->socket, &pos->body) > 0)
+ 				return;
+ 		}
+ 
+-		if (ntohl(pos->nreq.type) == TAPDISK_NBD_CMD_DISC) {
++		if (ntohs(pos->nreq.type) == TAPDISK_NBD_CMD_DISC) {
+ 			INFO("sent close request");
+ 			/*
+ 			 * We don't expect a response from a DISC, so move the
+@@ -396,7 +396,8 @@ tdnbd_queue_request(struct tdnbd_data *prv, int type, uint64_t offset,
+ 	req->timeout_event = -1;
+ 
+ 	req->nreq.magic = htonl(NBD_REQUEST_MAGIC);
+-	req->nreq.type = htonl(type);
++	req->nreq.flags = 0;
++	req->nreq.type = htons(type);
+ 	req->nreq.from = htonll(offset);
+ 	req->nreq.len = htonl(length);
+ 	req->header.buffer = (char *)&req->nreq;
+@@ -466,7 +467,7 @@ tdnbd_reader_cb(event_id_t eb, char mode, void *data)
+ 		}
+ 	}
+ 
+-	switch(ntohl(prv->curr_reply_req->nreq.type)) {
++	switch(ntohs(prv->curr_reply_req->nreq.type)) {
+ 	case TAPDISK_NBD_CMD_READ:
+ 		rc = tdnbd_read_some(prv->socket,
+ 				&prv->curr_reply_req->body);
+@@ -489,7 +490,7 @@ tdnbd_reader_cb(event_id_t eb, char mode, void *data)
+ 		break;
+ 	default:
+ 		ERROR("Unhandled request response: %d",
+-				ntohl(prv->curr_reply_req->nreq.type));
++				ntohs(prv->curr_reply_req->nreq.type));
+ 		do_disable = 1;
+ 		return;
+ 	} 
+diff --git a/drivers/tapdisk-nbdserver.c b/drivers/tapdisk-nbdserver.c
+index 7d2754e6..3071c3de 100644
+--- a/drivers/tapdisk-nbdserver.c
++++ b/drivers/tapdisk-nbdserver.c
+@@ -1311,7 +1311,8 @@ tapdisk_nbdserver_clientcb(event_id_t id, char mode, void *data)
+ 	}
+ 
+ 	request.from = ntohll(request.from);
+-	request.type = ntohl(request.type);
++	request.flags = ntohs(request.flags);
++	request.type = ntohs(request.type);
+ 	len = ntohl(request.len);
+ 	if (((len & 0x1ff) != 0) || ((request.from & 0x1ff) != 0)) {
+ 		ERR("Non sector-aligned request (%"PRIu64", %d)",
+diff --git a/drivers/tapdisk-nbdserver.h b/drivers/tapdisk-nbdserver.h
+index c2a3cf98..72249619 100644
+--- a/drivers/tapdisk-nbdserver.h
++++ b/drivers/tapdisk-nbdserver.h
+@@ -50,7 +50,8 @@ typedef enum nbd_protocol_style {
+ 
+ struct nbd_request {
+ 	uint32_t magic;
+-	uint32_t type;	
++	uint16_t flags;
++	uint16_t type;
+ 	char handle[8];
+ 	uint64_t from;
+ 	uint32_t len;

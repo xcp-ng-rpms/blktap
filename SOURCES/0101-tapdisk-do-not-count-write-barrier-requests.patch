@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 1 Apr 2025 14:39:10 +0200
+Subject: [PATCH] tapdisk: do not count write barrier requests
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/td-req.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index c22a5c22..fad7aae6 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -770,9 +770,9 @@ tapdisk_xenblkif_make_vbd_request(struct td_xenblkif * const blkif,
+         break;
+     case BLKIF_OP_WRITE:
+     case BLKIF_OP_WRITE_BARRIER:
+-        if (likely(blkif->stats.xenvbd))
++        if (likely(blkif->stats.xenvbd) && req->msg.nr_segments)
+ 			blkif->stats.xenvbd->st_wr_req++;
+-	if (likely(blkif->vbd_stats.stats))
++	if (likely(blkif->vbd_stats.stats) && req->msg.nr_segments)
+ 		blkif->vbd_stats.stats->write_reqs_submitted++;
+         req->prot = PROT_READ;
+         vreq->op = TD_OP_WRITE;
