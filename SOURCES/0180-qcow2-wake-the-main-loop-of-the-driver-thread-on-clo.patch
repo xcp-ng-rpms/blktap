@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 13 Oct 2026 19:40:44 +0200
+Subject: [PATCH] qcow2: wake the main loop of the driver thread on close
+
+Since the queues have their own IOThread, the bh scheduled on each queue by
+_qcow2_close() run in the IOThreads, and nothing wakes the main loop of the
+td-qcow2 thread, which waits for driver_opened to change: closing any qcow2
+image hung in qemu_thread_join().
+
+Notify the main loop too.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/block-qcow2.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index bd6dcfeb..2744aeb7 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -839,6 +839,11 @@ _qcow2_close(td_driver_t *driver)
+ 		struct qcow2_queue *q = &s->queue[qid];
+ 		qemu_bh_schedule(q->bh);
+ 	}
++	/*
++	 * The bh of the queues run in their IOThread: also wake the main loop
++	 * of the thread, which waits for driver_opened to change.
++	 */
++	qemu_notify_event();
+ 	pthread_mutex_unlock(&s->lock);
+ 
+ 	// Ignore return, qcow2_open() always return NULL; or will abort

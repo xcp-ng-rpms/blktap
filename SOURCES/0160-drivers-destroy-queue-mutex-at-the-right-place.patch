@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Wed, 7 Oct 2026 10:48:01 +0200
+Subject: [PATCH] drivers: destroy queue mutex at the right place
+
+---
+ drivers/td-blkif.c | 7 +++++++
+ drivers/td-req.c   | 3 ---
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index 40e32520..a18758d4 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -253,6 +253,13 @@ tapdisk_xenblkif_destroy(struct td_xenblkif * blkif)
+                 tapdisk_xenio_shared_ctx_put(shared_ctx);
+             }
+         }
++
++        /*
++         * Initialised by tapdisk_xenblkif_connect(): destroyed here, once
++         * nothing can use the queue anymore, and only once (it used to be
++         * in tapdisk_xenblkif_reqs_free(), also called on a reqs_init failure).
++         */
++        pthread_mutex_destroy(&queue->mutex);
+     }
+ 
+     err = td_metrics_vbd_stop(&blkif->vbd_stats);
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index c8c2086e..0d6f4750 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -963,9 +963,6 @@ tapdisk_xenblkif_reqs_free(struct td_blkif_queue* queue)
+ 
+     free(queue->reqs_free);
+     queue->reqs_free = NULL;
+-
+-    /* TODO: to be moved */
+-    pthread_mutex_destroy(&queue->mutex);
+ }
+ 
+ int

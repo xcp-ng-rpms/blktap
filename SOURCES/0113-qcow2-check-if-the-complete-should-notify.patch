@@ -1,0 +1,353 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Thu, 27 Feb 2025 17:29:57 +0100
+Subject: [PATCH] qcow2: check if the complete should notify
+
+---
+ drivers/block-cache.c       |  9 +++++----
+ drivers/block-lcache.c      | 15 ++++++++++-----
+ drivers/block-llcache.c     |  9 ++++++---
+ drivers/block-qcow2.c       |  5 +++--
+ drivers/block-valve.c       |  7 +++++--
+ drivers/tapdisk-interface.c |  4 ++--
+ drivers/tapdisk-interface.h |  2 +-
+ drivers/tapdisk-vbd.c       | 22 +++++++++++++---------
+ drivers/tapdisk-vbd.h       |  4 ++--
+ drivers/tapdisk.h           |  2 +-
+ 10 files changed, 48 insertions(+), 31 deletions(-)
+
+diff --git a/drivers/block-cache.c b/drivers/block-cache.c
+index 422571f2..93f2b73e 100644
+--- a/drivers/block-cache.c
++++ b/drivers/block-cache.c
+@@ -621,10 +621,10 @@ block_cache_hit(block_cache_t *cache, td_request_t treq, char *iov[])
+ 	td_complete_request(treq, 0);
+ }
+ 
+-static void
++static int
+ block_cache_populate_cache(td_request_t clone, int err)
+ {
+-	int i;
++	int i, notify;
+ 	radix_tree_t *tree;
+ 	block_cache_t *cache;
+ 	block_cache_request_t *breq;
+@@ -636,7 +636,7 @@ block_cache_populate_cache(td_request_t clone, int err)
+ 	breq->err   = (breq->err ? breq->err : err);
+ 
+ 	if (breq->secs)
+-		return;
++		return 0;
+ 
+ 	if (breq->err) {
+ 		free(breq->buf);
+@@ -656,8 +656,9 @@ block_cache_populate_cache(td_request_t clone, int err)
+ 		free(breq->buf);
+ 
+ out:
+-	td_complete_request(breq->treq, breq->err);
++	notify = td_complete_request(breq->treq, breq->err);
+ 	block_cache_put_request(cache, breq);
++	return notify;
+ }
+ 
+ static void
+diff --git a/drivers/block-lcache.c b/drivers/block-lcache.c
+index 135e22d2..5aaff660 100644
+--- a/drivers/block-lcache.c
++++ b/drivers/block-lcache.c
+@@ -287,25 +287,29 @@ lcache_store_read(td_lcache_t *cache, td_lcache_req_t *req)
+ 	BUG_ON(err);
+ }
+ 
+-static void
++static int
+ lcache_complete_read(td_lcache_t *cache, td_lcache_req_t *req)
+ {
++	int notify;
++
+ 	if (likely(!req->err)) {
+ 		size_t sz = (size_t)req->treq.secs << SECTOR_SHIFT;
+ 		memcpy(req->treq.buf, req->buf, sz);
+ 	}
+ 
+-	td_complete_request(req->treq, req->err);
++	notify = td_complete_request(req->treq, req->err);
+ 
+ 	if (unlikely(req->err) || !lcache_wr_enabled(cache)) {
+ 		lcache_free_request(cache, req);
+-		return;
++		return notify;
+ 	}
+ 
+ 	lcache_store_read(cache, req);
++
++	return notify;
+ }
+ 
+-static void
++static int
+ __lcache_read_cb(td_request_t treq, int err)
+ {
+ 	td_lcache_req_t *req = treq.cb_data;
+@@ -316,7 +320,8 @@ __lcache_read_cb(td_request_t treq, int err)
+ 	req->err   = req->err ? : err;
+ 
+ 	if (!req->secs)
+-		lcache_complete_read(cache, req);
++		return lcache_complete_read(cache, req);
++	return 0;
+ }
+ 
+ static void
+diff --git a/drivers/block-llcache.c b/drivers/block-llcache.c
+index ed5b8824..dc0a7332 100644
+--- a/drivers/block-llcache.c
++++ b/drivers/block-llcache.c
+@@ -511,9 +511,10 @@ fail:
+ 	return err;
+ }
+ 
+-static void
++static int
+ __llecache_write_cb(td_request_t treq, int error)
+ {
++	int notify = 0;
+ 	td_llecache_req_t *req = treq.cb_data;
+ 	td_llecache_t *s = req->s;
+ 
+@@ -523,7 +524,7 @@ __llecache_write_cb(td_request_t treq, int error)
+ 	req->error    = ll_write_error(req->error, error);
+ 
+ 	if (req->pending)
+-		return;
++		return notify;
+ 
+ 	if (req->error == -ENOSPC) {
+ 		ll_log_switch(DISK_TYPE_LLECACHE, req->error,
+@@ -533,9 +534,11 @@ __llecache_write_cb(td_request_t treq, int error)
+ 		td_queue_write(s->shared, req->treq);
+ 
+ 	} else
+-		td_complete_request(req->treq, error);
++		notify = td_complete_request(req->treq, error);
+ 
+ 	llecache_free_request(s, req);
++
++	return notify;
+ }
+ 
+ static void
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index 6eb7495f..02f73699 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -717,11 +717,12 @@ signal_completion(struct qcow2_request *r)
+ {
+ 	struct qcow2_state *s = r->state;
+ 	td_vbd_queue_t *queue = r->treq.vreq->vqueue;
++	int notify;
+ 
+-	td_complete_request(r->treq, r->error);
++	notify = td_complete_request(r->treq, r->error);
+ 	DBG(TLOG_DBG, "lsec: 0x%08"PRIx64", blk: 0x%04x, "
+ 		"err: %d\n", r->treq.sec, r->treq.secs, r->error);
+-	if (r->error == 0) {
++	if (r->error == 0 && notify) {
+ 		tapdisk_vbd_kick(queue, true);
+ 		s->kick++;
+ 	}
+diff --git a/drivers/block-valve.c b/drivers/block-valve.c
+index 0318490d..67788338 100644
+--- a/drivers/block-valve.c
++++ b/drivers/block-valve.c
+@@ -444,11 +444,12 @@ valve_expend_request(td_valve_t *valve, const td_request_t treq)
+ 	return 0;
+ }
+ 
+-static void
++static int
+ __valve_complete_treq(td_request_t treq, int error)
+ {
+ 	td_valve_request_t *req = treq.cb_data;
+ 	td_valve_t *valve = req->valve;
++	int notify;
+ 
+ 	BUG_ON(req->secs < treq.secs);
+ 	req->secs -= treq.secs;
+@@ -459,11 +460,13 @@ __valve_complete_treq(td_request_t treq, int error)
+ 	/* Respond to original callback */
+ 	treq.cb = req->treq.cb;
+ 	treq.cb_data = req->treq.cb_data;
+-	td_complete_request(treq, error);
++	notify = td_complete_request(treq, error);
+ 
+ 	if (!req->secs) {
+ 		valve_free_request(valve, req);
+ 	}
++
++	return notify;
+ }
+ 
+ static void
+diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
+index bcc60971..34c3e021 100644
+--- a/drivers/tapdisk-interface.c
++++ b/drivers/tapdisk-interface.c
+@@ -349,13 +349,13 @@ td_forward_request(td_request_t treq)
+ 	tapdisk_vbd_forward_request(treq);
+ }
+ 
+-void
++int
+ td_complete_request(td_request_t treq, int res)
+ {
+ 	td_queue_id_t __unused qid = treq.vreq->vqueue - treq.vreq->vqueue->vbd->queues;
+ 	tracepoint(tapdisk, driver_complete,
+ 		   qid, treq.vreq->req_id, treq.op, treq.sec, treq.secs/*, res*/);
+-	treq.cb(treq, res);
++	return treq.cb(treq, res);
+ }
+ 
+ void
+diff --git a/drivers/tapdisk-interface.h b/drivers/tapdisk-interface.h
+index b401c96d..e8299bde 100644
+--- a/drivers/tapdisk-interface.h
++++ b/drivers/tapdisk-interface.h
+@@ -37,7 +37,7 @@ void td_queue_write(td_image_t *, td_request_t);
+ void td_queue_read(td_image_t *, td_request_t);
+ void td_queue_block_status(td_image_t*, td_request_t*);
+ void td_forward_request(td_request_t);
+-void td_complete_request(td_request_t, int);
++int td_complete_request(td_request_t, int);
+ 
+ void td_debug(td_image_t *);
+ 
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index b294f746..c9bf9425 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -58,7 +58,7 @@
+ 
+ char* op_strings[TD_OPS_END] ={"read", "write", "block_status"};
+ 
+-static void tapdisk_vbd_complete_vbd_request(td_vbd_queue_t *, td_vbd_request_t *);
++static bool tapdisk_vbd_complete_vbd_request(td_vbd_queue_t *, td_vbd_request_t *);
+ static bool tapdisk_vbd_queue_ready(td_vbd_t *);
+ static void tapdisk_vbd_check_complete_requests(td_vbd_queue_t *);
+ static void tapdisk_vbd_check_requests_for_issue(td_vbd_queue_t *);
+@@ -1457,7 +1457,7 @@ tapdisk_vbd_request_should_retry(td_vbd_queue_t* queue, td_vbd_request_t *vreq)
+ 	return false;
+ }
+ 
+-static void
++static bool
+ tapdisk_vbd_complete_vbd_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq)
+ {
+ 	if (!vreq->submitting && !vreq->secs_pending) {
+@@ -1466,7 +1466,9 @@ tapdisk_vbd_complete_vbd_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq)
+ 			tapdisk_vbd_move_request(vreq, &queue->failed_requests);
+ 		else
+ 			tapdisk_vbd_move_request(vreq, &queue->completed_requests);
++		return true;
+ 	}
++	return false;
+ }
+ 
+ static void
+@@ -1479,13 +1481,13 @@ FIXME_maybe_count_enospc_redirect(td_vbd_t *vbd, td_request_t treq)
+ 		vbd->FIXME_enospc_redirect_count += treq.secs;
+ }
+ 
+-static void
++static int
+ __tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+ 				  td_request_t treq, int res)
+ {
+ 	td_image_t *image = treq.image;
+ 	td_vbd_t* vbd = queue->vbd;
+-	int err;
++	int err, notify;
+ 
+         long long interval;
+ 
+@@ -1534,9 +1536,11 @@ __tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+ 	    break;
+         }
+ 
+-	tapdisk_vbd_complete_vbd_request(queue, vreq);
++	notify = tapdisk_vbd_complete_vbd_request(queue, vreq);
+ 	pthread_mutex_unlock(&queue->mutex);
+ 	pthread_mutex_unlock(&vbd->mutex);
++
++	return notify;
+ }
+ 
+ static void
+@@ -1675,7 +1679,7 @@ block_status_add_extent(tapdisk_extents_t *extents, td_request_t *vreq)
+ 	return ret;
+ }
+ 
+-void
++int
+ tapdisk_vbd_complete_block_status_request(td_request_t treq, int res)
+ {
+ 	td_image_t *image;
+@@ -1700,10 +1704,10 @@ tapdisk_vbd_complete_block_status_request(td_request_t treq, int res)
+ 	    treq.sidx, treq.sec, treq.secs,
+ 	    treq.buf, vreq->op, res);
+ 
+-	__tapdisk_vbd_complete_td_request(queue, vreq, treq, res);
++	return __tapdisk_vbd_complete_td_request(queue, vreq, treq, res);
+ }
+ 
+-void
++int
+ tapdisk_vbd_complete_td_request(td_request_t treq, int res)
+ {
+ 	td_vbd_t *vbd;
+@@ -1760,7 +1764,7 @@ tapdisk_vbd_complete_td_request(td_request_t treq, int res)
+ 	    treq.sidx, treq.sec, treq.secs,
+ 	    treq.buf, vreq->op, res);
+ 
+-	__tapdisk_vbd_complete_td_request(queue, vreq, treq, res);
++	return __tapdisk_vbd_complete_td_request(queue, vreq, treq, res);
+ }
+ 
+ static inline void
+diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
+index 702d4a1f..a6ad9b59 100644
+--- a/drivers/tapdisk-vbd.h
++++ b/drivers/tapdisk-vbd.h
+@@ -227,7 +227,7 @@ int tapdisk_vbd_commit(td_vbd_t *, const char *);
+ int tapdisk_vbd_query_commit_job(td_vbd_t *, td_query_t *);
+ int tapdisk_vbd_cancel_commit_job(td_vbd_t *, bool);
+ 
+-void tapdisk_vbd_complete_td_request(td_request_t, int);
++int tapdisk_vbd_complete_td_request(td_request_t, int);
+ int add_extent(tapdisk_extents_t *, td_request_t *);
+ int tapdisk_vbd_issue_request(td_vbd_queue_t *, td_vbd_request_t *);
+ 
+@@ -243,7 +243,7 @@ void tapdisk_vbd_check_progress(td_vbd_queue_t *);
+ void tapdisk_vbd_debug(td_vbd_t *);
+ int tapdisk_vbd_start_nbdservers(td_vbd_t *);
+ void tapdisk_vbd_stats(td_vbd_t *, td_stats_t *);
+-void tapdisk_vbd_complete_block_status_request(td_request_t, int);
++int tapdisk_vbd_complete_block_status_request(td_request_t, int);
+ 
+ /**
+  * Tells whether the VBD contains at least one dead ring.
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index e4f3218d..2f6a0844 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -131,7 +131,7 @@ typedef struct td_query              td_query_t;
+ /* 
+  * Prototype of the callback to activate as requests complete.
+  */
+-typedef void (*td_callback_t)(td_request_t, int);
++typedef int (*td_callback_t)(td_request_t, int);
+ typedef void (*td_vreq_callback_t)(td_vbd_request_t*, int, void*, int);
+ 
+ struct td_disk_id {

@@ -1,0 +1,252 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Thu, 25 Jun 2026 12:25:21 +0200
+Subject: [PATCH] tapdisk: send response before computing stats
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/tapdisk-blktap.c | 38 ++++++++++++++++++------------
+ drivers/tapdisk-vbd.c    | 50 +++++++++++++++++++++++-----------------
+ drivers/td-req.c         | 39 +++++++++++++++----------------
+ 3 files changed, 70 insertions(+), 57 deletions(-)
+
+diff --git a/drivers/tapdisk-blktap.c b/drivers/tapdisk-blktap.c
+index 03bfccca..fc32555a 100644
+--- a/drivers/tapdisk-blktap.c
++++ b/drivers/tapdisk-blktap.c
+@@ -225,42 +225,48 @@ tapdisk_blktap_put_response(td_blktap_t *tap,
+ {
+ 	blktap_ring_rsp_t *rsp;
+ 	int op = 0;
+-        unsigned long long interval;
+-        struct timeval now;
++	unsigned long long interval;
++	struct timeval now;
+ 
+-	pthread_mutex_lock(&tap->mutex);
+ 	BUG_ON(!tap->vma);
+ 
+-	rsp = BLKTAP_GET_RESPONSE(tap, tap->rsp_prod_pvt);
+-
+-        gettimeofday(&now, NULL);
+-        interval = timeval_to_us(&now) - timeval_to_us(&req->ts);
+ 	switch (req->vreq.op) {
+ 	case TD_OP_READ:
+ 		op = BLKTAP_OP_READ;
+-                tap->blktap_stats.stats->read_reqs_completed++;
+-                tap->blktap_stats.stats->read_total_ticks += interval;
+ 		break;
+ 	case TD_OP_WRITE:
+ 		op = BLKTAP_OP_WRITE;
+-                tap->blktap_stats.stats->write_reqs_completed++;
+-                tap->blktap_stats.stats->write_total_ticks += interval;
+                 break;
+ 	default:
+ 		BUG();
+ 	}
+ 
+-	if (error)
+-		tap->blktap_stats.stats->io_errors++;
++	pthread_mutex_lock(&tap->mutex);
++	rsp = BLKTAP_GET_RESPONSE(tap, tap->rsp_prod_pvt);
+ 
+ 	rsp->id        = req->id;
+ 	rsp->operation = op;
+ 	rsp->status    = tapdisk_blktap_error_status(tap, error);
+ 
+-	tapdisk_blktap_free_request_locked(tap, req);
+-
+ 	__tapdisk_blktap_push_response_locked(tap, final);
+ 	pthread_mutex_unlock(&tap->mutex);
++
++	gettimeofday(&now, NULL);
++	interval = timeval_to_us(&now) - timeval_to_us(&req->ts);
++	switch (op) {
++	case BLKTAP_OP_READ:
++		tap->blktap_stats.stats->read_reqs_completed++;
++		tap->blktap_stats.stats->read_total_ticks += interval;
++		break;
++	case BLKTAP_OP_WRITE:
++		tap->blktap_stats.stats->write_reqs_completed++;
++		tap->blktap_stats.stats->write_total_ticks += interval;
++		break;
++	}
++
++	if (error)
++		tap->blktap_stats.stats->io_errors++;
++
+ }
+ 
+ static void
+@@ -270,6 +276,8 @@ tapdisk_blktap_complete_request(td_blktap_t *tap,
+ {
+ 	if (likely(tap->vma))
+ 		tapdisk_blktap_put_response(tap, req, error, final);
++
++	tapdisk_blktap_free_request_locked(tap, req);
+ }
+ 
+ static void
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index c9bf9425..2051243c 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1119,7 +1119,9 @@ tapdisk_vbd_pause(td_vbd_t *vbd)
+ 		INFO("pause requested\n");
+ 	}
+ 
++	pthread_mutex_lock(&vbd->mutex);
+ 	td_flag_set(vbd->state, TD_VBD_PAUSE_REQUESTED);
++	pthread_mutex_unlock(&vbd->mutex);
+ 
+ 	if (vbd->nbdserver)
+ 		tapdisk_nbdserver_pause(vbd->nbdserver, log);
+@@ -1481,22 +1483,37 @@ FIXME_maybe_count_enospc_redirect(td_vbd_t *vbd, td_request_t treq)
+ 		vbd->FIXME_enospc_redirect_count += treq.secs;
+ }
+ 
+-static int
++static bool
+ __tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+ 				  td_request_t treq, int res)
+ {
+ 	td_image_t *image = treq.image;
+ 	td_vbd_t* vbd = queue->vbd;
+-	int err, notify;
+-
++	int err, old_error, prev_error;
++	bool notify;
+         long long interval;
++	struct timeval ts;
+ 
+ 	err = (res <= 0 ? res : -res);
++
+ 	pthread_mutex_lock(&vbd->mutex);
+ 	pthread_mutex_lock(&queue->mutex);
++
++	if (err) {
++		vreq->error = (vreq->error ? : err);
++	}
++
++	ts = vreq->ts;
++	old_error = vreq->error;
++	prev_error = vreq->prev_error;
++
+ 	queue->secs_pending -= treq.secs;
+ 	vreq->secs_pending  -= treq.secs;
+ 
++	notify = tapdisk_vbd_complete_vbd_request(queue, vreq);
++	pthread_mutex_unlock(&queue->mutex);
++	pthread_mutex_unlock(&vbd->mutex);
++
+ 	if (err != -EBUSY) {
+ 		int write = treq.op == TD_OP_WRITE;
+ 		td_sector_count_add(&image->stats.hits, treq.secs, write);
+@@ -1506,22 +1523,17 @@ __tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+ 		FIXME_maybe_count_enospc_redirect(vbd, treq);
+ 	}
+ 
+-	if (err) {
+-		if (err != -EBUSY) {
+-			if (!vreq->error &&
+-			    err != vreq->prev_error)
+-				tlog_drv_error(image->driver, err,
+-					       "req: %s %s 0x%04x secs @ 0x%08"PRIx64" - %s",
+-					       op_strings[treq.op],
+-					       image->name,
+-					       treq.secs, treq.sec, strerror(abs(err)));
+-			// TODO: add protection ?
+-			queue->vbd->errors++;
+-		}
+-		vreq->error = (vreq->error ? : err);
++	if (err && err != -EBUSY) {
++		if (!old_error && err != prev_error)
++			tlog_drv_error(image->driver, err,
++				"req: %s %s 0x%04x secs @ 0x%08"PRIx64" - %s",
++				op_strings[treq.op],
++				image->name,
++				treq.secs, treq.sec, strerror(abs(err)));
++		queue->vbd->errors++;
+ 	}
+ 
+-        interval = timeval_to_us(&queue->ts) - timeval_to_us(&vreq->ts);
++	interval = timeval_to_us(&queue->ts) - timeval_to_us(&ts);
+ 
+ 	switch (treq.op) {
+         case TD_OP_READ:
+@@ -1536,10 +1548,6 @@ __tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+ 	    break;
+         }
+ 
+-	notify = tapdisk_vbd_complete_vbd_request(queue, vreq);
+-	pthread_mutex_unlock(&queue->mutex);
+-	pthread_mutex_unlock(&vbd->mutex);
+-
+ 	return notify;
+ }
+ 
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 97234da7..2faca575 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -507,11 +507,25 @@ tapdisk_xenblkif_complete_request(struct td_blkif_queue * const queue,
+ 	}
+ 
+ 	if (likely(!blkif->dead)) {
++		if (blkif_rq_rd(&req->msg) && likely(!err)) {
++			_err = guest_copy2(blkif, queue->ctx->shared, req);
++                        if (unlikely(_err)) {
++                                err = _err;
++                                RING_ERR(blkif, "req %lu: failed to copy from/to guest: "
++                                        "%s\n", req->msg.id, strerror(-err));
++			}
++		}
++
++		if (likely(err == 0))
++			_err = BLKIF_RSP_OKAY;
++		else if (err == EOPNOTSUPP)
++			_err = BLKIF_RSP_EOPNOTSUPP;
++		else
++			_err = BLKIF_RSP_ERROR;
++
++		xenio_blkif_put_response(queue, req, _err, final);
++
+ 		if (blkif_rq_rd(&req->msg)) {
+-			/*
+-			 * TODO stats should be collected after grant-copy for better
+-			 * accuracy
+-			 */
+ 			if (likely(blkif->stats.xenvbd)) {
+ 				cnt = &blkif->stats.xenvbd->st_rd_cnt;
+ 				sum = &blkif->stats.xenvbd->st_rd_sum_usecs;
+@@ -519,14 +533,6 @@ tapdisk_xenblkif_complete_request(struct td_blkif_queue * const queue,
+ 			}
+ 			blkif->vbd_stats.stats->read_reqs_completed++;
+ 			ticks = &blkif->vbd_stats.stats->read_total_ticks;
+-			if (likely(!err)) {
+-				_err = guest_copy2(blkif, queue->ctx->shared, req);
+-				if (unlikely(_err)) {
+-					err = _err;
+-					RING_ERR(blkif, "req %lu: failed to copy from/to guest: "
+-							"%s\n", req->msg.id, strerror(-err));
+-				}
+-			}
+ 		} else if (blkif_rq_wr(&req->msg)) {
+ 			if (likely(blkif->stats.xenvbd)) {
+ 				cnt = &blkif->stats.xenvbd->st_wr_cnt;
+@@ -549,15 +555,6 @@ tapdisk_xenblkif_complete_request(struct td_blkif_queue * const queue,
+ 			*sum += interval;
+ 			*cnt += 1;
+ 		}
+-
+-		if (likely(err == 0))
+-			_err = BLKIF_RSP_OKAY;
+-		else if (err == EOPNOTSUPP)
+-			_err = BLKIF_RSP_EOPNOTSUPP;
+-		else
+-			_err = BLKIF_RSP_ERROR;
+-
+-		xenio_blkif_put_response(queue, req, _err, final);
+ 	}
+ 
+ 	tapdisk_xenblkif_free_request(queue, req);

@@ -1,0 +1,437 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Mon, 31 Aug 2026 16:23:12 +0200
+Subject: [PATCH] tapback: add options to disable multi-queue
+
+Add the -q option to disable multi-queue for all the VBDs. It can also be
+set in the TAPBACK_OPTS variable of /etc/sysconfig/tapback.
+
+Multi-queue can also be disabled for a single VBD, by writing
+multi-queue-max-queues=1 in its back-end. This requires the XAPI to pass
+it from the VBD other-config.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ mk/blktap.spec.in         |  1 +
+ tapback/Makefile.am       |  5 +++
+ tapback/backend.c         | 68 +++++++++++++++++++++++++++++++--------
+ tapback/frontend.c        |  8 +++++
+ tapback/tapback.c         | 43 ++++++++++++++-----------
+ tapback/tapback.h         | 36 ++++++++++++++++-----
+ tapback/tapback.service   |  3 +-
+ tapback/tapback.sysconfig | 11 +++++++
+ tapback/xenstore.c        | 21 ++++++++++++
+ 9 files changed, 156 insertions(+), 40 deletions(-)
+ create mode 100644 tapback/tapback.sysconfig
+
+diff --git a/mk/blktap.spec.in b/mk/blktap.spec.in
+index eec0710c..cd7e79b7 100644
+--- a/mk/blktap.spec.in
++++ b/mk/blktap.spec.in
+@@ -86,6 +86,7 @@ cat /usr/lib/udev/rules.d/65-md-incremental.rules >> /etc/udev/rules.d/65-md-inc
+ %{_sysconfdir}/xensource/bugtool/tapdisk-logs/description.xml
+ %{_localstatedir}/log/blktap
+ %{_unitdir}/tapback.service
++%config(noreplace) %{_sysconfdir}/sysconfig/tapback
+ %{_unitdir}/cpumond.service
+ 
+ %files devel
+diff --git a/tapback/Makefile.am b/tapback/Makefile.am
+index 64d58c90..1c60c9ab 100644
+--- a/tapback/Makefile.am
++++ b/tapback/Makefile.am
+@@ -16,6 +16,8 @@ tapback_SOURCES += tapback.h
+ tapback_SOURCES += tapback.c
+ tapback_SOURCES += tapback.service
+ 
++EXTRA_DIST = tapback.sysconfig
++
+ tapback_LDADD  = -lxenstore
+ tapback_LDADD += $(top_srcdir)/control/libblktapctl.la
+ 
+@@ -23,11 +25,14 @@ tapback_LDADD += $(top_srcdir)/control/libblktapctl.la
+ # Have "exec" in name to ensure it's done trough the install-exec route
+ # (and before install-exec-local)
+ SYSTEMD_SERVICE_DIR = /usr/lib/systemd/system
++SYSCONFIG_DIR = $(sysconfdir)/sysconfig
+ 
+ install-exec-local:
+ 	mkdir -p $(DESTDIR)$(SYSTEMD_SERVICE_DIR)
+ 	install -m 644 tapback.service \
+ 	  $(DESTDIR)$(SYSTEMD_SERVICE_DIR)
++	mkdir -p $(DESTDIR)$(SYSCONFIG_DIR)
++	install -m 644 tapback.sysconfig $(DESTDIR)$(SYSCONFIG_DIR)/tapback
+ 
+ clean-local:
+ 	-rm -rf *.gc??
+diff --git a/tapback/backend.c b/tapback/backend.c
+index e0c88b11..a91ab9cd 100644
+--- a/tapback/backend.c
++++ b/tapback/backend.c
+@@ -202,7 +202,7 @@ tapback_backend_create_device(backend_t *backend,
+     vbd_t *device = NULL;
+     int err = 0;
+ 
+-	ASSERT(backend);
++    ASSERT(backend);
+     ASSERT(name);
+ 
+     DBG(NULL, "%s creating device\n", name);
+@@ -213,7 +213,7 @@ tapback_backend_create_device(backend_t *backend,
+         goto out;
+     }
+ 
+-	device->backend = backend;
++    device->backend = backend;
+     list_add_tail(&device->backend_entry,
+             &device->backend->slave.slave.devices);
+ 
+@@ -375,6 +375,50 @@ done:
+ 	return err;
+ }
+ 
++/**
++ * Set the max number of queues of the VBD and announce it to the front-end in
++ * its multi-queue-max-queues key.
++ *
++ * The toolstack can lower it for a VBD by writing the key before us, e.g.
++ * from its other-config: 1 makes the VBD single-queue. A value outside of
++ * [1, tapdisk's max] is ignored. The -q option sets it to 1 for all the VBDs.
++ *
++ * The key is written again with the value we keep, even if unchanged, to make
++ * it readable by the front-end.
++ */
++static int
++device_announce_queues(vbd_t * const device)
++{
++    unsigned int max = device->max_queues, v = 0;
++    const int n = tapback_device_scanf(device, XBT_NULL, MULTI_QUEUE_MAX_QUEUES,
++            "%u", &v);
++    const bool present = n >= 0;
++    int err = 0;
++
++    if (n == 1 && v >= 1 && v <= max)
++        max = v;
++    else if (present)
++        WARN(device, "ignoring %s, not a number in [1, %u]\n",
++                MULTI_QUEUE_MAX_QUEUES, max);
++
++    if (!device->backend->multiqueue)
++        max = 1;
++    if (max != device->max_queues)
++        INFO(device, "limiting the queues to %u, was %u\n", max,
++                device->max_queues);
++    device->max_queues = max;
++
++    if (max > 1 || present) {
++        err = tapback_device_printf(device, XBT_NULL, MULTI_QUEUE_MAX_QUEUES,
++                true, "%u", max);
++        if (err)
++            WARN(device, "failed to write %s: %s\n", MULTI_QUEUE_MAX_QUEUES,
++                    strerror(-err));
++    }
++
++    return err;
++}
++
+ /**
+  * Retrieves the minor number and locates the corresponding tapdisk, storing
+  * all relevant information in @device. Then, it attempts to advance the Xenbus
+@@ -497,13 +541,8 @@ physical_device_changed(vbd_t *device) {
+         goto out;
+     }
+ 
+-    /* Enable multi-queue */
+-    if (device->max_queues > 1) {
+-	if ((err = tapback_device_printf(device, XBT_NULL, "multi-queue-max-queues", true, "%d",
+-					 device->max_queues))) {
+-	    WARN(device, "failed to write multi-queue-max-queues: %s\n", strerror(-err));
+-	    goto out;
+-	}
++    if ((err = device_announce_queues(device))) {
++        goto out;
+     }
+ 
+ 	err = tapback_device_printf(device, XBT_NULL, "kthread-pid", false, "%d",
+@@ -823,7 +862,7 @@ tapback_backend_probe_device(backend_t *backend,
+     vbd_t *device = NULL;
+     char * s = NULL;
+ 
+-	ASSERT(backend);
++    ASSERT(backend);
+     ASSERT(devname);
+ 
+     ASSERT(!tapback_is_master(backend));
+@@ -1203,7 +1242,8 @@ tapback_backend_handle_backend_watch(backend_t *backend,
+                  * FIXME Shall we watch the child process?
+                  */
+             } else { /* child */
+-                char *args[7];
++                /* name -d -x <domid> [-v] [-b] [-q] NULL */
++                char *args[8];
+                 int i = 0;
+ 
+                 args[i++] = (char*)tapback_name;
+@@ -1217,8 +1257,10 @@ tapback_backend_handle_backend_watch(backend_t *backend,
+                 }
+                 if (log_level == LOG_DEBUG)
+                     args[i++] = "-v";
+-				if (!backend->barrier)
+-					args[i++] = "-b";
++		if (!backend->barrier)
++		    args[i++] = "-b";
++		if (!backend->multiqueue)
++		    args[i++] = "-q";
+                 args[i] = NULL;
+                 /*
+                  * TODO we're hard-coding the name of the binary, better let
+diff --git a/tapback/frontend.c b/tapback/frontend.c
+index 2b4099ee..43a17392 100644
+--- a/tapback/frontend.c
++++ b/tapback/frontend.c
+@@ -203,6 +203,14 @@ connect_tap(vbd_t * const device)
+         goto out;
+     }
+ 
++    /* The front-end ignores the multi-queue-max-queues we announced */
++    if (device->max_queues && nr_queues > (int)device->max_queues) {
++        WARN(device, "%d queues requested, at most %u allowed.\n", nr_queues,
++                device->max_queues);
++        err = EINVAL;
++        goto out;
++    }
++
+     if (!(grefs = calloc(nr_queues, sizeof(grant_ref_t[MAX_RING_PAGES])))) {
+         WARN(device, "failed to allocate memory for grant refs.\n");
+         err = ENOMEM;
+diff --git a/tapback/tapback.c b/tapback/tapback.c
+index d3bd3913..ee2076e4 100644
+--- a/tapback/tapback.c
++++ b/tapback/tapback.c
+@@ -219,19 +219,19 @@ tapback_write_pid(const char *pidfile)
+  */
+ static inline backend_t *
+ tapback_backend_create(const char *name, const char *pidfile,
+-        const domid_t domid, const bool barrier)
++                       const domid_t domid, const bool barrier, const bool multiqueue)
+ {
+     int err;
+     int len;
+-	backend_t *backend = NULL;
++    backend_t *backend = NULL;
+ 
+     ASSERT(name);
+ 
+-	backend = calloc(1, sizeof(*backend));
+-	if (!backend) {
+-		err = errno;
+-		goto out;
+-	}
++    backend = calloc(1, sizeof(*backend));
++    if (!backend) {
++        err = errno;
++        goto out;
++    }
+ 
+     if (pidfile) {
+         backend->pidfile = strdup(pidfile);
+@@ -254,7 +254,8 @@ tapback_backend_create(const char *name, const char *pidfile,
+         goto out;
+     }
+ 
+-	backend->barrier = barrier;
++    backend->barrier = barrier;
++    backend->multiqueue = multiqueue;
+ 
+     backend->path = NULL;
+ 
+@@ -505,6 +506,7 @@ usage(FILE * const stream, const char * const prog)
+             "\t[-p|--pidfile PIDfile]\n"
+             "\t[-x|--domain domainID]\n"
+             "\t[-b|--nobarrier]\n"
++            "\t[-q|--noqueues]\n"
+             "\t[-n|--name backend_name (default: vbd3)]\n", prog);
+ }
+ 
+@@ -575,9 +577,10 @@ int main(int argc, char **argv)
+     char *opt_name = "vbd3", *opt_pidfile = NULL, *end = NULL;
+     bool opt_debug = false, opt_verbose = false;
+     int err = 0;
+-	backend_t *backend = NULL;
++    backend_t *backend = NULL;
+     domid_t opt_domid = 0;
+-	bool opt_barrier = true;
++    bool opt_barrier = true;
++    bool opt_queues = true;
+ 
+ 	if (access("/dev/xen/gntdev", F_OK ) == -1) {
+ 		WARN(NULL, "grant device does not exist\n");
+@@ -605,10 +608,11 @@ int main(int argc, char **argv)
+             {"pidfile", 0, NULL, 'p'},
+             {"domain", 0, NULL, 'x'},
+             {"nobarrier", 0, NULL, 'b'},
++            {"noqueues", 0, NULL, 'q'},
+         };
+         int c;
+ 
+-        c = getopt_long(argc, argv, "hdvn:p:x:b", longopts, NULL);
++        c = getopt_long(argc, argv, "hdvn:p:x:bq", longopts, NULL);
+         if (c < 0)
+             break;
+ 
+@@ -645,9 +649,12 @@ int main(int argc, char **argv)
+             }
+             INFO(NULL, "only serving domain %d\n", opt_domid);
+             break;
+-		case 'b':
+-			opt_barrier = false;
+-			break;
++        case 'b':
++            opt_barrier = false;
++            break;
++        case 'q':
++            opt_queues = false;
++            break;
+         case '?':
+             goto usage;
+         }
+@@ -681,10 +688,10 @@ int main(int argc, char **argv)
+         goto fail;
+     }
+ 
+-	backend = tapback_backend_create(opt_name, opt_pidfile, opt_domid,
+-			opt_barrier);
+-	if (!backend) {
+-		err = errno;
++    backend = tapback_backend_create(opt_name, opt_pidfile, opt_domid,
++                                     opt_barrier, opt_queues);
++    if (!backend) {
++        err = errno;
+         WARN(NULL, "error creating back-end: %s\n", strerror(err));
+         goto fail;
+     }
+diff --git a/tapback/tapback.h b/tapback/tapback.h
+index d1f090d7..71e1993c 100644
+--- a/tapback/tapback.h
++++ b/tapback/tapback.h
+@@ -101,6 +101,7 @@ int pretty_time(char *buf, unsigned char buf_len);
+ #define MODE_KEY		"mode"
+ #define POLLING_DURATION	"polling-duration"
+ #define POLLING_IDLE_THRESHOLD	"polling-idle-threshold"
++#define MULTI_QUEUE_MAX_QUEUES	"multi-queue-max-queues"
+ 
+ /*
+  * TODO Put the rest of the front-end nodes defined in blkif.h here and group
+@@ -194,15 +195,20 @@ typedef struct backend {
+ 
+     char *pidfile;
+ 
+-	/**
+-	 * Tells whether we support write I/O barriers.
+-	 */
+-	bool barrier;
++    /**
++     * Tells whether we support write I/O barriers.
++     */
++    bool barrier;
+ 
+-	/**
+-	 * Tells whether we support discard.
+-	 */
+-	bool discard;
++    /**
++     * Tells whether we support multi-queue.
++     */
++    bool multiqueue;
++
++    /**
++     * Tells whether we support discard.
++     */
++    bool discard;
+ } backend_t;
+ 
+ /**
+@@ -377,6 +383,20 @@ tapback_device_printf(vbd_t * const device, xs_transaction_t xst,
+         const char * const key, const bool mkread, const char * const fmt,
+         ...);
+ 
++/**
++ * Reads the specified XenStore path under the back-end directory of the VBD in
++ * a scanf-like manner.
++ *
++ * @param device the VBD
++ * @param xst XenStore transaction
++ * @param path XenStore path to read
++ * @param fmt format
++ * @returns the number of items converted, or -1 if the path can't be read
++ */
++int
++tapback_device_scanf(vbd_t * const device, xs_transaction_t xst,
++        const char * const path, const char * const fmt, ...);
++
+ /**
+  * Reads the specified XenStore path under the front-end directory in a
+  * scanf-like manner.
+diff --git a/tapback/tapback.service b/tapback/tapback.service
+index 21dc9c18..78037e96 100644
+--- a/tapback/tapback.service
++++ b/tapback/tapback.service
+@@ -5,7 +5,8 @@ Requires=xenstored.service
+ 
+ [Service]
+ Type=forking
+-ExecStart=/usr/bin/tapback -p /var/run/tapback.pid
++EnvironmentFile=-/etc/sysconfig/tapback
++ExecStart=/usr/bin/tapback -p /var/run/tapback.pid $TAPBACK_OPTS
+ PIDFile = /var/run/tapback.pid
+ 
+ [Install]
+diff --git a/tapback/tapback.sysconfig b/tapback/tapback.sysconfig
+new file mode 100644
+index 00000000..2ee4267e
+--- /dev/null
++++ b/tapback/tapback.sysconfig
+@@ -0,0 +1,11 @@
++# Extra command line options of tapback (see tapback --help), added after the
++# ones of tapback.service. Restart the service to apply them:
++#
++#   systemctl restart tapback
++#
++# -q: use a single queue for every VBD, i.e. disable multi-queue
++# -b: disable the barriers
++# -v: verbose
++#
++# TAPBACK_OPTS="-q"
++TAPBACK_OPTS=""
+diff --git a/tapback/xenstore.c b/tapback/xenstore.c
+index 3d786a0b..eed91c18 100644
+--- a/tapback/xenstore.c
++++ b/tapback/xenstore.c
+@@ -119,6 +119,27 @@ tapback_device_read_otherend(vbd_t * const device, xs_transaction_t xst,
+             device->frontend_path, path);
+ }
+ 
++int
++tapback_device_scanf(vbd_t * const device, xs_transaction_t xst,
++        const char * const path, const char * const fmt, ...)
++{
++    va_list ap;
++    int n = 0;
++    char *s = NULL;
++
++    ASSERT(device);
++    ASSERT(path);
++
++    if (!(s = tapback_device_read(device, xst, path)))
++        return -1;
++    va_start(ap, fmt);
++    n = vsscanf(s, fmt, ap);
++    free(s);
++    va_end(ap);
++
++    return n;
++}
++
+ int
+ tapback_device_scanf_otherend(vbd_t * const device, xs_transaction_t xst,
+         const char * const path, const char * const fmt, ...)

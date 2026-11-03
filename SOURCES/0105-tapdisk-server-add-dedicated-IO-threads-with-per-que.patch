@@ -1,0 +1,908 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Wed, 21 Jan 2026 19:12:19 +0100
+Subject: [PATCH] tapdisk: server: add dedicated IO threads with per-queue
+ schedulers
+
+tapdisk is multi-queue and multi-thread but every request still go
+to the same lists and are handled in the main thread of tapdisk.
+
+Create one IO thread per queue, each with its own scheduler and event
+loop. Move queue-related events (ring, chkrng, stoppolling, bufcache)
+from the main scheduler to the per-queue IO thread schedulers.
+
+Add a wake mechanism (eventfd) so IO threads can wake the main scheduler
+when requests are ready. tapdisk_vbd_queue_request() gains a 'final'
+parameter to signal the last request in a batch, triggering the wake.
+
+Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+---
+ drivers/block-lcache.c           |   2 +-
+ drivers/block-llcache.c          |   2 +-
+ drivers/tapdisk-blktap.c         |   7 +-
+ drivers/tapdisk-control.c        |  12 +-
+ drivers/tapdisk-nbdserver.c      |   2 +-
+ drivers/tapdisk-server.c         | 204 +++++++++++++++++++++++++++++++
+ drivers/tapdisk-server.h         |   8 ++
+ drivers/tapdisk-stream.c         |   2 +-
+ drivers/tapdisk-vbd.c            |  34 +++---
+ drivers/tapdisk-vbd.h            |   2 +-
+ drivers/tapdisk.h                |   3 +-
+ drivers/td-blkif.c               |  34 +++---
+ drivers/td-blkif.h               |   3 +-
+ drivers/td-ctx.c                 |  26 ++--
+ drivers/td-ctx.h                 |   2 +-
+ drivers/td-req.c                 |  12 +-
+ mockatests/drivers/test-td-req.c |  22 +++-
+ 17 files changed, 313 insertions(+), 64 deletions(-)
+
+diff --git a/drivers/block-lcache.c b/drivers/block-lcache.c
+index 87ba798d..0c478144 100644
+--- a/drivers/block-lcache.c
++++ b/drivers/block-lcache.c
+@@ -277,7 +277,7 @@ lcache_store_read(td_lcache_t *cache, td_lcache_req_t *req)
+ 
+ 	vbd = req->treq.vreq->vbd;
+ 
+-	err = tapdisk_vbd_queue_request(vbd, vreq);
++	err = tapdisk_vbd_queue_request(vbd, vreq, true);  // TODO: suboptimal final argument
+ 	BUG_ON(err);
+ }
+ 
+diff --git a/drivers/block-llcache.c b/drivers/block-llcache.c
+index e5e6f776..808c78d6 100644
+--- a/drivers/block-llcache.c
++++ b/drivers/block-llcache.c
+@@ -217,7 +217,7 @@ llpcache_requeue_treq(td_llpcache_t *s, td_llpcache_req_t *req, int target)
+ 	vreq->cb      = __llpcache_write_cb;
+ 	vreq->token   = s;
+ 
+-	err = tapdisk_vbd_queue_request(req->treq.vreq->vbd, vreq);
++	err = tapdisk_vbd_queue_request(req->treq.vreq->vbd, vreq, true);  // TODO: suboptimal final argument
+ 	if (err)
+ 		goto fail;
+ 
+diff --git a/drivers/tapdisk-blktap.c b/drivers/tapdisk-blktap.c
+index e08f7987..1feaae66 100644
+--- a/drivers/tapdisk-blktap.c
++++ b/drivers/tapdisk-blktap.c
+@@ -404,7 +404,7 @@ tapdisk_blktap_get_requests(td_blktap_t *tap)
+ 			goto fail_ring;
+ 		}
+ 
+-		err = tapdisk_vbd_queue_request(tap->vbd, &req->vreq);
++		err = tapdisk_vbd_queue_request(tap->vbd, &req->vreq, (rc+1 == rp));
+ 		if (err)
+ 			tapdisk_blktap_complete_request(tap, req, err, 1);
+ 	}
+@@ -555,7 +555,7 @@ __tapdisk_blktap_close(td_blktap_t *tap)
+ 	 */
+         int err;
+ 	if (tap->event_id >= 0) {
+-		tapdisk_server_unregister_event(tap->event_id);
++		tapdisk_server_unregister_io_event(0, tap->event_id);
+ 		tap->event_id = -1;
+ 	}
+ 
+@@ -620,7 +620,8 @@ tapdisk_blktap_open(const char *devname, td_vbd_t *vbd, td_blktap_t **_tap)
+             goto fail;
+ 
+ 	tap->event_id =
+-		tapdisk_server_register_event(SCHEDULER_POLL_READ_FD,
++		tapdisk_server_register_io_event(0,  /* Queue ID 0 */
++					      SCHEDULER_POLL_READ_FD,
+ 					      tap->fd, TV_ZERO,
+ 					      tapdisk_blktap_fd_event,
+ 					      tap);
+diff --git a/drivers/tapdisk-control.c b/drivers/tapdisk-control.c
+index 1ce2046a..db59ceac 100644
+--- a/drivers/tapdisk-control.c
++++ b/drivers/tapdisk-control.c
+@@ -607,14 +607,14 @@ tapdisk_control_attach_vbd(struct tapdisk_ctl_conn *conn,
+ 	 */
+ 
+ 	minor = request->cookie;
+-	vbd = tapdisk_server_get_vbd(minor);
+-	if (vbd) {
+-		err = -EEXIST;
++	if (minor < 0) {
++		err = -EINVAL;
+ 		goto out;
+ 	}
+ 
+-	if (minor < 0) {
+-		err = -EINVAL;
++	vbd = tapdisk_server_get_vbd(minor);
++	if (vbd) {
++		err = -EEXIST;
+ 		goto out;
+ 	}
+ 
+@@ -961,7 +961,6 @@ tapdisk_control_close_image(struct tapdisk_ctl_conn *conn,
+ 	if (!err) {
+ 		do {
+ 			err = tapdisk_blktap_remove_device(vbd->tap);
+-
+ 			if (err == -EBUSY)
+ 				EPRINTF("device %s still open\n", vbd->name);
+ 
+@@ -977,7 +976,6 @@ tapdisk_control_close_image(struct tapdisk_ctl_conn *conn,
+ 		ERR(err, "failure closing image\n");
+ 
+ 	if (err == -ENOTTY) {
+-
+ 		while (!list_empty(&vbd->pending_requests))
+ 			tapdisk_server_iterate();
+ 
+diff --git a/drivers/tapdisk-nbdserver.c b/drivers/tapdisk-nbdserver.c
+index 560b84cc..6406177d 100644
+--- a/drivers/tapdisk-nbdserver.c
++++ b/drivers/tapdisk-nbdserver.c
+@@ -1387,7 +1387,7 @@ tapdisk_nbdserver_clientcb(event_id_t id, char mode, void *data)
+ 		goto fail;
+ 	}
+ 
+-	rc = tapdisk_vbd_queue_request(server->vbd, vreq);
++	rc = tapdisk_vbd_queue_request(server->vbd, vreq, true); // TODO: suboptimal final argument
+ 	if (rc) {
+ 		ERR("tapdisk_vbd_queue_request failed: %d", rc);
+ 		goto fail;
+diff --git a/drivers/tapdisk-server.c b/drivers/tapdisk-server.c
+index 883e1d81..f1b3c03b 100644
+--- a/drivers/tapdisk-server.c
++++ b/drivers/tapdisk-server.c
+@@ -43,6 +43,7 @@
+ #include "tapdisk-log.h"
+ #include "td-blkif.h"
+ #include "timeout-math.h"
++#include "util.h"
+ 
+ #include <sys/mman.h>
+ #include <sys/stat.h>
+@@ -64,6 +65,19 @@ typedef struct tapdisk_server {
+ 	char                        *name;
+ 	char                        *ident;
+ 	int                          facility;
++	event_id_t                   wake_event;
++	int                          wake_event_fd;
++	uint64_t                     wake_event_count;
++
++	/* IO threads states */
++	struct {
++		pthread_t            tid;
++		char                 name[16];
++		event_id_t           eventid;
++		int                  eventfd;
++		uint64_t             eventfd_count;
++		scheduler_t          scheduler;
++	} io_threads[TAPDISK_MAX_VBD_THREADS];
+ 
+ 	/* Memory mode state */
+ 	struct {
+@@ -227,6 +241,83 @@ tapdisk_server_set_max_timeout(int seconds)
+ 	scheduler_set_max_timeout(&server.scheduler, TV_SECS(seconds));
+ }
+ 
++void tapdisk_server_io_thread_wake(td_queue_id_t qid)
++{
++	int n;
++
++	server.io_threads[qid].eventfd_count++;
++	n = write(server.io_threads[qid].eventfd,
++		  &server.io_threads[qid].eventfd_count,
++		  sizeof(server.io_threads[qid].eventfd_count));
++	ASSERT(n == 8);
++}
++
++void tapdisk_server_io_thread_handler(event_id_t id, char mode __attribute__((unused)), void *private)
++{
++	long qid = (long)private;
++	uint64_t w = 0;
++	int err;
++
++	err = read(server.io_threads[qid].eventfd, &w, sizeof(w));
++	ASSERT(err == 8);
++}
++
++event_id_t
++tapdisk_server_register_io_event(td_queue_id_t qid, char mode, int fd,
++				 struct timeval timeout, event_cb_t cb, void *data)
++{
++	event_id_t eid;
++
++	ASSERT(qid < ARRAY_SIZE(server.io_threads));
++	eid =  scheduler_register_event(&server.io_threads[qid].scheduler,
++					mode, fd, timeout, cb, data);
++
++	/* Wake thread to use the newly registered event */
++	tapdisk_server_io_thread_wake(qid);
++
++	return eid;
++}
++
++void
++tapdisk_server_unregister_io_event(td_queue_id_t qid, event_id_t event)
++{
++	ASSERT(qid < ARRAY_SIZE(server.io_threads));
++	return scheduler_unregister_event(&server.io_threads[qid].scheduler, event);
++}
++
++void
++tapdisk_server_mask_io_event(td_queue_id_t qid, event_id_t event, int masked)
++{
++	ASSERT(qid < ARRAY_SIZE(server.io_threads));
++	return scheduler_mask_event(&server.io_threads[qid].scheduler, event, masked);
++}
++
++void
++tapdisk_server_set_io_max_timeout(td_queue_id_t qid, int seconds)
++{
++	ASSERT(qid < ARRAY_SIZE(server.io_threads));
++	scheduler_set_max_timeout(&server.io_threads[qid].scheduler, TV_SECS(seconds));
++}
++
++void
++tapdisk_server_scheduler_wake(void)
++{
++	int n;
++	server.wake_event_count++;
++	n = write(server.wake_event_fd,
++		  &server.wake_event_count,
++		  sizeof(server.wake_event_count));
++	ASSERT(n == 8);
++}
++
++static void
++tapdisk_server_scheduler_wake_handler(event_id_t id, char mode __attribute__((unused)), void *private)
++{
++	uint64_t cnt;
++	int n;
++	n = read(server.wake_event_fd, &cnt, sizeof(cnt));
++	ASSERT(n == 8);
++}
+ static void
+ tapdisk_server_assert_locks(void)
+ {
+@@ -245,6 +336,13 @@ tapdisk_server_set_retry_timeout(void)
+ 		}
+ }
+ 
++static void
++tapdisk_server_set_io_retry_timeout(int qid)
++{
++	// Do nothing because, retry is related to new failed and failed
++	// list which are handled in main thread
++}
++
+ static void
+ tapdisk_server_check_progress(void)
+ {
+@@ -387,6 +485,32 @@ tapdisk_server_close(void)
+ 	tapdisk_server_close_aio();
+ }
+ 
++void
++tapdisk_io_iterate(td_queue_id_t qid)
++{
++	int ret;
++
++	tapdisk_server_set_io_retry_timeout(qid);
++
++	ret = scheduler_wait_for_events(&server.io_threads[qid].scheduler);
++	if (ret < 0)
++		DBG(TLOG_WARN, "server wait returned %s\n", strerror(-ret));
++
++}
++
++static void*
++__tapdisk_io_thread_run(void* arg)
++{
++	td_queue_id_t  qid = (unsigned long)arg;
++
++	/* TODO: maybe use something else ?
++	         threads should be stopped before main loop */
++	for(;;)
++		tapdisk_io_iterate(qid);
++
++	return NULL;
++}
++
+ void
+ tapdisk_server_iterate(void)
+ {
+@@ -754,6 +878,11 @@ tapdisk_server_initialize_cpumond_client(void)
+ 	return 0;
+ }
+ 
++static void
++tapdisk_server_io_dummy(event_id_t id, char mode, void *private)
++{
++}
++
+ int
+ tapdisk_server_init(void)
+ {
+@@ -770,9 +899,17 @@ tapdisk_server_init(void)
+ 
+ 	server.tlog_reopen_evid = -1;
+ 	server.signal_handler_evid = -1;
++	server.wake_event = -1;
++	server.wake_event_fd = -1;
+ 
+ 	scheduler_initialize(&server.scheduler);
+ 
++	for (int qid = 0; qid < ARRAY_SIZE(server.io_threads); qid++) {
++		server.io_threads[qid].tid = 0;   /* XXX: not portable; but practical... */
++		server.io_threads[qid].eventfd = -1;
++		scheduler_initialize(&server.io_threads[qid].scheduler);
++	}
++
+ 	if ((ret = tapdisk_server_initialize_lowmem_mode()) < 0) {
+ 		EPRINTF("Failed to initialize low memory handler: %s\n",
+ 		        strerror(-ret));
+@@ -795,6 +932,7 @@ int
+ tapdisk_server_complete(void)
+ {
+ 	int err;
++
+ 	server.rw_backend = get_libaio_backend();
+ 	server.ro_backend = get_libaio_backend();
+ 
+@@ -806,11 +944,70 @@ tapdisk_server_complete(void)
+ 	if (err)
+ 		goto fail;
+ 
++	for (int qid = 0; qid < ARRAY_SIZE(server.io_threads); qid++) {
++		pthread_t tid;
++		int fd;
++
++		fd = eventfd(0, 0);
++		if (fd < 0) {
++			EPRINTF("Failed to create eventfd: %s\n", strerror(errno));
++			goto fail;
++		}
++		server.io_threads[qid].eventfd = fd;
++		server.io_threads[qid].eventfd_count = 0;
++
++		int event = scheduler_register_event(&server.io_threads[qid].scheduler,
++						     SCHEDULER_POLL_READ_FD,
++						     server.io_threads[qid].eventfd,
++						     TV_INF,
++						     tapdisk_server_io_thread_handler,
++						     (void*)(long)qid);
++		//scheduler_mask_event(&server.io_threads[qid].scheduler, event, false);
++		server.io_threads[qid].eventid = event;
++
++		err = pthread_create(&tid , NULL, __tapdisk_io_thread_run, (void*)(unsigned long)qid);
++		if (err) {
++			EPRINTF("Failed to create IO thread #%d\n", qid);
++			goto fail;
++		}
++		server.io_threads[qid].tid = tid;
++
++		snprintf(server.io_threads[qid].name,
++			 sizeof(server.io_threads[qid].name), "td-queue-%d", qid);
++		pthread_setname_np(tid, server.io_threads[qid].name);
++
++		/* HACK: just to wake up the IO thread */
++		err = tapdisk_server_register_event(SCHEDULER_POLL_TIMEOUT, -1,
++						    TV_USECS(500000),
++						    tapdisk_server_io_dummy, (void*)(long)qid);
++	}
++
++	server.wake_event_fd = eventfd(0, 0);
++	server.wake_event_count = 0;
++	ASSERT(server.wake_event_fd >= 0);
++
++	server.wake_event = scheduler_register_event(&server.scheduler,
++						     SCHEDULER_POLL_READ_FD,
++						     server.wake_event_fd,
++						     TV_INF,
++						     tapdisk_server_scheduler_wake_handler,
++						     NULL);
++
+ 	server.run = 1;
+ 
+ 	return 0;
+ 
+ fail:
++	for (int qid = 0; qid < ARRAY_SIZE(server.io_threads); qid++) {
++		if (server.io_threads[qid].tid)
++			pthread_cancel(server.io_threads[qid].tid);
++		if (server.io_threads[qid].eventfd != -1)
++			close(server.io_threads[qid].eventfd);
++
++		scheduler_unregister_event(&server.io_threads[qid].scheduler,
++					   server.io_threads[qid].eventid);
++	}
++
+ 	tapdisk_server_close_tlog();
+ 	tapdisk_server_close_aio();
+ 	return err;
+@@ -902,3 +1099,10 @@ tapdisk_server_event_set_timeout(event_id_t event_id, struct timeval timeo) {
+ 	return scheduler_event_set_timeout(&server.scheduler, event_id, timeo);
+ }
+ 
++int
++tapdisk_server_io_event_set_timeout(td_queue_id_t qid, event_id_t event_id, struct timeval timeo) {
++	ASSERT(qid < ARRAY_SIZE(server.io_threads));
++	return scheduler_event_set_timeout(&server.io_threads[qid].scheduler,
++					   event_id, timeo);
++}
++
+diff --git a/drivers/tapdisk-server.h b/drivers/tapdisk-server.h
+index f5b7b73b..6b29ff2d 100644
+--- a/drivers/tapdisk-server.h
++++ b/drivers/tapdisk-server.h
+@@ -66,6 +66,11 @@ void tapdisk_server_unregister_event(event_id_t);
+ void tapdisk_server_mask_event(event_id_t, int);
+ void tapdisk_server_set_max_timeout(int);
+ 
++event_id_t tapdisk_server_register_io_event(td_queue_id_t qid, char, int, struct timeval, event_cb_t, void *);
++void tapdisk_server_unregister_io_event(td_queue_id_t qid, event_id_t);
++void tapdisk_server_mask_io_event(td_queue_id_t qid, event_id_t, int);
++void tapdisk_server_set_io_max_timeout(td_queue_id_t qid, int);
++
+ int tapdisk_server_init(void);
+ int tapdisk_server_initialize(const char *, const char *);
+ int tapdisk_server_complete(void);
+@@ -78,7 +83,10 @@ void tapdisk_start_logging(const char *, const char *);
+ void tapdisk_stop_logging(void);
+ 
+ int tapdisk_server_event_set_timeout(event_id_t, struct timeval timeo);
++int tapdisk_server_io_event_set_timeout(td_queue_id_t qid, event_id_t event_id, struct timeval timeo);
+ 
+ float tapdisk_server_system_idle_cpu(void);
+ 
++void tapdisk_server_scheduler_wake(void);
++
+ #endif
+diff --git a/drivers/tapdisk-stream.c b/drivers/tapdisk-stream.c
+index 49245971..282ed4b0 100644
+--- a/drivers/tapdisk-stream.c
++++ b/drivers/tapdisk-stream.c
+@@ -282,7 +282,7 @@ tapdisk_stream_queue_request(td_stream_t *s, td_stream_req_t *req)
+ 	s->count  -= secs;
+ 	s->sec_in += secs;
+ 
+-	err = tapdisk_vbd_queue_request(s->vbd, vreq);
++	err = tapdisk_vbd_queue_request(s->vbd, vreq, true);
+ 	if (err)
+ 		tapdisk_stream_complete_request(s, req, err, 1);
+ 
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index a622dd20..c37dd602 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1227,14 +1227,15 @@ tapdisk_vbd_check_complete_requests(td_vbd_t *vbd)
+ static void
+ tapdisk_vbd_check_requests_for_issue(td_vbd_t *vbd)
+ {
++	bool issue;
++
+ 	pthread_mutex_lock(&vbd->mutex);
+-	if (!list_empty(&vbd->new_requests) ||
+-	    !list_empty(&vbd->failed_requests)) {
+-		pthread_mutex_unlock(&vbd->mutex);
+-		tapdisk_vbd_issue_requests(vbd);
+-		return;
+-	}
++	issue = !list_empty(&vbd->new_requests) ||
++		!list_empty(&vbd->failed_requests);
+ 	pthread_mutex_unlock(&vbd->mutex);
++
++	if (issue)
++		tapdisk_vbd_issue_requests(vbd);
+ }
+ 
+ void
+@@ -1882,19 +1883,17 @@ int
+ tapdisk_vbd_recheck_state(td_vbd_t *vbd)
+ {
+ 	int err = 0;
++	bool no_issue;
+ 
+ 	pthread_mutex_lock(&vbd->mutex);
+-	if (list_empty(&vbd->new_requests)) {
+-		pthread_mutex_unlock(&vbd->mutex);
+-		return 0;
+-	}
++	no_issue =
++		list_empty(&vbd->new_requests) ||
++		td_flag_test(vbd->state, TD_VBD_QUIESCED) ||
++		td_flag_test(vbd->state, TD_VBD_QUIESCE_REQUESTED);
++	pthread_mutex_unlock(&vbd->mutex);
+ 
+-	if (td_flag_test(vbd->state, TD_VBD_QUIESCED) ||
+-	    td_flag_test(vbd->state, TD_VBD_QUIESCE_REQUESTED)) {
+-		pthread_mutex_unlock(&vbd->mutex);
++	if (no_issue)
+ 		return 0;
+-	}
+-	pthread_mutex_unlock(&vbd->mutex);
+ 
+ 	err = tapdisk_vbd_issue_requests(vbd);
+ 
+@@ -1954,7 +1953,7 @@ tapdisk_vbd_issue_requests(td_vbd_t *vbd)
+ }
+ 
+ int
+-tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
++tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq, bool final)
+ {
+ 	gettimeofday(&vreq->ts, NULL);
+ 	vreq->vbd = vbd;
+@@ -1965,6 +1964,9 @@ tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
+ 	vbd->received++;
+ 	pthread_mutex_unlock(&vbd->mutex);
+ 
++	if (final)
++		tapdisk_server_scheduler_wake();
++
+ 	return 0;
+ }
+ 
+diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
+index 3594a68d..bdef458d 100644
+--- a/drivers/tapdisk-vbd.h
++++ b/drivers/tapdisk-vbd.h
+@@ -221,7 +221,7 @@ void tapdisk_vbd_close_vdi(td_vbd_t *);
+ int tapdisk_vbd_attach(td_vbd_t *, const char *, int);
+ void tapdisk_vbd_detach(td_vbd_t *);
+ 
+-int tapdisk_vbd_queue_request(td_vbd_t *, td_vbd_request_t *);
++int tapdisk_vbd_queue_request(td_vbd_t *, td_vbd_request_t *, bool);
+ void tapdisk_vbd_forward_request(td_request_t);
+ 
+ int tapdisk_vbd_get_disk_info(td_vbd_t *, td_disk_info_t *);
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index 834701fc..dedb0eda 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -71,7 +71,7 @@ extern unsigned int PAGE_SHIFT;
+ #define SECTOR_SHIFT                 9
+ #define DEFAULT_SECTOR_SIZE          512
+ 
+-#define TAPDISK_DATA_REQUESTS       (MAX_REQUESTS * BLKIF_MAX_SEGMENTS_PER_REQUEST)
++#define TAPDISK_DATA_REQUESTS       (MAX_REQUESTS * BLKIF_MAX_SEGMENTS_PER_REQUEST * BLKIF_MAX_QUEUES)
+ 
+ //#define BLK_NOT_ALLOCATED            (-99)
+ #define TD_NO_PARENT                 1
+@@ -115,6 +115,7 @@ enum TD_OPS{
+ 
+ typedef uint16_t                     td_uuid_t;
+ typedef uint32_t                     td_flag_t;
++typedef uint32_t                     td_queue_id_t;
+ typedef uint64_t                     td_sector_t;
+ typedef struct td_disk_id            td_disk_id_t;
+ typedef struct td_disk_info          td_disk_info_t;
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index 4c5a811f..1948266b 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -210,13 +210,13 @@ tapdisk_xenblkif_destroy(struct td_xenblkif * blkif)
+         struct td_blkif_queue* queue = &blkif->queues[qid];
+ 
+         if (tapdisk_xenblkif_chkrng_event_id(queue) >= 0) {
+-            tapdisk_server_unregister_event(
++            tapdisk_server_unregister_io_event(qid,
+                 tapdisk_xenblkif_chkrng_event_id(queue));
+             queue->chkrng_event = -1;
+         }
+ 
+         if (tapdisk_xenblkif_stoppolling_event_id(queue) >= 0) {
+-            tapdisk_server_unregister_event(
++            tapdisk_server_unregister_io_event(qid,
+                 tapdisk_xenblkif_stoppolling_event_id(queue));
+             queue->stoppolling_event = -1;
+         }
+@@ -246,7 +246,7 @@ tapdisk_xenblkif_destroy(struct td_xenblkif * blkif)
+ 
+             /* Save shared context, before the queue context */
+             struct td_xenio_shared_ctx* shared_ctx = queue->ctx->shared;
+-            tapdisk_xenio_ctx_unbind_queue(queue->ctx);
++            tapdisk_xenio_ctx_unbind_queue(queue->ctx, queue);
+ 
+             if (shared_ctx->count_ref == 0) {
+                 tapdisk_xenio_shared_ctx_put(shared_ctx);
+@@ -307,7 +307,7 @@ tapdisk_xenblkif_disconnect(const domid_t domid, const int devid)
+                          queue->ring_size - queue->n_reqs_free);
+ 
+             if (queue->ctx) {
+-                tapdisk_xenio_ctx_unbind_queue(queue->ctx);
++                tapdisk_xenio_ctx_unbind_queue(queue->ctx, queue);
+             }
+ 
+             if (!blkif->dead) {
+@@ -347,7 +347,7 @@ tapdisk_xenblkif_sched_stoppolling(const struct td_blkif_queue *queue)
+ 
+ 	ASSERT(queue);
+ 
+-	err = tapdisk_server_event_set_timeout(
++	err = tapdisk_server_io_event_set_timeout(tapdisk_xenblkif_queue_id(queue),
+ 		tapdisk_xenblkif_stoppolling_event_id(queue), TV_USECS(queue->blkif->poll_duration));
+ 	ASSERT(!err);
+ }
+@@ -359,7 +359,7 @@ tapdisk_xenblkif_unsched_stoppolling(const struct td_blkif_queue *queue)
+ 
+ 	ASSERT(queue);
+ 
+-	err = tapdisk_server_event_set_timeout(
++	err = tapdisk_server_io_event_set_timeout(tapdisk_xenblkif_queue_id(queue),
+ 		tapdisk_xenblkif_stoppolling_event_id(queue), TV_INF);
+ 	ASSERT(!err);
+ }
+@@ -380,7 +380,7 @@ tapdisk_start_polling(struct td_blkif_queue *queue)
+         /* Schedule the future 'stop polling' event */
+         tapdisk_xenblkif_sched_stoppolling(queue);
+ 
+-	tapdisk_server_mask_event(
++	tapdisk_server_mask_io_event(tapdisk_xenblkif_queue_id(queue),
+             tapdisk_xenblkif_evtchn_event_id(queue), 1);
+     }
+ }
+@@ -426,7 +426,7 @@ tapdisk_xenblkif_cb_stoppolling(event_id_t id __attribute__((unused)),
+         /* Make the 'stop polling' event not fire again */
+         tapdisk_xenblkif_unsched_stoppolling(queue);
+ 
+-	tapdisk_server_mask_event(
++	tapdisk_server_mask_io_event(tapdisk_xenblkif_queue_id(queue),
+             tapdisk_xenblkif_evtchn_event_id(queue), 0);
+     }
+ }
+@@ -443,7 +443,7 @@ tapdisk_xenblkif_sched_chkrng(struct td_blkif_queue *queue)
+ 	queue->chkrng_pending = true;
+ 	pthread_mutex_unlock(&queue->mutex_chkrng);
+ 
+-	err = tapdisk_server_event_set_timeout(
++	err = tapdisk_server_io_event_set_timeout(tapdisk_xenblkif_queue_id(queue),
+ 			tapdisk_xenblkif_chkrng_event_id(queue), TV_ZERO);
+ 	ASSERT(!err);
+ }
+@@ -461,7 +461,7 @@ tapdisk_xenblkif_unsched_chkrng(struct td_blkif_queue *queue)
+ 	 */
+ 	pthread_mutex_lock(&queue->mutex_chkrng);
+ 	if (likely(!queue->chkrng_pending)) {
+-		err = tapdisk_server_event_set_timeout(
++		err = tapdisk_server_io_event_set_timeout(tapdisk_xenblkif_queue_id(queue),
+ 				tapdisk_xenblkif_chkrng_event_id(queue), TV_SECS(8));
+ 		ASSERT(!err);
+ 	}
+@@ -661,7 +661,8 @@ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t grefs[][MAX
+             goto fail;
+         }
+ 
+-        queue->chkrng_event = tapdisk_server_register_event(
++        queue->chkrng_event = tapdisk_server_register_io_event(
++            tapdisk_xenblkif_queue_id(queue),
+             SCHEDULER_POLL_TIMEOUT,         -1, TV_INF,
+             tapdisk_xenblkif_cb_chkrng, queue);
+         if (unlikely(queue->chkrng_event < 0)) {
+@@ -670,7 +671,8 @@ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t grefs[][MAX
+             goto fail;
+         }
+ 
+-        queue->stoppolling_event = tapdisk_server_register_event(
++        queue->stoppolling_event = tapdisk_server_register_io_event(
++            tapdisk_xenblkif_queue_id(queue),
+             SCHEDULER_POLL_TIMEOUT,         -1, TV_INF,
+             tapdisk_xenblkif_cb_stoppolling, queue);
+         if (unlikely(queue->stoppolling_event < 0)) {
+@@ -799,8 +801,8 @@ tapdisk_xenblkif_suspend(struct td_xenblkif * const blkif)
+ 
+ 	for (i = 0; i < blkif->nr_queues; i++) {
+ 		struct td_blkif_queue* queue = &blkif->queues[i];
+-		tapdisk_server_mask_event(tapdisk_xenblkif_evtchn_event_id(queue), 1);
+-		tapdisk_server_mask_event(tapdisk_xenblkif_chkrng_event_id(queue), 1);
++		tapdisk_server_mask_io_event(i, tapdisk_xenblkif_evtchn_event_id(queue), 1);
++		tapdisk_server_mask_io_event(i, tapdisk_xenblkif_chkrng_event_id(queue), 1);
+         }
+ }
+ 
+@@ -814,8 +816,8 @@ tapdisk_xenblkif_resume(struct td_xenblkif * const blkif)
+ 
+ 	for (i = 0; i < blkif->nr_queues; i++) {
+ 		struct td_blkif_queue* queue = &blkif->queues[i];
+-		tapdisk_server_mask_event(tapdisk_xenblkif_evtchn_event_id(queue), 0);
+-		tapdisk_server_mask_event(tapdisk_xenblkif_chkrng_event_id(queue), 0);
++		tapdisk_server_mask_io_event(i, tapdisk_xenblkif_evtchn_event_id(queue), 0);
++		tapdisk_server_mask_io_event(i, tapdisk_xenblkif_chkrng_event_id(queue), 0);
+         }
+ }
+ 
+diff --git a/drivers/td-blkif.h b/drivers/td-blkif.h
+index 9b65b334..6e33b6af 100644
+--- a/drivers/td-blkif.h
++++ b/drivers/td-blkif.h
+@@ -173,6 +173,7 @@ struct td_xenblkif {
+          * Back pointer to the block interface owning the queue
+          */
+         struct td_xenblkif* blkif;
++
+     } queues[BLKIF_MAX_QUEUES];
+ 
+     /**
+@@ -382,7 +383,7 @@ tapdisk_xenblkif_barrier_should_complete(
+ /*
+  * Return index of the queue
+  */
+-static inline unsigned int
++static inline td_queue_id_t
+ tapdisk_xenblkif_queue_id(const struct td_blkif_queue* queue) {
+     return queue - queue->blkif->queues;
+ }
+diff --git a/drivers/td-ctx.c b/drivers/td-ctx.c
+index 44c9d32f..9f0f3a84 100644
+--- a/drivers/td-ctx.c
++++ b/drivers/td-ctx.c
+@@ -277,7 +277,6 @@ tapdisk_xenio_ctx_process_ring(struct td_blkif_queue *queue, bool final)
+             queue->barrier.io_err = 0;
+             break;
+         }
+-
+     } while (1);
+ 
+     n_reqs = start - queue->n_reqs_free;
+@@ -326,11 +325,19 @@ tapdisk_xenio_ctx_ring_event(event_id_t id __attribute__((unused)),
+         char mode __attribute__((unused)), void *private)
+ {
+     struct td_blkif_queue *queue = private;
++    xenevtchn_port_or_error_t port;
++    int err;
++
++    /* Ignore initial spurious event */
++    /* XXX: should we have a mecanism to postpone event ?
++            What will happen if it is never triggered again ?
++            This is might be safe because keeps triggering until
++            xenevtchn_pending() is called */
++    if (queue->ctx == NULL)
++        return;
+ 
+     ASSERT(queue);
+ 
+-    xenevtchn_port_or_error_t port;
+-    int err;
+ 
+     /*
+      * Get the local port for which there is a pending event.
+@@ -476,6 +483,7 @@ tapdisk_xenio_ctx_bind_queue(struct td_xenio_shared_ctx * shared_ctx,
+     int ret = -1;
+     xenevtchn_handle* evthdl = NULL;
+     event_id_t ring_event = -1;
++    td_queue_id_t qid = tapdisk_xenblkif_queue_id(queue);
+ 
+     evthdl = xenevtchn_open(NULL, 0);
+     if (!evthdl) {
+@@ -493,8 +501,9 @@ tapdisk_xenio_ctx_bind_queue(struct td_xenio_shared_ctx * shared_ctx,
+         goto fail;
+     }
+ 
+-    ring_event = tapdisk_server_register_event(SCHEDULER_POLL_READ_FD,
+-                                               fd, TV_ZERO, tapdisk_xenio_ctx_ring_event, queue);
++    ring_event = tapdisk_server_register_io_event(qid,
++                                                  SCHEDULER_POLL_READ_FD,
++                                                  fd, TV_ZERO, tapdisk_xenio_ctx_ring_event, queue);
+     if (ring_event < 0) {
+         err = ring_event;
+         ERROR("failed to register event: %s\n", strerror(-err));
+@@ -526,7 +535,7 @@ tapdisk_xenio_ctx_bind_queue(struct td_xenio_shared_ctx * shared_ctx,
+ 
+ fail:
+     if (ring_event >= 0)
+-        tapdisk_server_unregister_event(ring_event);
++        tapdisk_server_unregister_io_event(qid, ring_event);
+     if (ret != -1)
+         xenevtchn_unbind(evthdl, ret);
+     if (evthdl)
+@@ -536,10 +545,11 @@ fail:
+ }
+ 
+ void
+-tapdisk_xenio_ctx_unbind_queue(struct td_xenio_ctx* ctx)
++tapdisk_xenio_ctx_unbind_queue(struct td_xenio_ctx* ctx, struct td_blkif_queue* queue)
+ {
+     if (ctx->ring_event >= 0) {
+-        tapdisk_server_unregister_event(ctx->ring_event);
++        tapdisk_server_unregister_io_event(tapdisk_xenblkif_queue_id(queue),
++                                           ctx->ring_event);
+         ctx->ring_event = -1;
+         ctx->fd = -1;
+     }
+diff --git a/drivers/td-ctx.h b/drivers/td-ctx.h
+index dc2d6569..e2f657f1 100644
+--- a/drivers/td-ctx.h
++++ b/drivers/td-ctx.h
+@@ -126,7 +126,7 @@ tapdisk_xenio_ctx_bind_queue(struct td_xenio_shared_ctx* ctx, evtchn_port_t port
+  * TODO: find a better naming, or split the function.
+  */
+ void
+-tapdisk_xenio_ctx_unbind_queue(struct td_xenio_ctx* ctx);
++tapdisk_xenio_ctx_unbind_queue(struct td_xenio_ctx* ctx, struct td_blkif_queue* queue);
+ 
+ /**
+  * List of contexts.
+diff --git a/drivers/td-req.c b/drivers/td-req.c
+index 85a8c4b6..40d800a9 100644
+--- a/drivers/td-req.c
++++ b/drivers/td-req.c
+@@ -79,7 +79,8 @@ static inline void
+ td_xenblkif_bufcache_evt_unreg(struct td_blkif_queue * const queue)
+ {
+     if (queue->reqs_bufcache_evtid > 0){
+-        tapdisk_server_unregister_event(queue->reqs_bufcache_evtid);
++        tapdisk_server_unregister_io_event(tapdisk_xenblkif_queue_id(queue),
++                                           queue->reqs_bufcache_evtid);
+     }
+     queue->reqs_bufcache_evtid = 0;
+ }
+@@ -93,7 +94,8 @@ static inline void
+ td_xenblkif_bufcache_evt_reg(struct td_blkif_queue* queue)
+ {
+     queue->reqs_bufcache_evtid =
+-        tapdisk_server_register_event(SCHEDULER_POLL_TIMEOUT,
++        tapdisk_server_register_io_event(tapdisk_xenblkif_queue_id(queue),
++                                      SCHEDULER_POLL_TIMEOUT,
+                                       -1, /* dummy fd */
+                                       TV_SECS(TD_REQS_BUFCACHE_EXPIRE),
+                                       td_xenblkif_bufcache_event,
+@@ -855,7 +857,7 @@ out:
+  */
+ static inline int
+ tapdisk_xenblkif_queue_request(struct td_blkif_queue * const queue,
+-        blkif_request_t *msg, struct td_xenblkif_req *req)
++        blkif_request_t *msg, struct td_xenblkif_req *req, bool final)
+ {
+     int err;
+     bool queue_request;
+@@ -879,7 +881,7 @@ tapdisk_xenblkif_queue_request(struct td_blkif_queue * const queue,
+     }
+ 
+ 	if (likely(queue_request)) {
+-		err = tapdisk_vbd_queue_request(queue->blkif->vbd, &req->vreq);
++		err = tapdisk_vbd_queue_request(queue->blkif->vbd, &req->vreq, final);
+ 		if (unlikely(err)) {
+ 			/* TODO log error */
+ 			queue->blkif->stats.errors.vbd++;
+@@ -913,7 +915,7 @@ tapdisk_xenblkif_queue_requests(struct td_blkif_queue * const queue,
+ 
+         ASSERT(req);
+ 
+-        err = tapdisk_xenblkif_queue_request(queue, msg, req);
++        err = tapdisk_xenblkif_queue_request(queue, msg, req, (i == nr_reqs-1));
+         if (err) {
+             /* TODO log error */
+             nr_errors++;
+diff --git a/mockatests/drivers/test-td-req.c b/mockatests/drivers/test-td-req.c
+index f29f8e5c..640e6ff5 100644
+--- a/mockatests/drivers/test-td-req.c
++++ b/mockatests/drivers/test-td-req.c
+@@ -63,8 +63,28 @@ tapdisk_server_unregister_event(event_id_t id)
+ {
+ }
+ 
++event_id_t
++tapdisk_server_register_io_event(td_queue_id_t qid, char m, int fd,
++		struct timeval t, event_cb_t cb, void *p)
++{
++	return 0;
++}
++
++void
++tapdisk_server_unregister_io_event(td_queue_id_t qid, event_id_t id)
++{
++}
++
++int
++tapdisk_server_io_event_set_timeout(td_queue_id_t qid, event_id_t id,
++		struct timeval timeo)
++{
++	return 0;
++}
++
+ int
+-tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq)
++tapdisk_vbd_queue_request(td_vbd_t *vbd, td_vbd_request_t *vreq,
++		bool locked)
+ {
+ 	return 0;
+ }

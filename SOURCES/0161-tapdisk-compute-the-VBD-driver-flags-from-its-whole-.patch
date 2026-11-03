@@ -1,0 +1,102 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Thu, 8 Oct 2026 10:49:17 +0200
+Subject: [PATCH] tapdisk: compute the VBD driver flags from its whole chain
+
+The driver flags of a VBD were those of its first image, taken before
+the dirty log, the caches and the NBD mirror are added. A layer which
+doesn't support multi-queue could then be used from several IO threads.
+
+Compute them once all the layers are added: the VBD is multi-queue
+only if all its layers are, including the NBD mirror which receives
+every write, and threaded as soon as one layer completes requests from
+its own thread.
+
+On resume, the number of queues was already negotiated with the
+frontend: fail the resume if the new chain loses multi-queue support
+while a ring uses several queues.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/tapdisk-vbd.c | 47 +++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 45 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index 23a6e3b6..826cbb8f 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -668,6 +668,35 @@ unlock:
+ 	pthread_mutex_unlock(&queue->mutex);
+ }
+ 
++/*
++ * The VBD capabilities are those of its whole chain: every layer must
++ * be multi-queue capable, while a single threaded layer is enough to
++ * complete requests outside of the IO threads.
++ */
++static void
++tapdisk_vbd_update_driver_flags(td_vbd_t *vbd)
++{
++	td_image_t *image, *tmp;
++	td_flag_t all, any;
++
++	all = TD_DRIVER_MULTIQUEUE;
++	any = 0;
++
++	tapdisk_vbd_for_each_image(vbd, image, tmp) {
++		all &= image->driver->ops->flags;
++		any |= image->driver->ops->flags;
++	}
++
++	/* The NBD mirror sits outside of the chain but receives every write */
++	if (vbd->secondary) {
++		all &= vbd->secondary->driver->ops->flags;
++		any |= vbd->secondary->driver->ops->flags;
++	}
++
++	vbd->driver_flags = (all & TD_DRIVER_MULTIQUEUE) |
++			    (any & TD_DRIVER_THREADED);
++}
++
+ int
+ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_devnum, td_err *error)
+ {
+@@ -698,8 +727,6 @@ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_d
+ 	if (err)
+ 		goto fail;
+ 
+-	vbd->driver_flags = tapdisk_vbd_first_image(vbd)->driver->ops->flags;
+-
+ 	td_atomic_flag_clear(vbd->state, TD_VBD_CLOSED);
+ 	vbd->flags = flags;
+ 
+@@ -739,6 +766,9 @@ tapdisk_vbd_open_vdi(td_vbd_t *vbd, const char *name, td_flag_t flags, int prt_d
+ 			goto fail;
+ 	}
+ 
++	/* Once all the layers are added */
++	tapdisk_vbd_update_driver_flags(vbd);
++
+ 	err = vbd_stats_create(vbd);
+ 	if (err)
+ 		goto fail;
+@@ -1205,6 +1235,19 @@ tapdisk_vbd_resume(td_vbd_t *vbd, const char *name, td_err *error)
+ 			err = -EMEDIUMTYPE;
+ 			goto resume_failed;
+ 		}
++
++		/* The number of queues was negotiated with the frontend */
++		if (!td_flag_test(vbd->driver_flags, TD_DRIVER_MULTIQUEUE)) {
++			list_for_each_entry(blkif, &vbd->rings, entry) {
++				if (blkif->nr_queues <= 1)
++					continue;
++
++				EPRINTF("VBD %d cannot lose multi-queue support\n",
++					vbd->uuid);
++				err = -EOPNOTSUPP;
++				goto resume_failed;
++			}
++		}
+ 	}
+ resume_failed:
+ 	if (err) {

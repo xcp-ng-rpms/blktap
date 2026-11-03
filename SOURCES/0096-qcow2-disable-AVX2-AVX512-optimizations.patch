@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
+Date: Tue, 30 Jun 2026 17:41:23 +0200
+Subject: [PATCH] qcow2: disable AVX2/AVX512 optimizations
+
+Undefine CONFIG_AVX2_OPT and CONFIG_AVX512BW_OPT for portability on
+older toolchains, matching the existing old-component support tuning.
+---
+ include/qemu/config-host.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/include/qemu/config-host.h b/include/qemu/config-host.h
+index 838d4bcc..a1972fc3 100644
+--- a/include/qemu/config-host.h
++++ b/include/qemu/config-host.h
+@@ -49,9 +49,9 @@
+ 
+ #undef CONFIG_AUDIO_SNDIO
+ 
+-#define CONFIG_AVX2_OPT
++#undef CONFIG_AVX2_OPT
+ 
+-#define CONFIG_AVX512BW_OPT
++#undef CONFIG_AVX512BW_OPT
+ 
+ #define CONFIG_BDRV_RO_WHITELIST 
+ 

@@ -1,22 +1,26 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
-Date: Thu, 8 Oct 2026 17:21:09 +0200
+From: Florent Beauchamp <florent.beauchamp@vates.tech>
+Date: Sat, 3 Oct 2026 10:15:21 +0000
 Subject: [PATCH] tapdisk: wait for the NBD requests in flight before closing
  an image
 
-tapdisk_control_close_image() frees the NBD servers while their clients
-may still have requests in flight. When such a request completes, its
-callback uses the freed server and tapdisk segfaults
-(__tapdisk_nbdserver_request_cb), which leaves the VBD impossible to
-unplug.
+tapdisk_control_close_image() pauses the NBD servers, then frees them
+while their clients may still have requests in flight. A client with
+pending requests is only marked dead, but its server is freed: when such
+a request completes, its callback still sends the reply on the client
+socket and updates the statistics of the freed server, and tapdisk
+segfaults (__tapdisk_nbdserver_request_cb). The VBD can then not be
+unplugged anymore (SM fails on the leftover blktap minor).
 
-Reproduced by unplugging the dom0 VBD of a VDI while an NBD client
-keeps 8 reads in flight.
+Reproduced every time by unplugging the dom0 VBD of a VDI while an NBD
+client keeps 8 reads in flight on its NBD server.
 
-Suggested-by: Florent Beauchamp <florent.beauchamp@vates.tech>
-Signed-off-by: Emmanuel Varagnat <emmanuel.varagnat@vates.tech>
-Reviewed-by: Anthoine Bourgeois <anthoine.bourgeois@gmail.com>
-Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Wait for the NBD requests in flight, like for the requests of dead
+rings, once the NBD servers are paused (no new request is received). A
+quiesced VBD does not issue its queued requests: only wait for the issued
+ones then.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  drivers/tapdisk-control.c   | 31 +++++++++++++++++++++++++++++++
  drivers/tapdisk-nbdserver.c | 19 +++++++++++++++++++

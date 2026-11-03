@@ -1,0 +1,1956 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Wed, 12 Mar 2025 17:25:22 +0100
+Subject: [PATCH] tapdisk: give pointer as parameter instead of copy structure
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/block-aio.c                   |  28 +-
+ drivers/block-cache.c                 |  46 ++--
+ drivers/block-dummy.c                 | 369 ++++++++++++++++++++++++++
+ drivers/block-lcache.c                |  18 +-
+ drivers/block-llcache.c               |  48 ++--
+ drivers/block-log.c                   |   8 +-
+ drivers/block-nbd.c                   |  28 +-
+ drivers/block-qcow2.c                 |  16 +-
+ drivers/block-ram.c                   |  18 +-
+ drivers/block-valve.c                 |  27 +-
+ drivers/block-vhd.c                   |  46 ++--
+ drivers/block-vindex.c                |  41 +--
+ drivers/tapdisk-image.c               |  13 +-
+ drivers/tapdisk-image.h               |   2 +-
+ drivers/tapdisk-interface.c           |  28 +-
+ drivers/tapdisk-interface.h           |   8 +-
+ drivers/tapdisk-vbd.c                 |  83 +++---
+ drivers/tapdisk-vbd.h                 |   6 +-
+ drivers/tapdisk.h                     |   8 +-
+ mockatests/drivers/test-tapdisk-vbd.c |   2 +-
+ 20 files changed, 607 insertions(+), 236 deletions(-)
+ create mode 100644 drivers/block-dummy.c
+
+diff --git a/drivers/block-aio.c b/drivers/block-aio.c
+index 600e9a28..9d599ae2 100644
+--- a/drivers/block-aio.c
++++ b/drivers/block-aio.c
+@@ -154,14 +154,14 @@ void tdaio_complete(void *arg, struct tiocb *tiocb, int err)
+ 	struct aio_request *aio = (struct aio_request *)arg;
+ 	struct tdaio_state *prv = aio->state;
+ 
+-	td_complete_request(aio->treq, err);
++	td_complete_request(&aio->treq, err);
+ 
+ 	pthread_mutex_lock(&prv->aio_lock);
+ 	prv->aio_free_list[prv->aio_free_count++] = aio;
+ 	pthread_mutex_unlock(&prv->aio_lock);
+ }
+ 
+-void tdaio_queue_read(td_driver_t *driver, td_request_t treq)
++void tdaio_queue_read(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	int size;
+ 	uint64_t offset;
+@@ -169,8 +169,8 @@ void tdaio_queue_read(td_driver_t *driver, td_request_t treq)
+ 	struct tdaio_state *prv;
+ 
+ 	prv    = (struct tdaio_state *)driver->data;
+-	size   = treq.secs * SECTOR_SIZE;
+-	offset = treq.sec  * (uint64_t)SECTOR_SIZE;
++	size   = treq->secs * SECTOR_SIZE;
++	offset = treq->sec  * (uint64_t)SECTOR_SIZE;
+ 
+ 	pthread_mutex_lock(&prv->aio_lock);
+ 	if (prv->aio_free_count == 0) {
+@@ -178,12 +178,11 @@ void tdaio_queue_read(td_driver_t *driver, td_request_t treq)
+ 		goto fail;
+ 	}
+ 	aio = prv->aio_free_list[--prv->aio_free_count];
+-	pthread_mutex_unlock(&prv->aio_lock);
+-
+-	aio->treq  = treq;
++	aio->treq  = *treq;
+ 	aio->state = prv;
++	pthread_mutex_unlock(&prv->aio_lock);
+ 
+-	td_prep_read(driver, &aio->tiocb, prv->fd, treq.buf,
++	td_prep_read(driver, &aio->tiocb, prv->fd, treq->buf,
+ 		     size, offset, tdaio_complete, aio);
+ 	td_queue_tiocb(driver, &aio->tiocb);
+ 
+@@ -193,7 +192,7 @@ fail:
+ 	td_complete_request(treq, -EBUSY);
+ }
+ 
+-void tdaio_queue_write(td_driver_t *driver, td_request_t treq)
++void tdaio_queue_write(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	int size;
+ 	uint64_t offset;
+@@ -201,8 +200,8 @@ void tdaio_queue_write(td_driver_t *driver, td_request_t treq)
+ 	struct tdaio_state *prv;
+ 
+ 	prv     = (struct tdaio_state *)driver->data;
+-	size    = treq.secs * driver->info.sector_size;
+-	offset  = treq.sec  * (uint64_t)driver->info.sector_size;
++	size    = treq->secs * driver->info.sector_size;
++	offset  = treq->sec  * (uint64_t)driver->info.sector_size;
+ 
+ 	pthread_mutex_lock(&prv->aio_lock);
+ 	if (prv->aio_free_count == 0) {
+@@ -210,12 +209,11 @@ void tdaio_queue_write(td_driver_t *driver, td_request_t treq)
+ 		goto fail;
+ 	}
+ 	aio = prv->aio_free_list[--prv->aio_free_count];
+-	pthread_mutex_unlock(&prv->aio_lock);
+-
+-	aio->treq  = treq;
++	aio->treq  = *treq;
+ 	aio->state = prv;
++	pthread_mutex_unlock(&prv->aio_lock);
+ 
+-	td_prep_write(driver, &aio->tiocb, prv->fd, treq.buf,
++	td_prep_write(driver, &aio->tiocb, prv->fd, treq->buf,
+ 		      size, offset, tdaio_complete, aio);
+ 	td_queue_tiocb(driver, &aio->tiocb);
+ 
+diff --git a/drivers/block-cache.c b/drivers/block-cache.c
+index 93f2b73e..7e0f20fa 100644
+--- a/drivers/block-cache.c
++++ b/drivers/block-cache.c
+@@ -603,36 +603,36 @@ block_cache_hash(block_cache_t *cache, char *buf)
+ }
+ 
+ static void
+-block_cache_hit(block_cache_t *cache, td_request_t treq, char *iov[])
++block_cache_hit(block_cache_t *cache, const td_request_t *treq, char *iov[])
+ {
+ 	int i;
+ 	off_t off;
+ 
+-	cache->stats.hits += treq.secs;
++	cache->stats.hits += treq->secs;
+ 
+-	for (i = 0; i < treq.secs; i++) {
++	for (i = 0; i < treq->secs; i++) {
+ 		DBG("%s: block cache hit: sec 0x%08llx, hash: 0x%08llx\n",
+-		    cache->name, treq.sec + i, block_cache_hash(cache, iov[i]));
++		    cache->name, treq->sec + i, block_cache_hash(cache, iov[i]));
+ 
+ 		off = (off_t)i << RADIX_TREE_NODE_SHIFT;
+-		memcpy(treq.buf + off, iov[i], RADIX_TREE_NODE_SIZE);
++		memcpy(treq->buf + off, iov[i], RADIX_TREE_NODE_SIZE);
+ 	}
+ 
+ 	td_complete_request(treq, 0);
+ }
+ 
+ static int
+-block_cache_populate_cache(td_request_t clone, int err)
++block_cache_populate_cache(const td_request_t *clone, int err)
+ {
+ 	int i, notify;
+ 	radix_tree_t *tree;
+ 	block_cache_t *cache;
+ 	block_cache_request_t *breq;
+ 
+-	breq        = (block_cache_request_t *)clone.cb_data;
++	breq        = (block_cache_request_t *)clone->cb_data;
+ 	cache       = breq->cache;
+ 	tree        = &cache->tree;
+-	breq->secs -= clone.secs;
++	breq->secs -= clone->secs;
+ 	breq->err   = (breq->err ? breq->err : err);
+ 
+ 	if (breq->secs)
+@@ -656,13 +656,13 @@ block_cache_populate_cache(td_request_t clone, int err)
+ 		free(breq->buf);
+ 
+ out:
+-	notify = td_complete_request(breq->treq, breq->err);
++	notify = td_complete_request(&breq->treq, breq->err);
+ 	block_cache_put_request(cache, breq);
+ 	return notify;
+ }
+ 
+ static void
+-block_cache_miss(block_cache_t *cache, td_request_t treq)
++block_cache_miss(block_cache_t *cache, const td_request_t *treq)
+ {
+ 	void *buf;
+ 	size_t size;
+@@ -670,13 +670,13 @@ block_cache_miss(block_cache_t *cache, td_request_t treq)
+ 	radix_tree_t *tree;
+ 	block_cache_request_t *breq;
+ 
+-	DBG("%s: block cache miss: sec 0x%08llx\n", cache->name, treq.sec);
++	DBG("%s: block cache miss: sec 0x%08llx\n", cache->name, treq->sec);
+ 
+-	clone = treq;
++	clone = *treq;
+ 	tree  = &cache->tree;
+-	size  = (size_t)treq.secs << RADIX_TREE_NODE_SHIFT;
++	size  = (size_t)treq->secs << RADIX_TREE_NODE_SHIFT;
+ 
+-	cache->stats.misses += treq.secs;
++	cache->stats.misses += treq->secs;
+ 
+ 	if (radix_tree_size(tree) + size >= BLOCK_CACHE_MAX_SIZE)
+ 		goto out;
+@@ -690,8 +690,8 @@ block_cache_miss(block_cache_t *cache, td_request_t treq)
+ 		goto out;
+ 	}
+ 
+-	breq->treq    = treq;
+-	breq->secs    = treq.secs;
++	breq->treq    = *treq;
++	breq->secs    = treq->secs;
+ 	breq->err     = 0;
+ 	breq->buf     = buf;
+ 	breq->cache   = cache;
+@@ -701,11 +701,11 @@ block_cache_miss(block_cache_t *cache, td_request_t treq)
+ 	clone.cb_data = breq;
+ 
+ out:
+-	td_forward_request(clone);
++	td_forward_request(&clone);
+ }
+ 
+ static void
+-block_cache_queue_read(td_driver_t *driver, td_request_t treq)
++block_cache_queue_read(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	int i;
+ 	radix_tree_t *tree;
+@@ -715,13 +715,13 @@ block_cache_queue_read(td_driver_t *driver, td_request_t treq)
+ 	cache = (block_cache_t *)driver->data;
+ 	tree  = &cache->tree;
+ 
+-	cache->stats.reads += treq.secs;
++	cache->stats.reads += treq->secs;
+ 
+-	if (treq.secs > BLOCK_CACHE_NODES_PER_PAGE)
++	if (treq->secs > BLOCK_CACHE_NODES_PER_PAGE)
+ 		return td_forward_request(treq);
+ 
+-	for (i = 0; i < treq.secs; i++) {
+-		iov[i] = radix_tree_find_leaf(tree, treq.sec + i);
++	for (i = 0; i < treq->secs; i++) {
++		iov[i] = radix_tree_find_leaf(tree, treq->sec + i);
+ 		if (!iov[i])
+ 			return block_cache_miss(cache, treq);
+ 	}
+@@ -730,7 +730,7 @@ block_cache_queue_read(td_driver_t *driver, td_request_t treq)
+ }
+ 
+ static void
+-block_cache_queue_write(td_driver_t *driver, td_request_t treq)
++block_cache_queue_write(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	td_complete_request(treq, -EPERM);
+ }
+diff --git a/drivers/block-dummy.c b/drivers/block-dummy.c
+new file mode 100644
+index 00000000..9c8d9109
+--- /dev/null
++++ b/drivers/block-dummy.c
+@@ -0,0 +1,369 @@
++/*
++ * Copyright (c) 2024, Vates
++ *
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ *  1. Redistributions of source code must retain the above copyright
++ *     notice, this list of conditions and the following disclaimer.
++ *  2. Redistributions in binary form must reproduce the above copyright
++ *     notice, this list of conditions and the following disclaimer in the
++ *     documentation and/or other materials provided with the distribution.
++ *  3. Neither the name of the copyright holder nor the names of its
++ *     contributors may be used to endorse or promote products derived from
++ *     this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
++ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
++ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
++ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
++ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
++ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
++ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++/*
++ * block-dummy.c: test implementation.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif
++
++#include <errno.h>
++#include <fcntl.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
++#include <sys/stat.h>
++#include <sys/ioctl.h>
++#include <uuid/uuid.h>
++#include <string.h>
++#include <libaio.h>
++#include <sys/mman.h>
++#include <limits.h>
++#include <dlfcn.h>
++
++#include "debug.h"
++#include "tapdisk.h"
++#include "tapdisk-driver.h"
++#include "tapdisk-interface.h"
++#include "tapdisk-disktype.h"
++#include "tapdisk-storage.h"
++
++#define DEBUGGING   0
++
++#define __TRACE(s)							\
++	do {								\
++		DBG(TLOG_DBG, "QUEUED: %" PRIu64 ", COMPLETED: %"	\
++                    PRIu64", RETURNED: %" PRIu64 ", DATA_ALLOCATED: "	\
++                    "%u\n",				\
++                    s->queued, s->completed, s->returned,	\
++                    DUMMY_REQS - s->vreq_free_count);                   \
++	} while(0)
++
++#if (DEBUGGING == 1)
++  #define DBG(level, _f, _a...)      DPRINTF(_f, ##_a)
++  #define ERR(_s, err, _f, _a...)    DPRINTF("ERROR: %d: " _f, err, ##_a)
++  #define TRACE(s)                   ((void)0)
++#elif (DEBUGGING == 2)
++  #define DBG(level, _f, _a...)      tlog_write(level, _f, ##_a)
++  #define ERR(_s, _err, _f, _a...)   tlog_drv_error((_s)->driver, _err, _f, ##_a)
++  #define TRACE(s)                   __TRACE(s)
++#else
++  #define DBG(level, _f, _a...)      ((void)0)
++  #define ERR(_s, err, _f, _a...)    ((void)0)
++  #define TRACE(s)                   ((void)0)
++#endif
++
++enum dummy_ops {
++        DUMMY_OP_READ,
++        DUMMY_OP_WRITE,
++};
++
++struct dummy_state;
++struct dummy_request;
++
++#define DUMMY_REQS 64
++
++struct dummy_request {
++    int                     error;
++    enum dummy_ops          op;
++    td_request_t            treq;
++    struct dummy_state      *state;
++    struct tiocb            tiocb;
++    //QLIST_ENTRY(dummy_request) list;
++    //int                     aio_inflight;
++#if DEBUGGING != 0
++    int                     id;
++    struct timeval          reqtv;
++#endif
++};
++
++struct dummy_state {
++    td_driver_t               *driver;
++    int                       fd;
++#if 0
++    const char                *name;
++    struct td_vbd_encryption  *encryption;
++    td_flag_t                 td_flags;
++    dummy_flag_t              flags;
++
++    BlockConf                 conf;
++    int                       blk_shift;
++#endif
++
++    int                       vreq_free_count;
++    struct dummy_request      *vreq_free[DUMMY_REQS];
++    struct dummy_request      vreq_list[DUMMY_REQS];
++#if 0
++    QLIST_HEAD(inflight_head, dummy_request) inflight;
++
++    QEMUBH                    *bh;
++    AioContext                *ctx;
++#endif
++
++    uint64_t                  queued;
++    uint64_t                  completed;
++    uint64_t                  returned;
++    uint64_t                  reads;
++    uint64_t                  read_size;
++    uint64_t                  writes;
++    uint64_t                  write_size;
++};
++
++static int
++dummy_open(td_driver_t *driver, const char *name,
++           struct td_vbd_encryption *encryption, td_flag_t flags)
++{
++    int i, o_flags;
++    struct dummy_state *s = (struct dummy_state *)driver->data;
++
++    memset(s, 0, sizeof(struct dummy_state));
++
++    s->driver = driver;
++
++    s->vreq_free_count = DUMMY_REQS;
++    for (i = 0; i < DUMMY_REQS; i++)
++        s->vreq_free[i] = s->vreq_list + i;
++
++    o_flags = O_LARGEFILE |
++        ((flags == TD_OPEN_RDONLY) ? O_RDONLY : O_RDWR);
++    s->fd = open(name, o_flags);
++
++    driver->info.size        = 20 * 1024 * 1024;
++    driver->info.sector_size = 1 << SECTOR_SHIFT;
++    driver->info.info        = 0;
++
++    return 0;
++}
++
++static int
++dummy_close(td_driver_t *driver)
++{
++    return 0;
++}
++
++int
++dummy_validate_parent(td_driver_t *child_driver,
++                      td_driver_t *parent_driver, td_flag_t flags)
++{
++	return 0;
++}
++
++int
++dummy_get_parent_id(td_driver_t *driver, td_disk_id_t *id)
++{
++	return TD_NO_PARENT;
++}
++
++static inline void
++init_dummy_request(struct dummy_state *s, struct dummy_request *req)
++{
++	req->state = s;
++#if DEBUGGING != 0
++	req->id = req - s->vreq_list;
++        gettimeofday(&req->reqtv, NULL);
++#endif
++}
++
++static inline struct dummy_request *
++alloc_dummy_request(struct dummy_state *s)
++{
++	struct dummy_request *req = NULL;
++
++	if (s->vreq_free_count > 0) {
++		req = s->vreq_free[--s->vreq_free_count];
++		init_dummy_request(s, req);
++		return req;
++	}
++
++	return NULL;
++}
++
++static inline void
++free_dummy_request(struct dummy_state *s, struct dummy_request *req)
++{
++	s->vreq_free[s->vreq_free_count++] = req;
++}
++
++static inline void
++signal_completion(struct dummy_request *r)
++{
++	struct dummy_state *s = r->state;
++
++        td_complete_request(&r->treq, 0);
++
++        free_dummy_request(s, r);
++
++        s->returned++;
++        TRACE(s);
++}
++
++static void dummy_complete(void *opaque, struct tiocb *tiocb, int err)
++{
++    struct dummy_request *req = (struct dummy_request *)opaque;
++    struct dummy_state *s = req->state;
++#if DEBUGGING != 0
++    unsigned long long interval;
++    struct timeval now;
++#endif
++
++    if (!s) {
++        DBG(TLOG_DBG, "s is null\n");
++        return;
++    }
++
++    req->error = err;
++
++    if (req->error)
++        ERR(s, req->error, "%s: op: %u, lsec: %"PRIu64", secs: %u, "
++                "blk: %"PRIu64", blk_offset: ",
++                req->treq.image->name, req->op, req->treq.sec, req->treq.secs,
++                req->treq.sec);
++
++#if DEBUGGING != 0
++    gettimeofday(&now, NULL);
++    interval = timeval_to_us(&now) - timeval_to_us(&req->reqtv);
++    DBG(TLOG_DBG, "%d: interval %llu us\n", req->id, interval);
++#endif
++
++    s->completed++;
++    TRACE(s);
++
++    switch (req->op) {
++        case DUMMY_OP_READ:
++            signal_completion(req);
++            break;
++
++        case DUMMY_OP_WRITE:
++            DBG(TLOG_DBG, "%s: op: %u, lsec: %"PRIu64", secs: %u, "
++                "blk: %"PRIu64", blk_offset: ",
++                req->treq.image->name, req->op, req->treq.sec, req->treq.secs,
++                req->treq.sec);
++            signal_completion(req);
++            break;
++
++        default:
++            ASSERT(0);
++            break;
++    }
++}
++
++static int
++schedule_request(struct dummy_state *s, const td_request_t *treq, enum dummy_ops op)
++{
++	struct dummy_request *req;
++
++	req = alloc_dummy_request(s);
++	if (!req)
++		return -EBUSY;
++
++	req->treq  = *treq;
++	req->op    = op;
++
++	s->queued++;
++	if (op == DUMMY_OP_READ) {
++                td_prep_read(s->driver, &req->tiocb, s->fd, req->treq.buf,
++                             req->treq.secs << SECTOR_SHIFT,
++                             0, dummy_complete, req);
++		s->reads++;
++		s->read_size += req->treq.secs;
++	} else {
++                td_prep_write(s->driver, &req->tiocb, s->fd, req->treq.buf,
++                             req->treq.secs << SECTOR_SHIFT,
++                             0, dummy_complete, req);
++		s->writes++;
++		s->write_size += req->treq.secs;
++	}
++	td_queue_tiocb(s->driver, &req->tiocb);
++
++	TRACE(s);
++
++	DBG(TLOG_DBG, "%s: lsec: 0x%08"PRIx64", "
++            "nr_secs: 0x%08x, buf: %p, id %d\n",
++            treq->image->name, treq->sec, treq->secs,
++            treq->buf, req->id);
++
++	return 0;
++}
++
++static void
++dummy_queue_block_status(td_driver_t *driver, td_request_t *treq)
++{
++}
++
++static void
++dummy_queue_read(td_driver_t *driver, const td_request_t *treq)
++{
++    struct dummy_state *s = (struct dummy_state *)driver->data;
++    int err;
++
++    err = schedule_request(s, treq, DUMMY_OP_READ);
++    if (err)
++        goto fail;
++
++    return;
++fail:
++    td_complete_request(treq, err);
++}
++
++static void
++dummy_queue_write(td_driver_t *driver, const td_request_t *treq)
++{
++    struct dummy_state *s = (struct dummy_state *)driver->data;
++    int err;
++
++    err = schedule_request(s, treq, DUMMY_OP_WRITE);
++    if (err)
++        goto fail;
++
++    return;
++fail:
++    td_complete_request(treq, err);
++}
++
++void
++dummy_debug(td_driver_t *driver)
++{
++}
++
++struct tap_disk tapdisk_dummy = {
++	.disk_type          = "tapdisk_dummy",
++	.flags              = 0,
++	.private_data_size  = sizeof(struct dummy_state),
++	.td_open            = dummy_open,
++	.td_close           = dummy_close,
++	.td_queue_read      = dummy_queue_read,
++	.td_queue_block_status = dummy_queue_block_status,
++	.td_queue_write     = dummy_queue_write,
++	.td_get_parent_id   = dummy_get_parent_id,
++	.td_validate_parent = dummy_validate_parent,
++	.td_debug           = dummy_debug,
++};
+diff --git a/drivers/block-lcache.c b/drivers/block-lcache.c
+index 5aaff660..731accf0 100644
+--- a/drivers/block-lcache.c
++++ b/drivers/block-lcache.c
+@@ -297,7 +297,7 @@ lcache_complete_read(td_lcache_t *cache, td_lcache_req_t *req)
+ 		memcpy(req->treq.buf, req->buf, sz);
+ 	}
+ 
+-	notify = td_complete_request(req->treq, req->err);
++	notify = td_complete_request(&req->treq, req->err);
+ 
+ 	if (unlikely(req->err) || !lcache_wr_enabled(cache)) {
+ 		lcache_free_request(cache, req);
+@@ -310,13 +310,13 @@ lcache_complete_read(td_lcache_t *cache, td_lcache_req_t *req)
+ }
+ 
+ static int
+-__lcache_read_cb(td_request_t treq, int err)
++__lcache_read_cb(const td_request_t *treq, int err)
+ {
+-	td_lcache_req_t *req = treq.cb_data;
++	td_lcache_req_t *req = treq->cb_data;
+ 	td_lcache_t *cache = req->cache;
+ 
+-	BUG_ON(req->secs < treq.secs);
+-	req->secs -= treq.secs;
++	BUG_ON(req->secs < treq->secs);
++	req->secs -= treq->secs;
+ 	req->err   = req->err ? : err;
+ 
+ 	if (!req->secs)
+@@ -325,7 +325,7 @@ __lcache_read_cb(td_request_t treq, int err)
+ }
+ 
+ static void
+-lcache_queue_read(td_driver_t *driver, td_request_t treq)
++lcache_queue_read(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	td_lcache_t *cache = driver->data;
+ 	td_request_t clone;
+@@ -337,18 +337,18 @@ lcache_queue_read(td_driver_t *driver, td_request_t treq)
+ 		return;
+ 	}
+ 
+-	req->treq    = treq;
++	req->treq    = *treq;
+ 	req->cache   = cache;
+ 
+ 	req->secs    = req->treq.secs;
+ 	req->err     = 0;
+ 
+-	clone         = treq;
++	clone         = *treq;
+ 	clone.buf     = req->buf;
+ 	clone.cb      = __lcache_read_cb;
+ 	clone.cb_data = req;
+ 
+-	td_forward_request(clone);
++	td_forward_request(&clone);
+ }
+ 
+ static int
+diff --git a/drivers/block-llcache.c b/drivers/block-llcache.c
+index dc0a7332..a8723747 100644
+--- a/drivers/block-llcache.c
++++ b/drivers/block-llcache.c
+@@ -182,7 +182,7 @@ __llpcache_write_cb(td_vbd_request_t *vreq, int error,
+ 
+ 	if (!req->pending) {
+ 		/* FIXME: Make sure this won't retry. */
+-		td_complete_request(req->treq, req->error);
++		td_complete_request(&req->treq, req->error);
+ 		llpcache_free_request(s, req);
+ 	}
+ }
+@@ -236,7 +236,7 @@ fail:
+ }
+ 
+ static void
+-llpcache_fork_write(td_llpcache_t *s, td_request_t treq)
++llpcache_fork_write(td_llpcache_t *s, const td_request_t *treq)
+ {
+ 	td_llpcache_req_t *req;
+ 	struct td_iovec *iov;
+@@ -250,11 +250,11 @@ llpcache_fork_write(td_llpcache_t *s, td_request_t treq)
+ 
+ 	memset(req, 0, sizeof(td_llpcache_req_t));
+ 
+-	req->treq     = treq;
++	req->treq     = *treq;
+ 
+ 	iov           = &req->iov;
+-	iov->base     = treq.buf;
+-	iov->secs     = treq.secs;
++	iov->base     = treq->buf;
++	iov->secs     = treq->secs;
+ 
+ 	err = llpcache_requeue_treq(s, req, LOCAL);
+ 	if (err)
+@@ -274,9 +274,9 @@ fail:
+ }
+ 
+ static void
+-llpcache_forward_write(td_llpcache_t *s, td_request_t treq)
++llpcache_forward_write(td_llpcache_t *s, const td_request_t *treq)
+ {
+-	const td_vbd_request_t *vreq = treq.vreq;
++	const td_vbd_request_t *vreq = treq->vreq;
+ 	struct llpcache_vreq *lvr;
+ 
+ 	lvr = container_of(vreq, struct llpcache_vreq, vreq);
+@@ -294,18 +294,18 @@ llpcache_forward_write(td_llpcache_t *s, td_request_t treq)
+ }
+ 
+ static void
+-llpcache_queue_write(td_driver_t *driver, td_request_t treq)
++llpcache_queue_write(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	td_llpcache_t *s = driver->data;
+ 
+-	if (treq.vreq->token == s)
++	if (treq->vreq->token == s)
+ 		llpcache_forward_write(s, treq);
+ 	else
+ 		llpcache_fork_write(s, treq);
+ }
+ 
+ static void
+-llpcache_queue_read(td_driver_t *driver, td_request_t treq)
++llpcache_queue_read(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	td_llpcache_t *s = driver->data;
+ 
+@@ -512,15 +512,15 @@ fail:
+ }
+ 
+ static int
+-__llecache_write_cb(td_request_t treq, int error)
++__llecache_write_cb(const td_request_t *treq, int error)
+ {
+ 	int notify = 0;
+-	td_llecache_req_t *req = treq.cb_data;
++	td_llecache_req_t *req = treq->cb_data;
+ 	td_llecache_t *s = req->s;
+ 
+-	BUG_ON(req->pending < treq.secs);
++	BUG_ON(req->pending < treq->secs);
+ 
+-	req->pending -= treq.secs;
++	req->pending -= treq->secs;
+ 	req->error    = ll_write_error(req->error, error);
+ 
+ 	if (req->pending)
+@@ -528,13 +528,13 @@ __llecache_write_cb(td_request_t treq, int error)
+ 
+ 	if (req->error == -ENOSPC) {
+ 		ll_log_switch(DISK_TYPE_LLECACHE, req->error,
+-			      treq.image, s->shared);
++			      treq->image, s->shared);
+ 
+ 		s->mode = LLE_SHARED;
+-		td_queue_write(s->shared, req->treq);
++		td_queue_write(s->shared, &req->treq);
+ 
+ 	} else
+-		notify = td_complete_request(req->treq, error);
++		notify = td_complete_request(&req->treq, error);
+ 
+ 	llecache_free_request(s, req);
+ 
+@@ -542,7 +542,7 @@ __llecache_write_cb(td_request_t treq, int error)
+ }
+ 
+ static void
+-llecache_forward_write(td_llecache_t *s, td_request_t treq)
++llecache_forward_write(td_llecache_t *s, const td_request_t *treq)
+ {
+ 	td_llecache_req_t *req;
+ 	td_request_t clone;
+@@ -555,19 +555,19 @@ llecache_forward_write(td_llecache_t *s, td_request_t treq)
+ 
+ 	memset(req, 0, sizeof(td_llecache_req_t));
+ 
+-	req->treq       = treq;
+-	req->pending    = treq.secs;
++	req->treq       = *treq;
++	req->pending    = treq->secs;
+ 	req->s          = s;
+ 
+-	clone           = treq;
++	clone           = *treq;
+ 	clone.cb        = __llecache_write_cb;
+ 	clone.cb_data   = req;
+ 
+-	td_forward_request(clone);
++	td_forward_request(&clone);
+ }
+ 
+ static void
+-llecache_queue_write(td_driver_t *driver, td_request_t treq)
++llecache_queue_write(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	td_llecache_t *s = driver->data;
+ 
+@@ -582,7 +582,7 @@ llecache_queue_write(td_driver_t *driver, td_request_t treq)
+ }
+ 
+ static void
+-llecache_queue_read(td_driver_t *driver, td_request_t treq)
++llecache_queue_read(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	td_llecache_t *s = driver->data;
+ 
+diff --git a/drivers/block-log.c b/drivers/block-log.c
+index 0273fa9b..3e76481d 100644
+--- a/drivers/block-log.c
++++ b/drivers/block-log.c
+@@ -171,18 +171,18 @@ static int tdlog_open(td_driver_t* driver, const char *name,
+ 	return 0;
+ }
+ 
+-static void tdlog_queue_read(td_driver_t* driver, td_request_t treq)
++static void tdlog_queue_read(td_driver_t* driver, const td_request_t *treq)
+ {
+ 	td_forward_request(treq);
+ }
+ 
+-static void tdlog_queue_write(td_driver_t* driver, td_request_t treq)
++static void tdlog_queue_write(td_driver_t* driver, const td_request_t *treq)
+ {
+ 	struct tdlog_data* data = (struct tdlog_data*)driver->data;
+ 	uint64_t start_bit, last_bit;
+ 
+-	start_bit = get_bit_for_sec(treq.sec);
+-	last_bit = get_bit_for_sec(treq.sec + treq.secs - 1);
++	start_bit = get_bit_for_sec(treq->sec);
++	last_bit = get_bit_for_sec(treq->sec + treq->secs - 1);
+ 
+ 	bitmap_set(data, start_bit, (last_bit - start_bit) + 1);
+ 	td_forward_request(treq);
+diff --git a/drivers/block-nbd.c b/drivers/block-nbd.c
+index e54d088f..704d7135 100644
+--- a/drivers/block-nbd.c
++++ b/drivers/block-nbd.c
+@@ -222,7 +222,7 @@ __cancel_req(struct tdnbd_data *prv, int i, struct td_nbd_request *pos, int e)
+ 	list_move(&pos->queue, &prv->free_reqs);
+ 	prv->nr_free_count++;
+ 
+-	td_complete_request(pos->treq, e);
++	td_complete_request(&pos->treq, e);
+ }
+ 
+ static void
+@@ -368,7 +368,7 @@ disable_write_queue(struct tdnbd_data *prv)
+ 
+ static int
+ tdnbd_queue_request_locked(struct tdnbd_data *prv, int type, uint64_t offset,
+-			   char *buffer, uint32_t length, td_request_t treq, int fake)
++			   char *buffer, uint32_t length, const td_request_t *treq, int fake)
+ {
+ 	if (prv->nr_free_count == 0) 
+ 		return -EBUSY;
+@@ -383,7 +383,7 @@ tdnbd_queue_request_locked(struct tdnbd_data *prv, int type, uint64_t offset,
+ 
+ 	/* fill in the request */
+ 
+-	req->treq = treq;
++	req->treq = *treq;
+ 
+ 	unsigned int id = prv->handle_id;
+ 	prv->handle_id = (prv->handle_id + 1) % 0x100000;
+@@ -415,7 +415,7 @@ tdnbd_queue_request_locked(struct tdnbd_data *prv, int type, uint64_t offset,
+ 
+ static int
+ tdnbd_queue_request(struct tdnbd_data *prv, int type, uint64_t offset,
+-		    char *buffer, uint32_t length, td_request_t treq, int fake)
++		    char *buffer, uint32_t length, const td_request_t* treq, int fake)
+ {
+ 	int rc;
+ 
+@@ -490,11 +490,11 @@ tdnbd_reader_cb(event_id_t eb, char mode, void *data)
+ 
+ 		// FIXME: should we unlock around that call ?
+ 		// FIXME2: check that td_complete_request is thread-safe
+-		td_complete_request(prv->curr_reply_req->treq, 0);
++		td_complete_request(&prv->curr_reply_req->treq, 0);
+ 
+ 		break;
+ 	case TAPDISK_NBD_CMD_WRITE:
+-		td_complete_request(prv->curr_reply_req->treq, 0);
++		td_complete_request(&prv->curr_reply_req->treq, 0);
+ 
+ 		break;
+ 	default:
+@@ -1074,27 +1074,27 @@ tdnbd_close(td_driver_t* driver)
+ }
+ 
+ static void
+-tdnbd_queue_read(td_driver_t* driver, td_request_t treq)
++tdnbd_queue_read(td_driver_t* driver, const td_request_t *treq)
+ {
+ 	struct tdnbd_data *prv = (struct tdnbd_data *)driver->data;
+-	int      size    = treq.secs * driver->info.sector_size;
+-	uint64_t offset  = treq.sec * (uint64_t)driver->info.sector_size;
++	int      size    = treq->secs * driver->info.sector_size;
++	uint64_t offset  = treq->sec * (uint64_t)driver->info.sector_size;
+ 
+ 	if (prv->flags & TD_OPEN_SECONDARY)
+ 		td_forward_request(treq);       /* TODO: check that this function is thread-safe */
+ 	else
+-		tdnbd_queue_request(prv, TAPDISK_NBD_CMD_READ, offset, treq.buf, size,
++		tdnbd_queue_request(prv, TAPDISK_NBD_CMD_READ, offset, treq->buf, size,
+ 				treq, 0);
+ }
+ 
+ static void
+-tdnbd_queue_write(td_driver_t* driver, td_request_t treq)
++tdnbd_queue_write(td_driver_t* driver, const td_request_t *treq)
+ {
+ 	struct tdnbd_data *prv = (struct tdnbd_data *)driver->data;
+-	int      size    = treq.secs * driver->info.sector_size;
+-	uint64_t offset  = treq.sec * (uint64_t)driver->info.sector_size;
++	int      size    = treq->secs * driver->info.sector_size;
++	uint64_t offset  = treq->sec * (uint64_t)driver->info.sector_size;
+ 
+-	tdnbd_queue_request(prv, TAPDISK_NBD_CMD_WRITE, offset, treq.buf, size,
++	tdnbd_queue_request(prv, TAPDISK_NBD_CMD_WRITE, offset, treq->buf, size,
+ 			    treq, 0);
+ }
+ 
+diff --git a/drivers/block-qcow2.c b/drivers/block-qcow2.c
+index ec06a275..64ac1817 100644
+--- a/drivers/block-qcow2.c
++++ b/drivers/block-qcow2.c
+@@ -922,7 +922,7 @@ signal_completion(struct qcow2_request *r)
+ 	}
+ 	pthread_mutex_unlock(&s->lock);
+ 
+-	notify = td_complete_request(r->treq, r->error);
++	notify = td_complete_request(&r->treq, r->error);
+ 	DBG(TLOG_DBG, "lsec: 0x%08"PRIx64", blk: 0x%04x, "
+ 		"err: %d\n", r->treq.sec, r->treq.secs, r->error);
+ 	/* Also on error: the generic wake-up of remote completions skips qcow2 */
+@@ -1117,7 +1117,7 @@ do_aio_write(struct qcow2_state *s, struct qcow2_request *req)
+ }
+ 
+ static int
+-schedule_request(struct qcow2_state *s, td_request_t *treq, enum qcow2_ops op)
++schedule_request(struct qcow2_state *s, const td_request_t *treq, enum qcow2_ops op)
+ {
+ 	static uint32_t queue_nr;
+ 	struct qcow2_queue *q = &s->queue[((queue_nr++) % QCOW2_QUEUE_COUNT)];
+@@ -1148,7 +1148,7 @@ schedule_request(struct qcow2_state *s, td_request_t *treq, enum qcow2_ops op)
+ }
+ 
+ static void
+-qcow2_queue(td_driver_t *driver, td_request_t *treq, int op)
++qcow2_queue(td_driver_t *driver, const td_request_t *treq, int op)
+ {
+ 	struct qcow2_state *s = (struct qcow2_state *)driver->data;
+ 	int err;
+@@ -1163,19 +1163,19 @@ qcow2_queue(td_driver_t *driver, td_request_t *treq, int op)
+ 	return;
+ fail:
+ 	DBG(TLOG_DBG, "request failed\n");
+-	td_complete_request(*treq, err);
++	td_complete_request(treq, err);
+ }
+ 
+ static void
+-qcow2_queue_read(td_driver_t *driver, td_request_t treq)
++qcow2_queue_read(td_driver_t *driver, const td_request_t *treq)
+ {
+-	qcow2_queue(driver, &treq, QCOW2_OP_READ);
++	qcow2_queue(driver, treq, QCOW2_OP_READ);
+ }
+ 
+ static void
+-qcow2_queue_write(td_driver_t *driver, td_request_t treq)
++qcow2_queue_write(td_driver_t *driver, const td_request_t *treq)
+ {
+-	qcow2_queue(driver, &treq, QCOW2_OP_WRITE);
++	qcow2_queue(driver, treq, QCOW2_OP_WRITE);
+ }
+ 
+ int
+diff --git a/drivers/block-ram.c b/drivers/block-ram.c
+index 038e60cd..b4f002b2 100644
+--- a/drivers/block-ram.c
++++ b/drivers/block-ram.c
+@@ -200,24 +200,24 @@ done:
+ 	return ret;
+ }
+ 
+-void tdram_queue_read(td_driver_t *driver, td_request_t treq)
++void tdram_queue_read(td_driver_t *driver, const td_request_t *treq)
+ {
+-	int      size    = treq.secs * driver->info.sector_size;
+-	uint64_t offset  = treq.sec * (uint64_t)driver->info.sector_size;
++	int      size    = treq->secs * driver->info.sector_size;
++	uint64_t offset  = treq->sec * (uint64_t)driver->info.sector_size;
+ 
+-	memcpy(treq.buf, img + offset, size);
++	memcpy(treq->buf, img + offset, size);
+ 
+ 	td_complete_request(treq, 0);
+ }
+ 
+-void tdram_queue_write(td_driver_t *driver, td_request_t treq)
++void tdram_queue_write(td_driver_t *driver, const td_request_t *treq)
+ {
+-	int      size    = treq.secs * driver->info.sector_size;
+-	uint64_t offset  = treq.sec * (uint64_t)driver->info.sector_size;
+-	
++	int      size    = treq->secs * driver->info.sector_size;
++	uint64_t offset  = treq->sec * (uint64_t)driver->info.sector_size;
++
+ 	/* We assume that write access is controlled
+ 	 * at a higher level for multiple disks */
+-	memcpy(img + offset, treq.buf, size);
++	memcpy(img + offset, treq->buf, size);
+ 
+ 	td_complete_request(treq, 0);
+ }
+diff --git a/drivers/block-valve.c b/drivers/block-valve.c
+index 67788338..0244d175 100644
+--- a/drivers/block-valve.c
++++ b/drivers/block-valve.c
+@@ -124,7 +124,7 @@ static void valve_kill(td_valve_t *);
+ 	__cond;						\
+ })
+ 
+-#define TREQ_SIZE(_treq) ((unsigned long)(_treq.secs) << 9)
++#define TREQ_SIZE(_treq) ((unsigned long)((_treq)->secs) << 9)
+ 
+ static td_valve_request_t *
+ valve_alloc_request(td_valve_t *valve)
+@@ -343,7 +343,7 @@ valve_conn_close(td_valve_t *valve, int reset)
+ 
+ 	if (reset)
+ 		td_valve_for_each_stored_request(req, next, valve) {
+-			td_forward_request(req->treq);
++			td_forward_request(&req->treq);
+ 			valve->stats.forw++;
+ 			valve_free_request(valve, req);
+ 		}
+@@ -428,7 +428,7 @@ valve_conn_request(td_valve_t *valve, unsigned long size)
+ }
+ 
+ static int
+-valve_expend_request(td_valve_t *valve, const td_request_t treq)
++valve_expend_request(td_valve_t *valve, const td_request_t *treq)
+ {
+ 	if (valve->flags & TD_VALVE_KILLED)
+ 		return 0;
+@@ -445,8 +445,9 @@ valve_expend_request(td_valve_t *valve, const td_request_t treq)
+ }
+ 
+ static int
+-__valve_complete_treq(td_request_t treq, int error)
++__valve_complete_treq(const td_request_t *const_treq, int error)
+ {
++        td_request_t treq = *const_treq;
+ 	td_valve_request_t *req = treq.cb_data;
+ 	td_valve_t *valve = req->valve;
+ 	int notify;
+@@ -454,13 +455,13 @@ __valve_complete_treq(td_request_t treq, int error)
+ 	BUG_ON(req->secs < treq.secs);
+ 	req->secs -= treq.secs;
+ 
+-	valve->done += TREQ_SIZE(treq);
++	valve->done += TREQ_SIZE(&treq);
+ 	valve_set_done_pending(valve);
+ 
+ 	/* Respond to original callback */
+ 	treq.cb = req->treq.cb;
+ 	treq.cb_data = req->treq.cb_data;
+-	notify = td_complete_request(treq, error);
++	notify = td_complete_request(&treq, error);
+ 
+ 	if (!req->secs) {
+ 		valve_free_request(valve, req);
+@@ -478,7 +479,7 @@ valve_forward_stored_requests(td_valve_t *valve)
+ 
+ 	td_valve_for_each_stored_request(req, next, valve) {
+ 
+-		err = valve_expend_request(valve, req->treq);
++		err = valve_expend_request(valve, &req->treq);
+ 		if (err)
+ 			break;
+ 
+@@ -490,13 +491,13 @@ valve_forward_stored_requests(td_valve_t *valve)
+ 		/* 'list_move' must be run before td_forward_request.
+ 		 * 'req' may already be freed when td_forward_request returned.
+ 		 */
+-		td_forward_request(clone);
++		td_forward_request(&clone);
+ 		valve->stats.forw++;
+ 	}
+ }
+ 
+ static int
+-valve_store_request(td_valve_t *valve, td_request_t treq)
++valve_store_request(td_valve_t *valve, const td_request_t *treq)
+ {
+ 	td_valve_request_t *req;
+ 
+@@ -506,8 +507,8 @@ valve_store_request(td_valve_t *valve, td_request_t treq)
+ 
+ 	valve_conn_request(valve, TREQ_SIZE(treq));
+ 
+-	req->treq = treq;
+-	req->secs = treq.secs;
++	req->treq = *treq;
++	req->secs = treq->secs;
+ 
+ 	list_add_tail(&req->entry, &valve->stor);
+ 	valve->stats.stor++;
+@@ -593,12 +594,12 @@ fail:
+ }
+ 
+ static void
+-td_valve_queue_request(td_driver_t *driver, td_request_t treq)
++td_valve_queue_request(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	td_valve_t *valve = driver->data;
+ 	int err;
+ 
+-	switch (treq.op) {
++	switch (treq->op) {
+ 
+ 	case TD_OP_READ:
+ 		if (valve->flags & TD_VALVE_RDLIMIT)
+diff --git a/drivers/block-vhd.c b/drivers/block-vhd.c
+index 7e8ae4d6..948f8045 100644
+--- a/drivers/block-vhd.c
++++ b/drivers/block-vhd.c
+@@ -1990,19 +1990,19 @@ __vhd_queue_request(struct vhd_state *s, uint8_t op, td_request_t treq)
+ }
+ 
+ static void
+-vhd_queue_block_status(td_driver_t *driver, td_request_t treq)
++vhd_queue_block_status(td_driver_t *driver, td_request_t *treq)
+ {
+ 	struct vhd_state *s = (struct vhd_state *)driver->data;
+ 
+ 	DBG(TLOG_DBG, "block status: %s: lsec: 0x%08"PRIx64", secs: 0x%04x (seg: %d)\n",
+-	    s->vhd.file, treq.sec, treq.secs, treq.sidx);
++	    s->vhd.file, treq->sec, treq->secs, treq->sidx);
+ 
+-	while (treq.secs) {
++	while (treq->secs) {
+ 		int err;
+ 		td_request_t clone;
+ 
+ 		err   = 0;
+-		clone = treq;
++		clone = *treq;
+ 
+ 		switch (read_bitmap_cache(s, clone.sec, VHD_OP_BLOCK_STATUS)) {
+ 		case -EINVAL:
+@@ -2011,24 +2011,24 @@ vhd_queue_block_status(td_driver_t *driver, td_request_t treq)
+ 
+ 		case VHD_BM_BAT_CLEAR:
+ 			clone.secs = MIN(clone.secs, s->spb - (clone.sec % s->spb));
+-			td_forward_request(clone);
++			td_forward_request(&clone);
+ 			break;
+ 
+ 		case VHD_BM_BIT_CLEAR:
+ 			clone.secs = read_bitmap_cache_span(s, clone.sec, clone.secs, 0);
+-			td_forward_request(clone);
++			td_forward_request(&clone);
+ 			break;
+ 
+ 		case VHD_BM_BIT_SET:
+ 			clone.secs = read_bitmap_cache_span(s, clone.sec, clone.secs, 1);
+ 			clone.status = TD_BLOCK_STATE_NONE;
+-			td_complete_request(clone, 0);
++			td_complete_request(&clone, 0);
+ 			break;
+ 
+ 		case VHD_BM_NOT_CACHED:
+ 			clone.secs = MIN(clone.secs, s->spb - (clone.sec % s->spb));
+ 			clone.status = TD_BLOCK_STATE_NONE;
+-			td_complete_request(clone, 0);
++			td_complete_request(&clone, 0);
+ 			break;
+ 
+ 		case VHD_BM_READ_PENDING:
+@@ -2044,22 +2044,23 @@ vhd_queue_block_status(td_driver_t *driver, td_request_t treq)
+ 			break;
+ 		}
+ 
+-		treq.sec  += clone.secs;
+-		treq.secs -= clone.secs;
+-		treq.buf  += vhd_sectors_to_bytes(clone.secs);
++		treq->sec  += clone.secs;
++		treq->secs -= clone.secs;
++		treq->buf  += vhd_sectors_to_bytes(clone.secs);
+ 		continue;
+ 
+ 	fail:
+-		clone.secs = treq.secs;
+-		td_complete_request(clone, err);
++		clone.secs = treq->secs;
++		td_complete_request(&clone, err);
+ 		break;
+ 	}
+ }
+ 
+ static void
+-vhd_queue_read(td_driver_t *driver, td_request_t treq)
++vhd_queue_read(td_driver_t *driver, const td_request_t *const_treq)
+ {
+ 	struct vhd_state *s = (struct vhd_state *)driver->data;
++        td_request_t treq = *const_treq;
+ 
+ 	DBG(TLOG_DBG, "%s: lsec: 0x%08"PRIx64", secs: 0x%04x (seg: %d)\n",
+ 	    s->vhd.file, treq.sec, treq.secs, treq.sidx);
+@@ -2078,12 +2079,12 @@ vhd_queue_read(td_driver_t *driver, td_request_t treq)
+ 
+ 		case VHD_BM_BAT_CLEAR:
+ 			clone.secs = MIN(clone.secs, s->spb - (clone.sec % s->spb));
+-			td_forward_request(clone);
++			td_forward_request(&clone);
+ 			break;
+ 
+ 		case VHD_BM_BIT_CLEAR:
+ 			clone.secs = read_bitmap_cache_span(s, clone.sec, clone.secs, 0);
+-			td_forward_request(clone);
++			td_forward_request(&clone);
+ 			break;
+ 
+ 		case VHD_BM_BIT_SET:
+@@ -2124,15 +2125,16 @@ vhd_queue_read(td_driver_t *driver, td_request_t treq)
+ 
+ 	fail:
+ 		clone.secs = treq.secs;
+-		td_complete_request(clone, err);
++		td_complete_request(&clone, err);
+ 		break;
+ 	}
+ }
+ 
+ static void
+-vhd_queue_write(td_driver_t *driver, td_request_t treq)
++vhd_queue_write(td_driver_t *driver, const td_request_t *const_treq)
+ {
+ 	struct vhd_state *s = (struct vhd_state *)driver->data;
++        td_request_t treq = *const_treq;
+ 
+ 	DBG(TLOG_DBG, "%s: lsec: 0x%08"PRIx64", secs: 0x%04x, (seg: %d)\n",
+ 	    s->vhd.file, treq.sec, treq.secs, treq.sidx);
+@@ -2209,7 +2211,7 @@ vhd_queue_write(td_driver_t *driver, td_request_t treq)
+ 
+ 	fail:
+ 		clone.secs = treq.secs;
+-		td_complete_request(clone, err);
++		td_complete_request(&clone, err);
+ 		break;
+ 	}
+ }
+@@ -2243,7 +2245,7 @@ signal_completion(struct vhd_request *list, int error)
+ 				break;
+ 			}
+ 		}
+-		td_complete_request(r->treq, err);
++		td_complete_request(&r->treq, err);
+ 		DBG(TLOG_DBG, "lsec: 0x%08"PRIx64", blk: 0x%04"PRIx64", "
+ 		    "err: %d\n", r->treq.sec, r->treq.sec / s->spb, err);
+ 		free_vhd_request(s, r);
+@@ -2513,9 +2515,9 @@ finish_bitmap_read(struct vhd_request *req)
+ 			       tmp.op == VHD_OP_DATA_WRITE);
+ 
+ 			if (tmp.op == VHD_OP_DATA_READ)
+-				vhd_queue_read(s->driver, tmp.treq);
++				vhd_queue_read(s->driver, &tmp.treq);
+ 			else if (tmp.op == VHD_OP_DATA_WRITE)
+-				vhd_queue_write(s->driver, tmp.treq);
++				vhd_queue_write(s->driver, &tmp.treq);
+ 
+ 			r = next;
+ 		}
+diff --git a/drivers/block-vindex.c b/drivers/block-vindex.c
+index c88213b0..63040b8b 100644
+--- a/drivers/block-vindex.c
++++ b/drivers/block-vindex.c
+@@ -623,7 +623,7 @@ vhd_index_schedule_meta_read(vhd_index_t *index, uint32_t blk)
+ }
+ 
+ static int
+-vhd_index_schedule_data_read(vhd_index_t *index, td_request_t treq)
++vhd_index_schedule_data_read(vhd_index_t *index, const td_request_t *treq)
+ {
+ 	int i, err;
+ 	size_t size;
+@@ -633,12 +633,12 @@ vhd_index_schedule_data_read(vhd_index_t *index, td_request_t treq)
+ 	vhd_index_request_t *req;
+ 	vhd_index_file_ref_t *file;
+ 
+-	blk   = treq.sec / index->vhdi.spb;
+-	sec   = treq.sec % index->vhdi.spb;
++	blk   = treq->sec / index->vhdi.spb;
++	sec   = treq->sec % index->vhdi.spb;
+ 	block = vhd_index_get_block(index, blk);
+ 
+ 	ASSERT(block && vhd_index_block_valid(block));
+-	for (i = 0; i < treq.secs; i++) {
++	for (i = 0; i < treq->secs; i++) {
+ 		ASSERT(block->vhdi_block.table[sec + i].file_id != 0);
+ 		ASSERT(block->vhdi_block.table[sec + i].offset != DD_BLK_UNUSED);
+ 	}
+@@ -654,15 +654,15 @@ vhd_index_schedule_data_read(vhd_index_t *index, td_request_t treq)
+ 		return err;
+ 	}
+ 
+-	size       = vhd_sectors_to_bytes(treq.secs);
++	size       = vhd_sectors_to_bytes(treq->secs);
+ 	offset     = vhd_sectors_to_bytes(block->vhdi_block.table[sec].offset);
+ 
+ 	req->file  = file;
+-	req->treq  = treq;
++	req->treq  = *treq;
+ 	req->index = index;
+ 	req->off   = offset;
+ 
+-	td_prep_read(index->driver, &req->tiocb, file->fd, treq.buf, size, offset,
++	td_prep_read(index->driver, &req->tiocb, file->fd, treq->buf, size, offset,
+ 		     vhd_index_complete_data_read, req);
+ 	td_queue_tiocb(index->driver, &req->tiocb);
+ 
+@@ -670,7 +670,7 @@ vhd_index_schedule_data_read(vhd_index_t *index, td_request_t treq)
+ }
+ 
+ static int
+-vhd_index_queue_request(vhd_index_t *index, td_request_t treq)
++vhd_index_queue_request(vhd_index_t *index, const td_request_t *treq)
+ {
+ 	vhd_index_block_t *block;
+ 	vhd_index_request_t *req;
+@@ -679,9 +679,9 @@ vhd_index_queue_request(vhd_index_t *index, td_request_t treq)
+ 	if (!req)
+ 		return -EBUSY;
+ 
+-	req->treq = treq;
++	req->treq = *treq;
+ 
+-	block = vhd_index_get_block(index, treq.sec / index->vhdi.spb);
++	block = vhd_index_get_block(index, treq->sec / index->vhdi.spb);
+ 	ASSERT(block && td_flag_test(block->state, VHD_INDEX_BLOCK_READ_PENDING));
+ 
+ 	list_add_tail(&req->next, &block->queue);
+@@ -689,8 +689,9 @@ vhd_index_queue_request(vhd_index_t *index, td_request_t treq)
+ }
+ 
+ static void
+-vhd_index_queue_read(td_driver_t *driver, td_request_t treq)
++vhd_index_queue_read(td_driver_t *driver, const td_request_t *const_treq)
+ {
++	td_request_t treq = *const_treq;
+ 	vhd_index_t *index;
+ 
+ 	index = (vhd_index_t *)driver->data;
+@@ -709,17 +710,17 @@ vhd_index_queue_read(td_driver_t *driver, td_request_t treq)
+ 
+ 		case VHD_INDEX_BAT_CLEAR:
+ 			clone.secs = MIN(clone.secs, index->vhdi.spb - (clone.sec % index->vhdi.spb));
+-			td_forward_request(clone);
++			td_forward_request(&clone);
+ 			break;
+ 
+ 		case VHD_INDEX_BIT_CLEAR:
+ 			clone.secs = vhd_index_read_cache_span(index, clone.sec, clone.secs, 0);
+-			td_forward_request(clone);
++			td_forward_request(&clone);
+ 			break;
+ 
+ 		case VHD_INDEX_BIT_SET:
+ 			clone.secs = vhd_index_read_cache_span(index, clone.sec, clone.secs, 1);
+-			err = vhd_index_schedule_data_read(index, clone);
++			err = vhd_index_schedule_data_read(index, &clone);
+ 			if (err)
+ 				goto fail;
+ 			break;
+@@ -730,12 +731,12 @@ vhd_index_queue_read(td_driver_t *driver, td_request_t treq)
+ 				goto fail;
+ 
+ 			clone.secs = MIN(clone.secs, index->vhdi.spb - (clone.sec % index->vhdi.spb));
+-			vhd_index_queue_request(index, clone);
++			vhd_index_queue_request(index, &clone);
+ 			break;
+ 
+ 		case VHD_INDEX_META_READ_PENDING:
+ 			clone.secs = MIN(clone.secs, index->vhdi.spb - (clone.sec % index->vhdi.spb));
+-			err = vhd_index_queue_request(index, clone);
++			err = vhd_index_queue_request(index, &clone);
+ 			if (err)
+ 				goto fail;
+ 			break;
+@@ -748,13 +749,13 @@ vhd_index_queue_read(td_driver_t *driver, td_request_t treq)
+ 
+ 	fail:
+ 		clone.secs = treq.secs;
+-		td_complete_request(clone, err);
++		td_complete_request(&clone, err);
+ 		break;
+ 	}
+ }
+ 
+ static void
+-vhd_index_queue_write(td_driver_t *driver, td_request_t treq)
++vhd_index_queue_write(td_driver_t *driver, const td_request_t *treq)
+ {
+ 	td_complete_request(treq, -EPERM);
+ }
+@@ -763,7 +764,7 @@ static inline void
+ vhd_index_signal_completion(vhd_index_t *index,
+ 			    vhd_index_request_t *req, int err)
+ {
+-	td_complete_request(req->treq, err);
++	td_complete_request(&req->treq, err);
+ 	vhd_index_put_file_ref(req->file);
+ 	vhd_index_free_request(index, req);
+ }
+@@ -801,7 +802,7 @@ vhd_index_complete_meta_read(void *arg, struct tiocb *tiocb, int err)
+ 	vhd_index_block_for_each_request(block, r, tmp) {
+ 		treq = r->treq;
+ 		vhd_index_free_request(index, r);
+-		vhd_index_queue_read(index->driver, treq);
++		vhd_index_queue_read(index->driver, &treq);
+ 	}
+ }
+ 
+diff --git a/drivers/tapdisk-image.c b/drivers/tapdisk-image.c
+index e621d18d..26d28a8b 100644
+--- a/drivers/tapdisk-image.c
++++ b/drivers/tapdisk-image.c
+@@ -86,7 +86,7 @@ tapdisk_image_free(td_image_t *image)
+ }
+ 
+ int
+-tapdisk_image_check_td_request(td_image_t *image, td_request_t treq)
++tapdisk_image_check_td_request(td_image_t *image, const td_request_t *treq)
+ {
+ 	int rdonly, err;
+ 	td_disk_info_t *info;
+@@ -96,25 +96,24 @@ tapdisk_image_check_td_request(td_image_t *image, td_request_t treq)
+ 	info   = &image->info;
+ 	rdonly = td_flag_test(image->flags, TD_OPEN_RDONLY);
+ 
+-	if (treq.op != TD_OP_READ && treq.op != TD_OP_WRITE && treq.op != TD_OP_BLOCK_STATUS)
++	if (treq->op != TD_OP_READ && treq->op != TD_OP_WRITE && treq->op != TD_OP_BLOCK_STATUS)
+ 		goto fail;
+ 
+-	if (treq.op == TD_OP_WRITE && rdonly) {
++	if (treq->op == TD_OP_WRITE && rdonly) {
+ 		err = -EPERM;
+ 		goto fail;
+ 	}
+ 
+-	if (treq.secs <= 0 || treq.sec + treq.secs > info->size)
++	if (treq->secs <= 0 || treq->sec + treq->secs > info->size)
+ 		goto fail;
+ 
+ 	return 0;
+ 
+ fail:
+ 	ERR(err, "bad td request on %s (%s, %"PRIu64"): %d at %"PRIu64,
+-	    image->name, (rdonly ? "ro" : "rw"), info->size, treq.op,
+-	    treq.sec + treq.secs);
++	    image->name, (rdonly ? "ro" : "rw"), info->size, treq->op,
++	    treq->sec + treq->secs);
+ 	return err;
+-
+ }
+ 
+ int
+diff --git a/drivers/tapdisk-image.h b/drivers/tapdisk-image.h
+index 43858779..cd4129ef 100644
+--- a/drivers/tapdisk-image.h
++++ b/drivers/tapdisk-image.h
+@@ -74,7 +74,7 @@ int tapdisk_image_validate_chain(struct list_head *);
+ td_image_t *tapdisk_image_allocate(const char *, int, td_flag_t);
+ void tapdisk_image_free(td_image_t *);
+ 
+-int tapdisk_image_check_td_request(td_image_t *, td_request_t);
++int tapdisk_image_check_td_request(td_image_t *, const td_request_t *);
+ int tapdisk_image_check_request(td_image_t *, struct td_vbd_request *);
+ void tapdisk_image_stats(td_image_t *, td_stats_t *);
+ 
+diff --git a/drivers/tapdisk-interface.c b/drivers/tapdisk-interface.c
+index 4cedcb5e..ab77fdc6 100644
+--- a/drivers/tapdisk-interface.c
++++ b/drivers/tapdisk-interface.c
+@@ -156,7 +156,7 @@ td_validate_parent(td_image_t *image, td_image_t *parent)
+ }
+ 
+ void
+-td_queue_write(td_image_t *image, td_request_t treq)
++td_queue_write(td_image_t *image, const td_request_t *treq)
+ {
+ 	int err;
+ 	td_driver_t *driver;
+@@ -182,9 +182,9 @@ td_queue_write(td_image_t *image, td_request_t treq)
+ 	if (err)
+ 		goto fail;
+ 
+-	td_queue_id_t __unused qid = treq.vreq->vqueue - treq.vreq->vqueue->vbd->queues;
++	td_queue_id_t __unused qid = treq->vreq->vqueue - treq->vreq->vqueue->vbd->queues;
+ 	tracepoint(tapdisk, driver_queue,
+-		qid, treq.vreq->req_id, treq.op, treq.sec, treq.secs);
++		qid, treq->vreq->req_id, treq->op, treq->sec, treq->secs);
+ 
+ 	driver->ops->td_queue_write(driver, treq);
+ 
+@@ -195,7 +195,7 @@ fail:
+ }
+ 
+ void
+-td_queue_read(td_image_t *image, td_request_t treq)
++td_queue_read(td_image_t *image, const td_request_t *treq)
+ {
+ 	int err;
+ 	td_driver_t *driver;
+@@ -221,9 +221,9 @@ td_queue_read(td_image_t *image, td_request_t treq)
+ 	if (err)
+ 		goto fail;
+ 
+-	td_queue_id_t __unused qid = treq.vreq->vqueue - treq.vreq->vqueue->vbd->queues;
++	td_queue_id_t __unused qid = treq->vreq->vqueue - treq->vreq->vqueue->vbd->queues;
+ 	tracepoint(tapdisk, driver_queue,
+-		qid, treq.vreq->req_id, treq.op, treq.sec, treq.secs);
++		qid, treq->vreq->req_id, treq->op, treq->sec, treq->secs);
+ 
+ 	driver->ops->td_queue_read(driver, treq);
+ 
+@@ -256,16 +256,16 @@ td_queue_block_status(td_image_t *image, td_request_t *treq)
+ 		goto fail;
+ 	}
+ 
+-	err = tapdisk_image_check_td_request(image, *treq);
++	err = tapdisk_image_check_td_request(image, treq);
+ 	if (err)
+ 		goto fail;
+ 
+-	driver->ops->td_queue_block_status(driver, *treq);
++	driver->ops->td_queue_block_status(driver, treq);
+ 
+ 	return;
+ 
+ fail:
+-	td_complete_request(*treq, err);
++	td_complete_request(treq, err);
+ }
+ 
+ int
+@@ -344,18 +344,18 @@ td_cancel_commit_job(td_image_t *image, bool wait)
+ }
+ 
+ void
+-td_forward_request(td_request_t treq)
++td_forward_request(const td_request_t *treq)
+ {
+ 	tapdisk_vbd_forward_request(treq);
+ }
+ 
+ int
+-td_complete_request(td_request_t treq, int res)
++td_complete_request(const td_request_t *treq, int res)
+ {
+-	td_queue_id_t __unused qid = treq.vreq->vqueue - treq.vreq->vqueue->vbd->queues;
++	td_queue_id_t __unused qid = treq->vreq->vqueue - treq->vreq->vqueue->vbd->queues;
+ 	tracepoint(tapdisk, driver_complete,
+-		   qid, treq.vreq->req_id, treq.op, treq.sec, treq.secs/*, res*/);
+-	return treq.cb(treq, res);
++		   qid, treq->vreq->req_id, treq->op, treq->sec, treq->secs/*, res*/);
++	return treq->cb(treq, res);
+ }
+ 
+ void
+diff --git a/drivers/tapdisk-interface.h b/drivers/tapdisk-interface.h
+index ba3af957..bc8143d2 100644
+--- a/drivers/tapdisk-interface.h
++++ b/drivers/tapdisk-interface.h
+@@ -32,11 +32,11 @@ int td_commit(td_image_t *, const char *);
+ int td_query_commit_job(td_image_t *, td_query_t *);
+ int td_cancel_commit_job(td_image_t *, bool);
+ 
+-void td_queue_write(td_image_t *, td_request_t);
+-void td_queue_read(td_image_t *, td_request_t);
++void td_queue_write(td_image_t *, const td_request_t*);
++void td_queue_read(td_image_t *, const td_request_t*);
+ void td_queue_block_status(td_image_t*, td_request_t*);
+-void td_forward_request(td_request_t);
+-int td_complete_request(td_request_t, int);
++void td_forward_request(const td_request_t*);
++int td_complete_request(const td_request_t*, int);
+ 
+ void td_debug(td_image_t *);
+ 
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index cd4c1069..78acbbaf 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -1537,20 +1537,20 @@ tapdisk_vbd_complete_vbd_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq)
+ }
+ 
+ static void
+-FIXME_maybe_count_enospc_redirect(td_vbd_t *vbd, td_request_t treq)
++FIXME_maybe_count_enospc_redirect(td_vbd_t *vbd, const td_request_t *treq)
+ {
+-	int write = treq.op == TD_OP_WRITE;
++	int write = treq->op == TD_OP_WRITE;
+ 	if (write &&
+-	    treq.image == tapdisk_vbd_first_image(vbd) &&
++	    treq->image == tapdisk_vbd_first_image(vbd) &&
+ 	    vbd->FIXME_enospc_redirect_count_enabled)
+-		vbd->FIXME_enospc_redirect_count += treq.secs;
++		vbd->FIXME_enospc_redirect_count += treq->secs;
+ }
+ 
+ static bool
+ __tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+-				  td_request_t treq, int res)
++				  const td_request_t *treq, int res)
+ {
+-	td_image_t *image = treq.image;
++	td_image_t *image = treq->image;
+ 	td_vbd_t* vbd = queue->vbd;
+ 	int err, old_error, prev_error;
+ 	bool notify;
+@@ -1569,8 +1569,8 @@ __tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+ 	old_error = vreq->error;
+ 	prev_error = vreq->prev_error;
+ 
+-	atomic_fetch_sub(&queue->secs_pending, treq.secs);
+-	atomic_fetch_sub(&vreq->secs_pending, treq.secs);
++	atomic_fetch_sub(&queue->secs_pending, treq->secs);
++	atomic_fetch_sub(&vreq->secs_pending, treq->secs);
+ 
+ 	notify = tapdisk_vbd_complete_vbd_request(queue, vreq);
+ 	pthread_mutex_unlock(&queue->mutex);
+@@ -1591,11 +1591,11 @@ __tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+ 	    !(image->driver && td_flag_test(image->driver->ops->flags, TD_DRIVER_THREADED)))
+ 		tapdisk_vbd_wake_queue(queue);
+ 	if (err != -EBUSY) {
+-		int write = treq.op == TD_OP_WRITE;
++		int write = treq->op == TD_OP_WRITE;
+ 		// FIXME: should we take a lock here for stats ? or use an atomic ?
+-		td_sector_count_add(&image->stats.hits, treq.secs, write);
++		td_sector_count_add(&image->stats.hits, treq->secs, write);
+ 		if (err)
+-			td_sector_count_add(&image->stats.fail, treq.secs, write);
++			td_sector_count_add(&image->stats.fail, treq->secs, write);
+ 		FIXME_maybe_count_enospc_redirect(vbd, treq);
+ 	}
+ 
+@@ -1603,23 +1603,23 @@ __tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+ 		if (!old_error && err != prev_error)
+ 			tlog_drv_error(image->driver, err,
+ 				"req: %s %s 0x%04x secs @ 0x%08"PRIx64" - %s",
+-				op_strings[treq.op],
++				op_strings[treq->op],
+ 				image->name,
+-				treq.secs, treq.sec, strerror(abs(err)));
++				treq->secs, treq->sec, strerror(abs(err)));
+ 		queue->errors++;
+ 	}
+ 
+ 	interval = timeval_to_us(&queue->ts) - timeval_to_us(&ts);
+ 
+-	switch (treq.op) {
++	switch (treq->op) {
+         case TD_OP_READ:
+             vbd->vdi_stats.stats->read_reqs_completed++;
+-            vbd->vdi_stats.stats->read_sectors += treq.secs;
++            vbd->vdi_stats.stats->read_sectors += treq->secs;
+             vbd->vdi_stats.stats->read_total_ticks += interval;
+ 	    break;
+ 	case TD_OP_WRITE:
+             vbd->vdi_stats.stats->write_reqs_completed++;
+-            vbd->vdi_stats.stats->write_sectors += treq.secs;
++            vbd->vdi_stats.stats->write_sectors += treq->secs;
+             vbd->vdi_stats.stats->write_total_ticks += interval;
+ 	    break;
+         }
+@@ -1629,11 +1629,12 @@ __tapdisk_vbd_complete_td_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq,
+ 
+ static void
+ __tapdisk_vbd_reissue_td_request(td_vbd_queue_t* queue,
+-				 td_image_t *image, td_request_t treq)
++				 td_image_t *image, const td_request_t *const_treq)
+ {
+ 	td_image_t *parent;
+-	td_vbd_request_t *vreq = treq.vreq;
++	td_vbd_request_t *vreq = const_treq->vreq;
+ 	td_vbd_t *vbd = queue->vbd;
++        td_request_t treq = *const_treq;
+ 
+ 	gettimeofday(&vreq->last_try, NULL);
+ 
+@@ -1645,7 +1646,7 @@ __tapdisk_vbd_reissue_td_request(td_vbd_queue_t* queue,
+ 		} else {
+ 			memset(treq.buf, 0, (size_t)treq.secs << SECTOR_SHIFT);
+ 		}
+-		td_complete_request(treq, 0);
++		td_complete_request(&treq, 0);
+ 		goto done;
+ 	}
+ 	/*
+@@ -1675,7 +1676,7 @@ __tapdisk_vbd_reissue_td_request(td_vbd_queue_t* queue,
+ 			treq.secs   = 0;
+ 
+ 		memset(clone.buf, 0, (size_t)clone.secs << SECTOR_SHIFT);
+-		td_complete_request(clone, 0);
++		td_complete_request(&clone, 0);
+ 
+ 		if (!treq.secs)
+ 			goto done;
+@@ -1683,10 +1684,10 @@ __tapdisk_vbd_reissue_td_request(td_vbd_queue_t* queue,
+ 
+ 	switch (treq.op) {
+ 	case TD_OP_WRITE:
+-		td_queue_write(parent, treq);
++		td_queue_write(parent, &treq);
+ 		break;
+ 	case TD_OP_READ:
+-		td_queue_read(parent, treq);
++		td_queue_read(parent, &treq);
+ 		break;
+ 	case TD_OP_BLOCK_STATUS:
+ 		td_queue_block_status(parent, &treq);
+@@ -1702,15 +1703,15 @@ done:
+ }
+ 
+ void
+-tapdisk_vbd_forward_request(td_request_t treq)
++tapdisk_vbd_forward_request(const td_request_t *treq)
+ {
+ 	td_vbd_t *vbd;
+ 	td_image_t *image;
+ 	td_vbd_request_t *vreq;
+ 	td_vbd_queue_t *queue;
+ 
+-	image = treq.image;
+-	vreq  = treq.vreq;
++	image = treq->image;
++	vreq  = treq->vreq;
+ 	queue = vreq->vqueue;
+ 	vbd   = vreq->vqueue->vbd;  // TODO: remove it and keep only vqueue
+ 
+@@ -1723,7 +1724,7 @@ tapdisk_vbd_forward_request(td_request_t treq)
+ }
+ 
+ int
+-add_extent(tapdisk_extents_t *extents, td_request_t *vreq)
++add_extent(tapdisk_extents_t *extents, const td_request_t *vreq)
+ {
+ 	tapdisk_extent_t *extent;
+ 	extent  = (tapdisk_extent_t*)malloc(sizeof(*extent));
+@@ -1748,7 +1749,7 @@ add_extent(tapdisk_extents_t *extents, td_request_t *vreq)
+ }
+ 
+ int
+-block_status_add_extent(tapdisk_extents_t *extents, td_request_t *vreq)
++block_status_add_extent(tapdisk_extents_t *extents, const td_request_t *vreq)
+ {
+ 	int ret  = 0;
+ 	if(extents->tail == NULL) {
+@@ -1764,20 +1765,20 @@ block_status_add_extent(tapdisk_extents_t *extents, td_request_t *vreq)
+ }
+ 
+ int
+-tapdisk_vbd_complete_block_status_request(td_request_t treq, int res)
++tapdisk_vbd_complete_block_status_request(const td_request_t *treq, int res)
+ {
+ 	td_image_t *image;
+ 	td_vbd_request_t *vreq;
+ 	td_vbd_queue_t *queue;
+ 
+-	image = treq.image;
+-	vreq  = treq.vreq;
++	image = treq->image;
++	vreq  = treq->vreq;
+ 	queue = vreq->vqueue;
+ 	tapdisk_vbd_mark_progress(queue);
+ 
+ 	/* Record this extents in the vreqs data */
+ 	tapdisk_extents_t* extents = (tapdisk_extents_t*)vreq->data;
+-	if( block_status_add_extent(extents, &treq) != 0) {
++	if( block_status_add_extent(extents, treq) != 0) {
+ 		ERROR("Could not allocate extent structure");
+ 		/* Propagate the ENOMEM */
+ 		res = -ENOMEM;
+@@ -1785,8 +1786,8 @@ tapdisk_vbd_complete_block_status_request(td_request_t treq, int res)
+ 
+ 	DBG(TLOG_DBG, "%s: req seg %d sec 0x%08"PRIx64
+ 	    " secs 0x%04x buf %p op %d res %d\n", image->name,
+-	    treq.sidx, treq.sec, treq.secs,
+-	    treq.buf, vreq->op, res);
++	    treq->sidx, treq->sec, treq->secs,
++	    treq->buf, vreq->op, res);
+ 
+ 	return __tapdisk_vbd_complete_td_request(queue, vreq, treq, res);
+ }
+@@ -1794,7 +1795,7 @@ tapdisk_vbd_complete_block_status_request(td_request_t treq, int res)
+ /* Called by td_complete_request(), either from IO thread or another thread
+  * like with QCOW2 */
+ static int
+-tapdisk_vbd_complete_td_request_cb(td_request_t treq, int res)
++tapdisk_vbd_complete_td_request_cb(const td_request_t *treq, int res)
+ {
+ 	td_vbd_t *vbd;
+ 	td_image_t *image, *leaf;
+@@ -1812,8 +1813,8 @@ tapdisk_vbd_complete_td_request_cb(td_request_t treq, int res)
+ 	 * (ENOSPC on mirror, NBD timeout). A proper fix would take vbd->mutex
+ 	 * here and in the matching read sites.
+ 	 */
+-	image = treq.image;
+-	vreq  = treq.vreq;
++	image = treq->image;
++	vreq  = treq->vreq;
+ 	queue = vreq->vqueue;
+ 	vbd   = vreq->vqueue->vbd;
+ 
+@@ -1858,8 +1859,8 @@ tapdisk_vbd_complete_td_request_cb(td_request_t treq, int res)
+ 
+ 	DBG(TLOG_DBG, "%s: req seg %d sec 0x%08"PRIx64
+ 	    " secs 0x%04x buf %p op %d res %d\n", image->name,
+-	    treq.sidx, treq.sec, treq.secs,
+-	    treq.buf, vreq->op, res);
++	    treq->sidx, treq->sec, treq->secs,
++	    treq->buf, vreq->op, res);
+ 
+ 	return __tapdisk_vbd_complete_td_request(queue, vreq, treq, res);
+ }
+@@ -1868,7 +1869,7 @@ static inline void
+ queue_mirror_req(td_vbd_t *vbd, td_request_t clone)
+ {
+ 	clone.image = vbd->secondary;
+-	td_queue_write(vbd->secondary, clone);
++	td_queue_write(vbd->secondary, &clone);
+ }
+ 
+ int
+@@ -1954,13 +1955,13 @@ tapdisk_vbd_issue_request(td_vbd_queue_t* queue, td_vbd_request_t *vreq)
+ 					queue_mirror_req(vbd, treq);
+ 			}
+ 
+-			td_queue_write(treq.image, treq);
++			td_queue_write(treq.image, &treq);
+ 			break;
+ 
+ 		case TD_OP_READ:
+ 			treq.op = TD_OP_READ;
+                         vbd->vdi_stats.stats->read_reqs_submitted++;
+-			td_queue_read(treq.image, treq);
++			td_queue_read(treq.image, &treq);
+ 			break;
+ 		case TD_OP_BLOCK_STATUS:
+ 			treq.op = TD_OP_BLOCK_STATUS;
+diff --git a/drivers/tapdisk-vbd.h b/drivers/tapdisk-vbd.h
+index 1dbf1323..45f065ca 100644
+--- a/drivers/tapdisk-vbd.h
++++ b/drivers/tapdisk-vbd.h
+@@ -209,7 +209,7 @@ int tapdisk_vbd_attach(td_vbd_t *, const char *, int);
+ void tapdisk_vbd_detach(td_vbd_t *);
+ 
+ int tapdisk_vbd_queue_request(td_vbd_t *, td_vbd_request_t *, td_queue_id_t, bool);
+-void tapdisk_vbd_forward_request(td_request_t);
++void tapdisk_vbd_forward_request(const td_request_t*);
+ 
+ int tapdisk_vbd_get_disk_info(td_vbd_t *, td_disk_info_t *);
+ bool tapdisk_vbd_retry_needed(td_vbd_queue_t *);
+@@ -229,7 +229,7 @@ int tapdisk_vbd_commit(td_vbd_t *, const char *);
+ int tapdisk_vbd_query_commit_job(td_vbd_t *, td_query_t *);
+ int tapdisk_vbd_cancel_commit_job(td_vbd_t *, bool);
+ 
+-int add_extent(tapdisk_extents_t *, td_request_t *);
++int add_extent(tapdisk_extents_t *, const td_request_t *);
+ int tapdisk_vbd_issue_request(td_vbd_queue_t *, td_vbd_request_t *);
+ 
+ /**
+@@ -244,7 +244,7 @@ void tapdisk_vbd_check_progress(td_vbd_queue_t *);
+ void tapdisk_vbd_debug(td_vbd_t *);
+ int tapdisk_vbd_start_nbdservers(td_vbd_t *);
+ void tapdisk_vbd_stats(td_vbd_t *, td_stats_t *);
+-int tapdisk_vbd_complete_block_status_request(td_request_t, int);
++int tapdisk_vbd_complete_block_status_request(const td_request_t *, int);
+ 
+ /**
+  * Tells whether the VBD contains at least one dead ring.
+diff --git a/drivers/tapdisk.h b/drivers/tapdisk.h
+index fce49f99..5da0e567 100644
+--- a/drivers/tapdisk.h
++++ b/drivers/tapdisk.h
+@@ -140,7 +140,7 @@ typedef struct td_query              td_query_t;
+ /* 
+  * Prototype of the callback to activate as requests complete.
+  */
+-typedef int (*td_callback_t)(td_request_t, int);
++typedef int (*td_callback_t)(const td_request_t*, int);
+ typedef void (*td_vreq_callback_t)(td_vbd_request_t*, int, void*, int);
+ 
+ struct td_disk_id {
+@@ -235,9 +235,9 @@ struct tap_disk {
+ 	int (*td_close)              (td_driver_t *);
+ 	int (*td_get_parent_id)      (td_driver_t *, td_disk_id_t *);
+ 	int (*td_validate_parent)    (td_driver_t *, td_driver_t *, td_flag_t);
+-	void (*td_queue_read)        (td_driver_t *, td_request_t);
+-	void (*td_queue_block_status)(td_driver_t *, td_request_t);
+-	void (*td_queue_write)       (td_driver_t *, td_request_t);
++	void (*td_queue_read)        (td_driver_t *, const td_request_t *);
++	void (*td_queue_block_status)(td_driver_t *, td_request_t *);
++	void (*td_queue_write)       (td_driver_t *, const td_request_t *);
+ 	void (*td_debug)             (td_driver_t *);
+ 	int  (*td_pending)           (td_driver_t *);
+ 	void (*td_stats)             (td_driver_t *, td_stats_t *);
+diff --git a/mockatests/drivers/test-tapdisk-vbd.c b/mockatests/drivers/test-tapdisk-vbd.c
+index 03bdecd4..ec009ec9 100644
+--- a/mockatests/drivers/test-tapdisk-vbd.c
++++ b/mockatests/drivers/test-tapdisk-vbd.c
+@@ -158,7 +158,7 @@ test_vbd_complete_block_status_request(void **stat)
+ 	my_treq.op = TD_OP_BLOCK_STATUS;
+ 	my_treq.cb = tapdisk_vbd_complete_block_status_request;
+ 
+-	tapdisk_vbd_complete_block_status_request(my_treq, 0);
++	tapdisk_vbd_complete_block_status_request(&my_treq, 0);
+ 	assert_non_null(extents->head);
+ 	assert_int_equal(extents->head->flag, TD_BLOCK_STATE_HOLE);
+ 	assert_int_equal(extents->head->start, my_treq.sec);
