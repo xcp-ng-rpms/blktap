@@ -1,0 +1,84 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 9 Nov 2026 17:05:48 +0100
+Subject: [PATCH] tapdisk: Disable events check of a dead ring
+
+tapdisk_xenblkif_disconnect(), when it makes a ring dead, unregisters its
+chkrng and stoppolling events and sets them to -1 so that
+tapdisk_xenblkif_destroy() does not unregister them a second time.
+
+If the ring was polling, polling stops and the event channel that polling
+masked is unmasked: that event is shared by the rings of the context, including
+a ring reconnected later, and the stoppolling event that would have unmasked it
+is gone.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/td-blkif.c | 38 ++++++++++++++++++++++++++++++++------
+ 1 file changed, 32 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index e8767177..9884e32e 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -212,13 +212,9 @@ out:
+ }
+ 
+ 
+-int
+-tapdisk_xenblkif_destroy(struct td_xenblkif * blkif)
++static void
++tapdisk_xenblkif_unregister_events(struct td_xenblkif * blkif)
+ {
+-    int err;
+-
+-    ASSERT(blkif);
+-
+     if (tapdisk_xenblkif_chkrng_event_id(blkif) >= 0) {
+         tapdisk_server_unregister_event(
+ 				tapdisk_xenblkif_chkrng_event_id(blkif));
+@@ -230,6 +226,17 @@ tapdisk_xenblkif_destroy(struct td_xenblkif * blkif)
+ 				tapdisk_xenblkif_stoppolling_event_id(blkif));
+         blkif->stoppolling_event = -1;
+     }
++}
++
++
++int
++tapdisk_xenblkif_destroy(struct td_xenblkif * blkif)
++{
++    int err;
++
++    ASSERT(blkif);
++
++    tapdisk_xenblkif_unregister_events(blkif);
+ 
+     tapdisk_xenblkif_reqs_free(blkif);
+ 
+@@ -322,6 +329,25 @@ tapdisk_xenblkif_disconnect(const domid_t domid, const int devid)
+          * copy.
+          */
+ 
++        /*
++         * As tapdisk_xenblkif_destroy(), unregister chkrng and stoppolling
++         * events.
++         */
++        tapdisk_xenblkif_unregister_events(blkif);
++
++        /*
++         * If the ring was polling, the event channel event it masked is
++         * shared with the other rings of the context, including a ring
++         * reconnected later. The stoppolling event would have unmasked it,
++         * so do it here.
++         */
++        if (blkif->in_polling) {
++            blkif->in_polling = false;
++            if (blkif->ctx)
++                tapdisk_server_mask_event(
++                        tapdisk_xenblkif_evtchn_event_id(blkif), 0);
++        }
++
+         pthread_mutex_unlock(&blkif->mutex);
+         return 0;
+     } else {

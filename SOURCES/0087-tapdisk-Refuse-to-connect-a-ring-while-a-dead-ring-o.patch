@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Tue, 10 Nov 2026 11:45:49 +0100
+Subject: [PATCH] tapdisk: Refuse to connect a ring while a dead ring of the
+ VBD drains
+
+When a frontend resets, tapdisk keeps the old ring as dead while its
+requests are in flight, and until now accepted the reconnected ring
+straight away. Both rings feed the same VBD queues with nothing
+ordering them. A write that is stuck on the dead ring (a storage stall,
+or tapdisk's own retry of a write that failed with EAGAIN) can land
+after the guest's newer write to the same sectors through the new ring:
+a lost update. Barriers and flushes are counted per ring, so a flush on
+the new ring does not wait for it either.
+
+tapdisk_xenblkif_connect() now returns EBUSY while the VBD has a dead
+ring, after the EALREADY check so that a restarted tapback still sees
+an existing connection as such. tapback retries the connection until
+the dead ring is gone (previous commit).
+
+Any dead ring is enough to refuse, not only one with writes queued:
+it keeps the check trivial. With "tapdisk: Do not take requests off a
+dead ring", a dead ring takes no new requests and only drains, so the
+refusal always ends; without it, the dead ring can still take requests
+the frontend left on it, which delays the reconnection.
+
+Cost: the guest does not get its ring connected until the old ring's
+requests are done; it waits in Initialised. A tapback that does not
+know EBUSY gives up on the connection instead, so tapback must be
+updated with or before tapdisk.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/td-blkif.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/drivers/td-blkif.c b/drivers/td-blkif.c
+index 9884e32e..7c561c80 100644
+--- a/drivers/td-blkif.c
++++ b/drivers/td-blkif.c
+@@ -522,6 +522,19 @@ tapdisk_xenblkif_connect(domid_t domid, int devid, const grant_ref_t * grefs,
+         return -EALREADY;
+     }
+ 
++    /*
++     * A dead ring of this VBD still has requests in flight. Requests of a new
++     * ring would not be ordered against them: a write of the dead ring could
++     * land after a newer write to the same sectors, and a flush on the new
++     * ring would not wait for it. Refuse the connection until the dead rings
++     * are gone; tapback retries it.
++     */
++    if (tapdisk_vbd_contains_dead_rings(vbd)) {
++        DPRINTF("refusing to connect domid=%d, devid=%d: a dead ring of the "
++                "VBD still has requests in flight\n", domid, devid);
++        return -EBUSY;
++    }
++
+     err = tapdisk_xenio_ctx_get(pool, &td_ctx);
+     if (err) {
+         /* TODO log error */

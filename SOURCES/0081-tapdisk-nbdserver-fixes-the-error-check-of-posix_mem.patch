@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Wed, 21 Oct 2026 09:50:23 +0200
+Subject: [PATCH] tapdisk: nbdserver: fixes the error check of posix_memalign
+
+posix_memalign returns an error number, not -1.
+
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ drivers/tapdisk-nbdserver.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/tapdisk-nbdserver.c b/drivers/tapdisk-nbdserver.c
+index d024cc51..86a271d2 100644
+--- a/drivers/tapdisk-nbdserver.c
++++ b/drivers/tapdisk-nbdserver.c
+@@ -1225,7 +1225,7 @@ static td_vbd_request_t *create_request_vreq(
+ 	memcpy(req->id, request.handle, sizeof(request.handle));
+ 
+ 	rc = posix_memalign(&req->iov.base, 512, len);
+-	if (rc < 0) {
++	if (rc != 0) {
+ 		ERR("posix_memalign failed (%d)", rc);
+ 		goto fail;
+ 	}

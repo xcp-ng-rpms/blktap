@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ronan Abhamon <ronan.abhamon@vates.tech>
+Date: Thu, 12 Nov 2026 10:58:58 +0100
+Subject: [PATCH] tapdisk: keep CBT log / secondary at right position
+
+A CBT log is added first by these calls: `open -C`, `unpause -c`, ...
+There are a few places where this behavior is broken and where log files
+are altered:
+- The `ENOSPC` failover of `tapdisk_vbd_complete_td_request` would, in
+  mirror mode, retire the log instead of the leaf, and, in standby
+  mode, insert the secondary image above the log (the writes would no
+  longer be logged).
+- Using local cache with `tap-ctl create -r -C <log> -a vhd:<child of a VHD chain>`,
+  a write through the device fails (`EOPNOTSUPP`) and is lost.
+- `tapdisk_vbd_add_secondary` inserts the secondary image (`-2`) right
+  after the log: log -> secondary -> leaf -> parents.
+  We want this instead: log -> leaf -> secondary -> parents. Otherwise
+  the write calls are only received by the secondary and the leaf
+  is never modified...
+
+Signed-off-by: Ronan Abhamon <ronan.abhamon@vates.tech>
+---
+ drivers/tapdisk-vbd.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/tapdisk-vbd.c b/drivers/tapdisk-vbd.c
+index b66825ae..13a544c4 100644
+--- a/drivers/tapdisk-vbd.c
++++ b/drivers/tapdisk-vbd.c
+@@ -376,7 +376,7 @@ tapdisk_vbd_add_local_cache(td_vbd_t *vbd)
+ 	td_image_t *cache, *parent;
+ 	int err;
+ 
+-	parent = tapdisk_vbd_first_image(vbd);
++	parent = tapdisk_vbd_first_non_log_image(vbd);
+ 	if (tapdisk_vbd_is_last_image(vbd, parent)) {
+ 		DPRINTF("Single-image chain, nothing to cache");
+ 		return 0;
+@@ -442,7 +442,7 @@ tapdisk_vbd_add_secondary(td_vbd_t *vbd)
+ 	if (type < 0)
+ 		return type;
+ 
+-	leaf = tapdisk_vbd_first_image(vbd);
++	leaf = tapdisk_vbd_first_non_log_image(vbd);
+ 	if (!leaf) {
+ 		err = -EINVAL;
+ 		goto fail;
+@@ -1632,7 +1632,7 @@ tapdisk_vbd_complete_td_request(td_request_t treq, int res)
+ 	if (abs(res) == ENOSPC && td_flag_test(image->flags,
+ 				TD_IGNORE_ENOSPC)) {
+ 		res = 0;
+-		leaf = tapdisk_vbd_first_image(vbd);
++		leaf = tapdisk_vbd_first_non_log_image(vbd);
+ 		if (vbd->secondary_mode == TD_VBD_SECONDARY_MIRROR) {
+ 			DPRINTF("ENOSPC: disabling mirroring\n");
+ 			list_del_init(&leaf->next);
