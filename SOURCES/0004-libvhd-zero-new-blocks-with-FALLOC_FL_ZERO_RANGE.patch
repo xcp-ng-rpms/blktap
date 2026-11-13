@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 12 Oct 2026 18:09:35 +0200
+Subject: [PATCH] libvhd: zero new blocks with FALLOC_FL_ZERO_RANGE
+
+__vhd_io_allocate_block() writes zeros over each new block (gap, bitmap
+and, unless writing sparsely, 2 MiB of data) when the caller does not
+write the block entirely: a 4 KiB write into a new block costs 2 MiB of
+synchronous I/O.
+
+Add vhd_zero_range() and use it instead. FALLOC_FL_ZERO_RANGE makes the
+range read as zeros whatever it held before, without writing the data
+(unwritten extents) and still reserving the space; on block devices
+(with FALLOC_FL_KEEP_SIZE) it is turned into a write zeroes command when
+the device supports it. Writing zeros remains the fallback when the file
+system or the kernel does not support it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vhd/lib/libvhd.c | 49 +++++++++++++++++++++++++++++++++++++++---------
+ 1 file changed, 40 insertions(+), 9 deletions(-)
+
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index 2c9dc0b9..b47eaf33 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -50,6 +50,7 @@
+ #include <sys/stat.h>
+ #include <sys/sysmacros.h>
+ #include <sys/types.h>
++#include <linux/falloc.h>
+ 
+ #include "debug.h"
+ #include "xattr.h"
+@@ -3741,11 +3742,47 @@ vhd_write_bat_entry(vhd_context_t *ctx, uint32_t block)
+ 	return err;
+ }
+ 
++/*
++ * Make a range read as zeros, whatever it held before (the old footer, a
++ * block of an earlier allocation whose BAT update failed). On files,
++ * FALLOC_FL_ZERO_RANGE does it without writing the data (unwritten
++ * extents) and still reserves the space; on block devices it is turned
++ * into a write zeroes command when the device supports it. Writing zeros
++ * remains the fallback.
++ */
++static int
++vhd_zero_range(vhd_context_t *ctx, off64_t off, size_t size)
++{
++	int err, mode;
++	char *buf;
++
++	mode = FALLOC_FL_ZERO_RANGE;
++	if (ctx->is_block)
++		mode |= FALLOC_FL_KEEP_SIZE;
++
++	if (!fallocate(ctx->fd, mode, off, size))
++		return 0;
++
++	if (errno != EOPNOTSUPP && errno != ENOSYS && errno != ENODEV) {
++		err = -errno;
++		VHDLOG("%s: zero range of 0x%zx at 0x%08"PRIx64" failed: %d\n",
++		       ctx->file, size, off, err);
++		return err;
++	}
++
++	buf = mmap(0, size, PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
++	if (buf == MAP_FAILED)
++		return -errno;
++
++	err = vhd_pwrite(ctx, buf, size, off);
++	munmap(buf, size);
++
++	return err;
++}
++
+ static int
+ __vhd_io_allocate_block(vhd_context_t *ctx, uint32_t block, bool zero)
+ {
+-	char *buf = NULL;
+-	size_t size;
+ 	off64_t off, max;
+ 	int err, gap, spp, secs;
+ 
+@@ -3784,13 +3821,7 @@ __vhd_io_allocate_block(vhd_context_t *ctx, uint32_t block, bool zero)
+ 
+ 	/* Fill the block with zeros if requested to do so */
+ 	if (zero) {
+-		size = vhd_sectors_to_bytes(secs);
+-		buf  = mmap(0, size, PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+-		if (buf == MAP_FAILED)
+-			return -errno;
+-
+-		err = vhd_write(ctx, buf, size);
+-		munmap(buf, size);
++		err = vhd_zero_range(ctx, off, vhd_sectors_to_bytes(secs));
+ 		if (err)
+ 			goto out;
+ 	}

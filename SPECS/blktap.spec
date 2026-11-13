@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.4%{?dist}
+Release: %{?xsrel}.5%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -136,6 +136,19 @@ Patch1085: 0085-tapdisk-Disable-events-check-of-a-dead-ring.patch
 Patch1086: 0086-tapback-Retry-the-ring-connection-when-tapdisk-refus.patch
 Patch1087: 0087-tapdisk-Refuse-to-connect-a-ring-while-a-dead-ring-o.patch
 Patch1088: 0088-tapdisk-keep-CBT-log-secondary-at-right-position.patch
+Patch1089: 0001-tapdisk-block-vhd-preallocate-new-blocks-with-FALLOC.patch
+Patch1090: 0002-libvhd-write-only-the-modified-BAT-sector-on-block-a.patch
+Patch1091: 0003-vhd-util-coalesce-merge-whole-blocks-into-the-parent.patch
+Patch1092: 0004-libvhd-zero-new-blocks-with-FALLOC_FL_ZERO_RANGE.patch
+Patch1093: 0005-vhd-util-coalesce-zero-new-parent-blocks-without-wri.patch
+Patch1094: 0006-vhd-util-coalesce-read-the-child-ahead-in-a-separate.patch
+Patch1095: 0007-vhd-util-coalesce-read-the-child-blocks-in-file-orde.patch
+Patch1096: 0008-libvhd-check-full-block-bitmaps-a-byte-at-a-time.patch
+Patch1097: 0009-libvhd-export-the-helpers-used-by-vhd-util-coalesce.patch
+Patch1098: 0010-vhd-util-coalesce-write-the-BAT-entries-of-new-block.patch
+Patch1099: 0011-vhd-util-coalesce-write-partial-blocks-whole-when-ze.patch
+Patch1100: 0012-vhd-util-coalesce-merge-several-blocks-into-the-pare.patch
+Patch1101: 0013-vhd-util-add-batmap-to-convert-a-VHD-to-the-blktap-b.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -265,6 +278,9 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Nov 13 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.5
+- VHD coalesce improvements
+
 * Thu Nov 13 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.4
 - Fix NBD server memory allocation check
 - Fix dead ring management (requests ordering, events, reconnect)

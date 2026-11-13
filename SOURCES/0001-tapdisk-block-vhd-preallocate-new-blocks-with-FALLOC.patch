@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Florent Beauchamp <florent.beauchamp@vates.tech>
+Date: Sat, 3 Oct 2026 12:38:26 +0000
+Subject: [PATCH] tapdisk: block-vhd: preallocate new blocks with
+ FALLOC_FL_ZERO_RANGE
+
+With preallocation (local ext/xfs SRs), allocate_block() writes zeros
+over each new block (gap, bitmap and 2 MiB of data) with a synchronous
+write(), blocking the event loop: a guest writing 4 KiB into a new block
+costs 2 MiB of synchronous I/O, and a block written whole is written
+twice.
+
+Use FALLOC_FL_ZERO_RANGE instead: the range reads as zeros whatever it
+held before (the old footer, a block of an earlier allocation whose BAT
+update failed), for tapdisk and for any other reader of the file, the
+space is still reserved, but nothing is written (unwritten extents on
+ext4/xfs). Writing zeros remains the fallback when the file system does
+not support it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/block-vhd.c | 24 +++++++++++++++++++-----
+ 1 file changed, 19 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/block-vhd.c b/drivers/block-vhd.c
+index 3d0b5605..f82e7bce 100644
+--- a/drivers/block-vhd.c
++++ b/drivers/block-vhd.c
+@@ -67,6 +67,7 @@
+ #include <sys/mman.h>
+ #include <limits.h>
+ #include <dlfcn.h>
++#include <linux/falloc.h>
+ 
+ #include "debug.h"
+ #include "libvhd.h"
+@@ -1697,13 +1698,26 @@ allocate_block(struct vhd_state *s, uint32_t blk)
+ 	DBG(TLOG_DBG, "blk: 0x%04x, pbwo: 0x%08"PRIx64"\n",
+ 	    blk, s->bat.pbw_offset);
+ 
+-	if (lseek(s->vhd.fd, offset, SEEK_SET) == (off_t)-1) {
++	size  = vhd_sectors_to_bytes(s->spb + s->bm_secs + gap);
++
++	/*
++	 * The range must read as zeros, whatever it held before (the old
++	 * footer, a block of an earlier allocation whose BAT update failed),
++	 * for any reader of the file: FALLOC_FL_ZERO_RANGE does it without
++	 * writing the data (unwritten extents), and still reserves the space.
++	 * Writing zeros remains the fallback.
++	 */
++	if (!fallocate(s->vhd.fd, FALLOC_FL_ZERO_RANGE, offset, size))
++		count = size;
++	else if (errno != EOPNOTSUPP) {
++		err = -errno;
++		ERR(s, err, "zero range failed (offset %"PRIu64")\n", offset);
++		return err;
++	} else if (lseek(s->vhd.fd, offset, SEEK_SET) == (off_t)-1) {
+ 		ERR(s, -errno, "lseek failed\n");
+ 		return -errno;
+-	}
+-
+-	size  = vhd_sectors_to_bytes(s->spb + s->bm_secs + gap);
+-	count = write(s->vhd.fd, vhd_zeros(size), size);
++	} else
++		count = write(s->vhd.fd, vhd_zeros(size), size);
+ 	if (count != size) {
+ 		err = count < 0 ? -errno : -ENOSPC;
+ 		ERR(s, -errno,

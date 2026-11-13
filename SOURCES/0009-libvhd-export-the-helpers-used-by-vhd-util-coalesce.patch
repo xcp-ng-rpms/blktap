@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 2 Nov 2026 10:00:12 +0100
+Subject: [PATCH] libvhd: export the helpers used by vhd-util coalesce
+
+The per-block merge of vhd-util coalesce calls vhd_pread(), vhd_pwrite(),
+vhd_write_bat_entry(), vhd_zero_range() and vhd_footer_offset_at_eof(),
+which were static to libvhd.c: the build failed on implicit declarations.
+Export them in libvhd.h.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/libvhd.h |  5 +++++
+ vhd/lib/libvhd.c | 10 +++++-----
+ 2 files changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/include/libvhd.h b/include/libvhd.h
+index 3932547e..95fdd5ff 100644
+--- a/include/libvhd.h
++++ b/include/libvhd.h
+@@ -306,11 +306,15 @@ off64_t vhd_position(vhd_context_t *);
+ int vhd_seek(vhd_context_t *, off64_t, int);
+ int vhd_read(vhd_context_t *, void *, size_t);
+ int vhd_write(vhd_context_t *, void *, size_t);
++int vhd_pread(vhd_context_t *, void *, size_t, off64_t);
++int vhd_pwrite(vhd_context_t *, void *, size_t, off64_t);
+ 
+ int vhd_offset(vhd_context_t *, uint32_t, uint32_t *);
+ 
+ int vhd_end_of_headers(vhd_context_t *ctx, off64_t *off);
+ int vhd_end_of_data(vhd_context_t *ctx, off64_t *off);
++int vhd_footer_offset_at_eof(vhd_context_t *ctx, off64_t *off);
++int vhd_zero_range(vhd_context_t *ctx, off64_t off, size_t size);
+ int vhd_batmap_header_offset(vhd_context_t *ctx, off64_t *off);
+ 
+ int vhd_get_header(vhd_context_t *);
+@@ -371,6 +375,7 @@ int vhd_write_footer_at(vhd_context_t *, vhd_footer_t *, off64_t);
+ int vhd_write_header(vhd_context_t *, vhd_header_t *);
+ int vhd_write_header_at(vhd_context_t *, vhd_header_t *, off64_t);
+ int vhd_write_bat(vhd_context_t *, vhd_bat_t *);
++int vhd_write_bat_entry(vhd_context_t *, uint32_t block);
+ int vhd_write_batmap(vhd_context_t *, vhd_batmap_t *);
+ int vhd_write_bitmap(vhd_context_t *, uint32_t block, char *bitmap);
+ int vhd_write_block(vhd_context_t *, uint32_t block, char *data);
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index 12aa555d..aac5e0de 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -1985,7 +1985,7 @@ out:
+ 	return err;
+ }
+ 
+-static int
++int
+ vhd_footer_offset_at_eof(vhd_context_t *ctx, off64_t *off)
+ {
+ 	int err;
+@@ -2613,7 +2613,7 @@ vhd_write(vhd_context_t *ctx, void *buf, size_t size)
+ 	return (errno ? -errno : -EIO);
+ }
+ 
+-static int
++int
+ vhd_pread(vhd_context_t *ctx, void *buf, size_t size, off64_t offset)
+ {
+ 	ssize_t ret;
+@@ -2630,7 +2630,7 @@ vhd_pread(vhd_context_t *ctx, void *buf, size_t size, off64_t offset)
+ 	return (errno ? -errno : -EIO);
+ }
+ 
+-static int
++int
+ vhd_pwrite(vhd_context_t *ctx, void *buf, size_t size, off64_t offset)
+ {
+ 	ssize_t ret;
+@@ -3724,7 +3724,7 @@ __vhd_io_fixed_write(vhd_context_t *ctx,
+  * Write to disk only the BAT sector holding the entry of @block,
+  * instead of rewriting the whole table.
+  */
+-static int
++int
+ vhd_write_bat_entry(vhd_context_t *ctx, uint32_t block)
+ {
+ 	int i, err;
+@@ -3767,7 +3767,7 @@ vhd_write_bat_entry(vhd_context_t *ctx, uint32_t block)
+  * into a write zeroes command when the device supports it. Writing zeros
+  * remains the fallback.
+  */
+-static int
++int
+ vhd_zero_range(vhd_context_t *ctx, off64_t off, size_t size)
+ {
+ 	int err, mode;

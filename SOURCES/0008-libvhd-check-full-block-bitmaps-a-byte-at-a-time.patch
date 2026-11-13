@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 12 Oct 2026 19:15:00 +0200
+Subject: [PATCH] libvhd: check full block bitmaps a byte at a time
+
+__vhd_io_dynamic_write() and __vhd_io_dynamic_write_bytes_aligned()
+test the 4096 bits of the block bitmap one by one after every write,
+to know whether to set the block in the batmap.
+
+Add vhd_bitmap_full(), which compares the bitmap a byte at a time, and
+use it in both.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vhd/lib/libvhd.c | 37 ++++++++++++++++++++++++++-----------
+ 1 file changed, 26 insertions(+), 11 deletions(-)
+
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index b47eaf33..12aa555d 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -739,6 +739,23 @@ vhd_bitmap_clear(vhd_context_t *ctx, char *map, uint32_t block)
+ 	return clear_bit(map, block);
+ }
+ 
++/* Whether all the sectors of a block bitmap are set, a byte at a time */
++static bool
++vhd_bitmap_full(vhd_context_t *ctx, char *map)
++{
++	uint32_t i;
++
++	for (i = 0; i < ctx->spb >> 3; i++)
++		if ((unsigned char)map[i] != 0xff)
++			return false;
++
++	for (i <<= 3; i < ctx->spb; i++)
++		if (!test_bit(map, i))
++			return false;
++
++	return true;
++}
++
+ /*
+  * returns absolute offset of the first 
+  * byte of the file which is not vhd metadata
+@@ -3910,11 +3927,10 @@ __vhd_io_dynamic_write(vhd_context_t *ctx,
+ 			goto fail;
+ 
+ 		if (vhd_has_batmap(ctx)) {
+-			for (i = 0; i < ctx->spb; i++)
+-				if (!vhd_bitmap_test(ctx, map, i)) {
+-					free(map);
+-					goto next;
+-				}
++			if (!vhd_bitmap_full(ctx, map)) {
++				free(map);
++				goto next;
++			}
+ 
+ 			vhd_batmap_set(ctx, &ctx->batmap, blk);
+ 			err = vhd_write_batmap(ctx, &ctx->batmap);
+@@ -4602,12 +4618,11 @@ __vhd_io_dynamic_write_bytes_aligned(vhd_context_t *ctx,
+ 			goto fail;
+ 
+ 		if (vhd_has_batmap(ctx)) {
+-			for (i = 0; i < ctx->spb; i++)
+-				if (!vhd_bitmap_test(ctx, map, i)) {
+-					free(map);
+-					map = NULL;
+-					goto next;
+-				}
++			if (!vhd_bitmap_full(ctx, map)) {
++				free(map);
++				map = NULL;
++				goto next;
++			}
+ 
+ 			vhd_batmap_set(ctx, &ctx->batmap, blk);
+ 			err = vhd_write_batmap(ctx, &ctx->batmap);

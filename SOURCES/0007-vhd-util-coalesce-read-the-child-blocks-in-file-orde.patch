@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 12 Oct 2026 19:15:00 +0200
+Subject: [PATCH] vhd-util: coalesce: read the child blocks in file order
+
+The child blocks were coalesced in virtual order, while they lie in the
+child file in the order the guest first wrote them: the reads jump
+around the file, which hurts on rotational disks and on storage with
+read-ahead.
+
+Sort the allocated child blocks by their offset in the child file, so
+that the reader goes through it sequentially. New parent blocks are
+then allocated in that order too, which does not change the contents
+of the parent.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vhd/lib/vhd-util-coalesce.c | 46 +++++++++++++++++++++++++++++++++----
+ 1 file changed, 42 insertions(+), 4 deletions(-)
+
+diff --git a/vhd/lib/vhd-util-coalesce.c b/vhd/lib/vhd-util-coalesce.c
+index 4ba90f52..b9d01c05 100644
+--- a/vhd/lib/vhd-util-coalesce.c
++++ b/vhd/lib/vhd-util-coalesce.c
+@@ -100,7 +100,7 @@ struct coalesce_ctx {
+ 
+ 	char          *parent_map;
+ 
+-	/* allocated child blocks, in the order they are coalesced */
++	/* allocated child blocks, by offset in the child file */
+ 	uint32_t      *blocks;
+ 	uint32_t       nblocks;
+ 
+@@ -194,6 +194,44 @@ coalesce_ctx_free(struct coalesce_ctx *c)
+ 	c->blocks     = NULL;
+ }
+ 
++static int
++cmp_u64(const void *a, const void *b)
++{
++	uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
++
++	return (x > y) - (x < y);
++}
++
++/*
++ * List the allocated child blocks in the order of their offset in the
++ * child file, so that the reader goes through it sequentially. New
++ * parent blocks get allocated in that order too.
++ */
++static int
++coalesce_order_blocks(struct coalesce_ctx *c)
++{
++	uint32_t i, n;
++	uint64_t *keys;
++	vhd_context_t *child = c->child;
++
++	keys = malloc(child->bat.entries * sizeof(*keys));
++	if (!keys)
++		return ENOMEM;
++
++	for (i = 0, n = 0; i < child->bat.entries; i++)
++		if (child->bat.bat[i] != DD_BLK_UNUSED)
++			keys[n++] = ((uint64_t)child->bat.bat[i] << 32) | i;
++
++	qsort(keys, n, sizeof(*keys), cmp_u64);
++
++	for (i = 0; i < n; i++)
++		c->blocks[i] = (uint32_t)keys[i];
++	c->nblocks = n;
++
++	free(keys);
++	return 0;
++}
++
+ static int
+ coalesce_ctx_init(struct coalesce_ctx *c, vhd_context_t *child,
+ 		  vhd_context_t *parent, int parent_fd, int sparse)
+@@ -245,9 +283,9 @@ coalesce_ctx_init(struct coalesce_ctx *c, vhd_context_t *child,
+ 		goto fail;
+ 	}
+ 
+-	for (i = 0; i < child->bat.entries; i++)
+-		if (child->bat.bat[i] != DD_BLK_UNUSED)
+-			c->blocks[c->nblocks++] = i;
++	err = coalesce_order_blocks(c);
++	if (err)
++		goto fail;
+ 
+ 	err = posix_memalign((void **)&c->parent_map, 4096, c->bm_bytes);
+ 	if (err)

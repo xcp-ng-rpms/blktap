@@ -1,0 +1,219 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 2 Nov 2026 10:03:31 +0100
+Subject: [PATCH] vhd-util: coalesce: write partial blocks whole when zeroing
+ is not free
+
+A new parent block holding a few runs of the child is zeroed with
+vhd_zero_range() before writing the runs. On a block device without
+write zeroes support, which is common for SAS drives behind a plain HBA
+(and an LV inherits it), the kernel does not fail FALLOC_FL_ZERO_RANGE
+but writes 2 MiB of zero pages: every partial block is then written
+twice, the second time as up to 16 small synchronous writes. On a file
+system without FALLOC_FL_ZERO_RANGE (NFS on older kernels, tmpfs),
+vhd_zero_range() writes the zeros itself.
+
+Add a fallback argument to vhd_zero_range(): without it, return
+-EOPNOTSUPP instead of writing zeros, either when fallocate() is not
+supported or when the block device has no write_zeroes_max_bytes in
+sysfs. Coalesce then writes the block with its holes zeroed in a single
+write, as it does for blocks of many runs, and stops trying for the
+following blocks.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/libvhd.h            |  2 +-
+ vhd/lib/libvhd.c            | 55 ++++++++++++++++++++++++++++++++++---
+ vhd/lib/vhd-util-coalesce.c | 43 +++++++++++++++++++----------
+ 3 files changed, 80 insertions(+), 20 deletions(-)
+
+diff --git a/include/libvhd.h b/include/libvhd.h
+index a5f54dd8..9911caa5 100644
+--- a/include/libvhd.h
++++ b/include/libvhd.h
+@@ -314,7 +314,7 @@ int vhd_offset(vhd_context_t *, uint32_t, uint32_t *);
+ int vhd_end_of_headers(vhd_context_t *ctx, off64_t *off);
+ int vhd_end_of_data(vhd_context_t *ctx, off64_t *off);
+ int vhd_footer_offset_at_eof(vhd_context_t *ctx, off64_t *off);
+-int vhd_zero_range(vhd_context_t *ctx, off64_t off, size_t size);
++int vhd_zero_range(vhd_context_t *ctx, off64_t off, size_t size, bool fallback);
+ int vhd_batmap_header_offset(vhd_context_t *ctx, off64_t *off);
+ 
+ int vhd_get_header(vhd_context_t *);
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index 2dfc0226..4fd489c3 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -3773,23 +3773,67 @@ vhd_write_bat_entry(vhd_context_t *ctx, uint32_t block)
+ 	return vhd_write_bat_range(ctx, block, block);
+ }
+ 
++/*
++ * Whether the block device behind @fd zeroes ranges itself (write
++ * zeroes or write same). Otherwise, the kernel turns FALLOC_FL_ZERO_RANGE
++ * into writes of zero pages.
++ */
++static bool
++vhd_blkdev_writes_zeroes(int fd)
++{
++	FILE *f;
++	struct stat st;
++	char path[PATH_MAX];
++	unsigned long long max;
++	static const char *const queues[] = { "queue", "../queue" };
++	unsigned int i;
++
++	if (fstat(fd, &st) || !S_ISBLK(st.st_mode))
++		return false;
++
++	/* a partition has no queue of its own */
++	for (i = 0; i < sizeof(queues) / sizeof(queues[0]); i++) {
++		snprintf(path, sizeof(path),
++			 "/sys/dev/block/%u:%u/%s/write_zeroes_max_bytes",
++			 major(st.st_rdev), minor(st.st_rdev), queues[i]);
++
++		f = fopen(path, "r");
++		if (!f)
++			continue;
++
++		if (fscanf(f, "%llu", &max) != 1)
++			max = 0;
++		fclose(f);
++
++		return max != 0;
++	}
++
++	return false;
++}
++
+ /*
+  * Make a range read as zeros, whatever it held before (the old footer, a
+  * block of an earlier allocation whose BAT update failed). On files,
+  * FALLOC_FL_ZERO_RANGE does it without writing the data (unwritten
+  * extents) and still reserves the space; on block devices it is turned
+  * into a write zeroes command when the device supports it. Writing zeros
+- * remains the fallback.
++ * remains the fallback, by the kernel on block devices.
++ *
++ * Without @fallback, return -EOPNOTSUPP instead of writing zeros, so that
++ * the caller can write the range with its data instead.
+  */
+ int
+-vhd_zero_range(vhd_context_t *ctx, off64_t off, size_t size)
++vhd_zero_range(vhd_context_t *ctx, off64_t off, size_t size, bool fallback)
+ {
+ 	int err, mode;
+ 	char *buf;
+ 
+ 	mode = FALLOC_FL_ZERO_RANGE;
+-	if (ctx->is_block)
++	if (ctx->is_block) {
+ 		mode |= FALLOC_FL_KEEP_SIZE;
++		if (!fallback && !vhd_blkdev_writes_zeroes(ctx->fd))
++			return -EOPNOTSUPP;
++	}
+ 
+ 	if (!fallocate(ctx->fd, mode, off, size))
+ 		return 0;
+@@ -3801,6 +3845,9 @@ vhd_zero_range(vhd_context_t *ctx, off64_t off, size_t size)
+ 		return err;
+ 	}
+ 
++	if (!fallback)
++		return -EOPNOTSUPP;
++
+ 	buf = mmap(0, size, PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+ 	if (buf == MAP_FAILED)
+ 		return -errno;
+@@ -3852,7 +3899,7 @@ __vhd_io_allocate_block(vhd_context_t *ctx, uint32_t block, bool zero)
+ 
+ 	/* Fill the block with zeros if requested to do so */
+ 	if (zero) {
+-		err = vhd_zero_range(ctx, off, vhd_sectors_to_bytes(secs));
++		err = vhd_zero_range(ctx, off, vhd_sectors_to_bytes(secs), true);
+ 		if (err)
+ 			goto out;
+ 	}
+diff --git a/vhd/lib/vhd-util-coalesce.c b/vhd/lib/vhd-util-coalesce.c
+index c379146a..8545bf01 100644
+--- a/vhd/lib/vhd-util-coalesce.c
++++ b/vhd/lib/vhd-util-coalesce.c
+@@ -47,7 +47,10 @@
+ /*
+  * A new parent block holding up to this many runs of the child is zeroed
+  * with vhd_zero_range() before writing the runs; above, writing the whole
+- * block with its holes zeroed in a single write is cheaper.
++ * block with its holes zeroed in a single write is cheaper. So it is when
++ * zeroing a range means writing zeros: a file system without
++ * FALLOC_FL_ZERO_RANGE, or a block device without write zeroes, for which
++ * the kernel writes zero pages.
+  */
+ #define COALESCE_ZERO_MAX_RUNS 16
+ 
+@@ -103,6 +106,7 @@ struct coalesce_ctx {
+ 	int            parent_fd;   /* raw parent */
+ 	int            sparse;
+ 	int            fast;        /* per-block merge into dynamic parent */
++	int            zero_range;  /* zeroing a range does not write it */
+ 
+ 	off64_t        child_end;   /* child footer offset */
+ 	off64_t        parent_eod;  /* parent end of data, cached */
+@@ -263,6 +267,7 @@ coalesce_ctx_init(struct coalesce_ctx *c, vhd_context_t *child,
+ 	c->parent    = parent;
+ 	c->parent_fd = parent_fd;
+ 	c->sparse    = sparse;
++	c->zero_range = 1;
+ 
+ 	err = vhd_footer_offset_at_eof(child, &c->child_end);
+ 	if (err)
+@@ -524,7 +529,7 @@ coalesce_write_run_block(struct coalesce_ctx *c, char *buf,
+ static int
+ coalesce_alloc_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ {
+-	int err;
++	int err, runs;
+ 	off64_t off;
+ 	char *start;
+ 	size_t size;
+@@ -551,20 +556,28 @@ coalesce_alloc_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ 	memcpy(s->bitmap, s->map, c->bm_bytes);
+ 	start = s->bitmap - vhd_sectors_to_bytes(gap);
+ 
+-	if (!bitmap_full(s->map, parent->spb) &&
+-	    (c->sparse || s->nruns <= COALESCE_ZERO_MAX_RUNS)) {
+-		/*
+-		 * With sparse writes, leave the unwritten sectors unallocated
+-		 * in the file, otherwise zero them without writing them.
+-		 */
+-		if (!c->sparse) {
+-			err = vhd_zero_range(parent, off,
+-					     vhd_sectors_to_bytes(gap + parent->bm_secs +
+-								  parent->spb));
+-			if (err)
+-				return err;
+-		}
++	/*
++	 * With sparse writes, leave the unwritten sectors unallocated in
++	 * the file, otherwise zero them without writing them if possible.
++	 */
++	runs = (!bitmap_full(s->map, parent->spb) &&
++		(c->sparse ||
++		 (c->zero_range && s->nruns <= COALESCE_ZERO_MAX_RUNS)));
++
++	if (runs && !c->sparse) {
++		err = vhd_zero_range(parent, off,
++				     vhd_sectors_to_bytes(gap + parent->bm_secs +
++							  parent->spb),
++				     false);
++		if (err == -EOPNOTSUPP) {
++			/* the zeros would be written: write them with the data */
++			c->zero_range = 0;
++			runs = 0;
++		} else if (err)
++			return err;
++	}
+ 
++	if (runs) {
+ 		err = vhd_pwrite(parent, start,
+ 				 vhd_sectors_to_bytes(gap + parent->bm_secs), off);
+ 		if (err)

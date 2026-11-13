@@ -1,0 +1,221 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 2 Nov 2026 10:01:34 +0100
+Subject: [PATCH] vhd-util: coalesce: write the BAT entries of new blocks in
+ batches
+
+After writing each new parent block, coalesce wrote its BAT sector right
+away: a sub-page synchronous write at the start of the parent, which on
+a hard drive costs a seek back and forth, plus a read-modify-write on
+512e drives, about as much as the 2 MiB block itself. Behind a plain HBA
+with the drive write cache disabled, it waits for the media every time.
+
+Keep the BAT entries of new blocks in memory and write them every 64 new
+blocks (128 MiB of data) and at the end, as a single span of BAT sectors
+covering all of them, after an fdatasync() of the parent. Add
+vhd_write_bat_range() to libvhd for that; vhd_write_bat_entry() becomes
+a single-entry range.
+
+Data and bitmaps are now actually synced before the BAT entries pointing
+to them, where it previously only relied on the O_DIRECT write ordering
+with the device write cache. A crash midway leaves new blocks without a
+BAT entry past the end of data, reused by the next allocation.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/libvhd.h            |  1 +
+ vhd/lib/libvhd.c            | 38 ++++++++++++++++-------
+ vhd/lib/vhd-util-coalesce.c | 62 ++++++++++++++++++++++++++++++++-----
+ 3 files changed, 81 insertions(+), 20 deletions(-)
+
+diff --git a/include/libvhd.h b/include/libvhd.h
+index 95fdd5ff..a5f54dd8 100644
+--- a/include/libvhd.h
++++ b/include/libvhd.h
+@@ -376,6 +376,7 @@ int vhd_write_header(vhd_context_t *, vhd_header_t *);
+ int vhd_write_header_at(vhd_context_t *, vhd_header_t *, off64_t);
+ int vhd_write_bat(vhd_context_t *, vhd_bat_t *);
+ int vhd_write_bat_entry(vhd_context_t *, uint32_t block);
++int vhd_write_bat_range(vhd_context_t *, uint32_t first, uint32_t last);
+ int vhd_write_batmap(vhd_context_t *, vhd_batmap_t *);
+ int vhd_write_bitmap(vhd_context_t *, uint32_t block, char *bitmap);
+ int vhd_write_block(vhd_context_t *, uint32_t block, char *data);
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index aac5e0de..2dfc0226 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -3721,15 +3721,16 @@ __vhd_io_fixed_write(vhd_context_t *ctx,
+ }
+ 
+ /*
+- * Write to disk only the BAT sector holding the entry of @block,
+- * instead of rewriting the whole table.
++ * Write to disk only the BAT sectors holding the entries of the blocks
++ * from @first to @last included, instead of rewriting the whole table.
+  */
+ int
+-vhd_write_bat_entry(vhd_context_t *ctx, uint32_t block)
++vhd_write_bat_range(vhd_context_t *ctx, uint32_t first, uint32_t last)
+ {
+-	int i, err;
++	int err;
+ 	off64_t off;
+-	uint32_t first, *buf;
++	size_t size;
++	uint32_t i, n, *buf;
+ 	const uint32_t per_sec = VHD_SECTOR_SIZE / sizeof(uint32_t);
+ 
+ 	if (!vhd_type_dynamic(ctx))
+@@ -3739,26 +3740,39 @@ vhd_write_bat_entry(vhd_context_t *ctx, uint32_t block)
+ 	if (err)
+ 		return err;
+ 
+-	if (block >= ctx->bat.entries)
++	if (first > last || last >= ctx->bat.entries)
+ 		return -ERANGE;
+ 
+-	err = posix_memalign((void **)&buf, VHD_SECTOR_SIZE, VHD_SECTOR_SIZE);
++	/* the in-memory BAT is allocated padded to a full sector */
++	first -= first % per_sec;
++	n      = last / per_sec - first / per_sec + 1;
++	size   = vhd_sectors_to_bytes(n);
++
++	err = posix_memalign((void **)&buf, VHD_SECTOR_SIZE, size);
+ 	if (err)
+ 		return -err;
+ 
+-	/* the in-memory BAT is allocated padded to a full sector */
+-	first = block - (block % per_sec);
+-	memcpy(buf, ctx->bat.bat + first, VHD_SECTOR_SIZE);
+-	for (i = 0; i < per_sec && first + i < ctx->bat.entries; i++)
++	memcpy(buf, ctx->bat.bat + first, size);
++	for (i = 0; i < n * per_sec && first + i < ctx->bat.entries; i++)
+ 		BE32_OUT(&buf[i]);
+ 
+ 	off = ctx->header.table_offset + vhd_sectors_to_bytes(first / per_sec);
+-	err = vhd_pwrite(ctx, buf, VHD_SECTOR_SIZE, off);
++	err = vhd_pwrite(ctx, buf, size, off);
+ 	free(buf);
+ 
+ 	return err;
+ }
+ 
++/*
++ * Write to disk only the BAT sector holding the entry of @block,
++ * instead of rewriting the whole table.
++ */
++int
++vhd_write_bat_entry(vhd_context_t *ctx, uint32_t block)
++{
++	return vhd_write_bat_range(ctx, block, block);
++}
++
+ /*
+  * Make a range read as zeros, whatever it held before (the old footer, a
+  * block of an earlier allocation whose BAT update failed). On files,
+diff --git a/vhd/lib/vhd-util-coalesce.c b/vhd/lib/vhd-util-coalesce.c
+index b9d01c05..c379146a 100644
+--- a/vhd/lib/vhd-util-coalesce.c
++++ b/vhd/lib/vhd-util-coalesce.c
+@@ -54,6 +54,9 @@
+ /* Child blocks read ahead while the parent is being written */
+ #define COALESCE_SLOTS 4
+ 
++/* New parent blocks whose BAT entries are written together */
++#define COALESCE_BAT_BATCH 64
++
+ /* A child block, as read by the reader thread */
+ struct coalesce_slot {
+ 	uint64_t       block;
+@@ -76,11 +79,19 @@ struct coalesce_slot {
+  * scan to find the end of data and a footer rewrite, plus a full BAT
+  * (and batmap) rewrite whenever a block gets allocated or filled.
+  * Instead, a dynamic parent with the same block size as the child is
+- * updated here one block at a time: the end of data is cached, only
+- * the modified BAT sector is written and the batmap is flushed once at
+- * the end. A crash midway leaves the parent consistent: data and
+- * bitmaps reach the disk before the BAT entry pointing to them, and a
+- * batmap bit left unset only costs a bitmap lookup.
++ * updated here one block at a time: the end of data is cached, the
++ * BAT entries of new blocks are written in batches and the batmap is
++ * flushed once at the end. A crash midway leaves the parent consistent:
++ * data and bitmaps are synced to the disk before the BAT entries
++ * pointing to them, and a batmap bit left unset only costs a bitmap
++ * lookup. New blocks whose BAT entries did not make it are lost space
++ * past the end of data, reused by the next allocation.
++ *
++ * Writing a BAT sector right after each new block sends the disk head
++ * back to the start of the parent for a sub-page write, about as costly
++ * as the 2 MiB block itself on a hard drive: the modified BAT sectors
++ * are written instead every COALESCE_BAT_BATCH new blocks, as a single
++ * span after a single fdatasync().
+  *
+  * A reader thread reads the child blocks ahead into a ring of slots,
+  * so that reading the child and writing the parent overlap. It only
+@@ -114,6 +125,11 @@ struct coalesce_ctx {
+ 
+ 	int            allocated;
+ 	int            batmap_dirty;
++
++	/* new parent blocks whose BAT entries are not written yet */
++	uint32_t       bat_pending;
++	uint32_t       bat_first;
++	uint32_t       bat_last;
+ };
+ 
+ static int
+@@ -326,11 +342,35 @@ fail:
+ /*
+  * Write back the parent metadata left pending by the per-block merge.
+  */
++static int
++coalesce_flush_bat(struct coalesce_ctx *c)
++{
++	int err;
++
++	if (!c->bat_pending)
++		return 0;
++
++	/* data and bitmaps first */
++	if (fdatasync(c->parent->fd))
++		return -errno;
++
++	err = vhd_write_bat_range(c->parent, c->bat_first, c->bat_last);
++	if (err)
++		return err;
++
++	c->bat_pending = 0;
++	return 0;
++}
++
+ static int
+ coalesce_ctx_flush(struct coalesce_ctx *c)
+ {
+ 	int err;
+ 
++	err = coalesce_flush_bat(c);
++	if (err)
++		return err;
++
+ 	if (c->batmap_dirty) {
+ 		err = vhd_write_batmap(c->parent, &c->parent->batmap);
+ 		if (err)
+@@ -561,9 +601,15 @@ coalesce_alloc_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ 	c->parent_eod  = vhd_sectors_to_bytes(max + parent->bm_secs + parent->spb);
+ 
+ 	parent->bat.bat[s->block] = max;
+-	err = vhd_write_bat_entry(parent, s->block);
+-	if (err)
+-		return err;
++	if (!c->bat_pending || s->block < c->bat_first)
++		c->bat_first = s->block;
++	if (!c->bat_pending || s->block > c->bat_last)
++		c->bat_last = s->block;
++	if (++c->bat_pending >= COALESCE_BAT_BATCH) {
++		err = coalesce_flush_bat(c);
++		if (err)
++			return err;
++	}
+ 
+ 	if (vhd_has_batmap(parent) && bitmap_full(s->bitmap, parent->spb)) {
+ 		vhd_batmap_set(parent, &parent->batmap, s->block);

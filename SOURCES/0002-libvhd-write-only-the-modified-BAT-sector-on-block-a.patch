@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 12 Oct 2026 17:37:25 +0200
+Subject: [PATCH] libvhd: write only the modified BAT sector on block
+ allocation
+
+__vhd_io_allocate_block() rewrites the whole BAT for every new block:
+4 MiB of synchronous I/O per allocation on a 2 TiB VHD, so filling a
+disk through vhd_io_write() writes O(blocks^2) bytes of metadata.
+
+Add vhd_write_bat_entry() which writes only the 512B BAT sector
+holding the entry of the block
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+---
+ vhd/lib/libvhd.c | 41 ++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 40 insertions(+), 1 deletion(-)
+
+diff --git a/vhd/lib/libvhd.c b/vhd/lib/libvhd.c
+index 4152578a..2c9dc0b9 100644
+--- a/vhd/lib/libvhd.c
++++ b/vhd/lib/libvhd.c
+@@ -3702,6 +3702,45 @@ __vhd_io_fixed_write(vhd_context_t *ctx,
+ 	return vhd_write(ctx, buf, vhd_sectors_to_bytes(secs));
+ }
+ 
++/*
++ * Write to disk only the BAT sector holding the entry of @block,
++ * instead of rewriting the whole table.
++ */
++static int
++vhd_write_bat_entry(vhd_context_t *ctx, uint32_t block)
++{
++	int i, err;
++	off64_t off;
++	uint32_t first, *buf;
++	const uint32_t per_sec = VHD_SECTOR_SIZE / sizeof(uint32_t);
++
++	if (!vhd_type_dynamic(ctx))
++		return -EINVAL;
++
++	err = vhd_validate_bat(&ctx->bat);
++	if (err)
++		return err;
++
++	if (block >= ctx->bat.entries)
++		return -ERANGE;
++
++	err = posix_memalign((void **)&buf, VHD_SECTOR_SIZE, VHD_SECTOR_SIZE);
++	if (err)
++		return -err;
++
++	/* the in-memory BAT is allocated padded to a full sector */
++	first = block - (block % per_sec);
++	memcpy(buf, ctx->bat.bat + first, VHD_SECTOR_SIZE);
++	for (i = 0; i < per_sec && first + i < ctx->bat.entries; i++)
++		BE32_OUT(&buf[i]);
++
++	off = ctx->header.table_offset + vhd_sectors_to_bytes(first / per_sec);
++	err = vhd_pwrite(ctx, buf, VHD_SECTOR_SIZE, off);
++	free(buf);
++
++	return err;
++}
++
+ static int
+ __vhd_io_allocate_block(vhd_context_t *ctx, uint32_t block, bool zero)
+ {
+@@ -3757,7 +3796,7 @@ __vhd_io_allocate_block(vhd_context_t *ctx, uint32_t block, bool zero)
+ 	}
+ 
+ 	ctx->bat.bat[block] = max;
+-	err = vhd_write_bat(ctx, &ctx->bat);
++	err = vhd_write_bat_entry(ctx, block);
+ 	if (err)
+ 		goto out;
+ 

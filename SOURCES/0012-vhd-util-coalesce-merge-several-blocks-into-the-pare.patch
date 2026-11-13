@@ -1,0 +1,594 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 2 Nov 2026 10:11:03 +0100
+Subject: [PATCH] vhd-util: coalesce: merge several blocks into the parent at
+ once
+
+The parent was written by the main thread alone, one synchronous I/O at
+a time: the bitmap read and write of a block merged into an allocated
+parent block, or the runs of a partial new block, each waited for a full
+round trip while the disk had nothing else to do.
+
+Merge the child blocks with 4 writer threads instead, taking the slots
+filled by the reader in order, with 8 slots so that the reader still
+reads ahead. Each parent block is written by a single writer. The end
+of data is reserved under the lock, the batmap is updated under it, and
+each writer gets its own parent bitmap buffer.
+
+The BAT entries of new blocks are queued with their batmap bit and only
+applied to the in-memory BAT when written out, under a flush lock that
+serializes the flushes: the fdatasync() then covers the data of every
+entry written, and BAT sectors reach the disk in the order of their
+contents. The first error stops the reader and the other writers; the
+BAT entries of the blocks merged so far are still written.
+
+Several writers are only used for raw, fixed and block device parents.
+With a file, the footer written after each new block may land over the
+beginning of the next one being written, and the generic path through
+vhd_io_write(), for a different block size, is not thread-safe.
+
+Tested with 4 writers forced on file parents, under ThreadSanitizer,
+with full, partial and sparse child blocks, and with pwrite() failures
+injected: the parent passes vhd-util check and matches the expected
+contents, including after a coalesce retried after a failure.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vhd/lib/vhd-util-coalesce.c | 310 ++++++++++++++++++++++++------------
+ 1 file changed, 212 insertions(+), 98 deletions(-)
+
+diff --git a/vhd/lib/vhd-util-coalesce.c b/vhd/lib/vhd-util-coalesce.c
+index 8545bf01..c45eae9e 100644
+--- a/vhd/lib/vhd-util-coalesce.c
++++ b/vhd/lib/vhd-util-coalesce.c
+@@ -54,8 +54,11 @@
+  */
+ #define COALESCE_ZERO_MAX_RUNS 16
+ 
+-/* Child blocks read ahead while the parent is being written */
+-#define COALESCE_SLOTS 4
++/* Parent writers, each with one block in flight */
++#define COALESCE_WRITERS 4
++
++/* Child blocks being written, or read ahead while the parent is written */
++#define COALESCE_SLOTS (2 * COALESCE_WRITERS)
+ 
+ /* New parent blocks whose BAT entries are written together */
+ #define COALESCE_BAT_BATCH 64
+@@ -68,6 +71,7 @@ struct coalesce_slot {
+ 	uint32_t       nruns;       /* runs of set sectors */
+ 
+ 	char          *map;         /* child bitmap */
++	char          *parent_map;  /* parent bitmap, to merge into */
+ 	/* [pad][bitmap][data][footer], written as one on allocation */
+ 	char          *buf;
+ 	char          *bitmap;
+@@ -98,7 +102,18 @@ struct coalesce_slot {
+  *
+  * A reader thread reads the child blocks ahead into a ring of slots,
+  * so that reading the child and writing the parent overlap. It only
+- * uses the child, the main thread only the parent.
++ * uses the child, the writer threads only the parent.
++ *
++ * The writers take the slots in order and merge them into the parent
++ * concurrently, each with its own synchronous I/Os in flight, so that
++ * the small bitmap reads and writes and the partial block runs of one
++ * block overlap with the large writes of the others. Each parent block
++ * is written by a single writer; the shared state (end of data, BAT
++ * entries waiting to be written, batmap) is updated under the lock.
++ * Only raw, fixed and block device parents get several writers: with a
++ * file, the footer written after each new block may land over the
++ * beginning of the next one, and the generic path through vhd_io_write()
++ * is not thread-safe.
+  */
+ struct coalesce_ctx {
+ 	vhd_context_t *child;
+@@ -113,27 +128,41 @@ struct coalesce_ctx {
+ 	uint32_t       pad_secs;    /* room for the alignment gap */
+ 	uint32_t       bm_bytes;
+ 
+-	char          *parent_map;
+-
+ 	/* allocated child blocks, by offset in the child file */
+ 	uint32_t      *blocks;
+ 	uint32_t       nblocks;
+ 
+ 	struct coalesce_slot slots[COALESCE_SLOTS];
++	int            busy[COALESCE_SLOTS]; /* filled, not merged yet */
+ 	pthread_t      reader;
++	pthread_t      writers[COALESCE_WRITERS];
++	int            nwriters;
+ 	pthread_mutex_t lock;
+ 	pthread_cond_t cond;
+ 	uint32_t       produced;    /* slots filled by the reader */
+-	uint32_t       consumed;    /* slots released by the writer */
+-	int            stop;        /* the writer gave up */
++	uint32_t       next;        /* next slot to take by a writer */
++	uint32_t       merged;      /* slots merged by the writers */
++	int64_t        coalesced;   /* sectors merged */
++	int            err;         /* first error of a writer */
++	int            stop;        /* a writer gave up */
+ 
+ 	int            allocated;
+ 	int            batmap_dirty;
+ 
+-	/* new parent blocks whose BAT entries are not written yet */
+-	uint32_t       bat_pending;
+-	uint32_t       bat_first;
+-	uint32_t       bat_last;
++	/*
++	 * New parent blocks whose BAT entries are not written yet. The
++	 * in-memory BAT is only updated when writing them out, under
++	 * flush_lock, so that it never holds an entry whose data was not
++	 * synced yet when being written.
++	 */
++	pthread_mutex_t flush_lock;
++	struct coalesce_bat_entry {
++		uint32_t block;
++		uint32_t blk;
++		int      full;
++	} bat_pending[COALESCE_BAT_BATCH + COALESCE_WRITERS],
++	  bat_flushing[COALESCE_BAT_BATCH + COALESCE_WRITERS];
++	uint32_t       nbat_pending;
+ };
+ 
+ static int
+@@ -205,13 +234,12 @@ coalesce_ctx_free(struct coalesce_ctx *c)
+ 
+ 	for (i = 0; i < COALESCE_SLOTS; i++) {
+ 		free(c->slots[i].map);
++		free(c->slots[i].parent_map);
+ 		free(c->slots[i].buf);
+-		c->slots[i].map = c->slots[i].buf = NULL;
++		c->slots[i].map = c->slots[i].parent_map = c->slots[i].buf = NULL;
+ 	}
+-	free(c->parent_map);
+ 	free(c->blocks);
+-	c->parent_map = NULL;
+-	c->blocks     = NULL;
++	c->blocks = NULL;
+ }
+ 
+ static int
+@@ -293,6 +321,12 @@ coalesce_ctx_init(struct coalesce_ctx *c, vhd_context_t *child,
+ 		}
+ 	}
+ 
++	/* see struct coalesce_ctx */
++	c->nwriters = 1;
++	if (!parent->file || !vhd_type_dynamic(parent) ||
++	    (c->fast && parent->is_block))
++		c->nwriters = COALESCE_WRITERS;
++
+ 	spp        = getpagesize() >> VHD_SECTOR_SHIFT;
+ 	bm_secs    = child->bm_secs;
+ 	c->bm_bytes   = vhd_sectors_to_bytes(bm_secs);
+@@ -308,10 +342,6 @@ coalesce_ctx_init(struct coalesce_ctx *c, vhd_context_t *child,
+ 	if (err)
+ 		goto fail;
+ 
+-	err = posix_memalign((void **)&c->parent_map, 4096, c->bm_bytes);
+-	if (err)
+-		goto fail;
+-
+ 	size = vhd_sectors_to_bytes(c->pad_secs + bm_secs + child->spb + 1);
+ 	for (i = 0; i < COALESCE_SLOTS; i++) {
+ 		s = &c->slots[i];
+@@ -320,6 +350,10 @@ coalesce_ctx_init(struct coalesce_ctx *c, vhd_context_t *child,
+ 		if (err)
+ 			goto fail;
+ 
++		err = posix_memalign((void **)&s->parent_map, 4096, c->bm_bytes);
++		if (err)
++			goto fail;
++
+ 		err = posix_memalign((void **)&s->buf, 4096, size);
+ 		if (err)
+ 			goto fail;
+@@ -347,24 +381,59 @@ fail:
+ /*
+  * Write back the parent metadata left pending by the per-block merge.
+  */
++/*
++ * Write the BAT entries of the new parent blocks merged so far, after
++ * syncing their data and bitmaps. Flushes are serialized, so that the
++ * BAT sectors reach the disk in the order of their contents.
++ */
+ static int
+ coalesce_flush_bat(struct coalesce_ctx *c)
+ {
+ 	int err;
++	uint32_t i, n, first, last;
++	struct coalesce_bat_entry *e;
++	vhd_context_t *parent = c->parent;
+ 
+-	if (!c->bat_pending)
+-		return 0;
++	pthread_mutex_lock(&c->flush_lock);
++
++	pthread_mutex_lock(&c->lock);
++	n = c->nbat_pending;
++	memcpy(c->bat_flushing, c->bat_pending, n * sizeof(*c->bat_pending));
++	c->nbat_pending = 0;
++	pthread_mutex_unlock(&c->lock);
++
++	err = 0;
++	if (!n)
++		goto out;
+ 
+ 	/* data and bitmaps first */
+-	if (fdatasync(c->parent->fd))
+-		return -errno;
++	if (fdatasync(parent->fd)) {
++		err = -errno;
++		goto out;
++	}
+ 
+-	err = vhd_write_bat_range(c->parent, c->bat_first, c->bat_last);
+-	if (err)
+-		return err;
++	first = last = c->bat_flushing[0].block;
+ 
+-	c->bat_pending = 0;
+-	return 0;
++	pthread_mutex_lock(&c->lock);
++	for (i = 0; i < n; i++) {
++		e = &c->bat_flushing[i];
++		parent->bat.bat[e->block] = e->blk;
++		if (e->full) {
++			vhd_batmap_set(parent, &parent->batmap, e->block);
++			c->batmap_dirty = 1;
++		}
++		if (e->block < first)
++			first = e->block;
++		if (e->block > last)
++			last = e->block;
++	}
++	pthread_mutex_unlock(&c->lock);
++
++	err = vhd_write_bat_range(parent, first, last);
++
++out:
++	pthread_mutex_unlock(&c->flush_lock);
++	return err;
+ }
+ 
+ static int
+@@ -529,15 +598,19 @@ coalesce_write_run_block(struct coalesce_ctx *c, char *buf,
+ static int
+ coalesce_alloc_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ {
+-	int err, runs;
++	int err, runs, flush, zero_range;
+ 	off64_t off;
+ 	char *start;
+ 	size_t size;
+ 	uint64_t max;
+ 	uint32_t gap, spp, secs;
++	struct coalesce_bat_entry *e;
+ 	vhd_context_t *parent = c->parent;
+ 
+ 	spp = getpagesize() >> VHD_SECTOR_SHIFT;
++
++	/* reserve the block at the end of data */
++	pthread_mutex_lock(&c->lock);
+ 	off = c->parent_eod;
+ 	max = off >> VHD_SECTOR_SHIFT;
+ 
+@@ -548,6 +621,12 @@ coalesce_alloc_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ 		max += gap;
+ 	}
+ 
++	if (max <= UINT32_MAX)
++		c->parent_eod = vhd_sectors_to_bytes(max + parent->bm_secs +
++						     parent->spb);
++	zero_range = c->zero_range;
++	pthread_mutex_unlock(&c->lock);
++
+ 	if (max > UINT32_MAX)
+ 		return -EIO;
+ 
+@@ -562,7 +641,7 @@ coalesce_alloc_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ 	 */
+ 	runs = (!bitmap_full(s->map, parent->spb) &&
+ 		(c->sparse ||
+-		 (c->zero_range && s->nruns <= COALESCE_ZERO_MAX_RUNS)));
++		 (zero_range && s->nruns <= COALESCE_ZERO_MAX_RUNS)));
+ 
+ 	if (runs && !c->sparse) {
+ 		err = vhd_zero_range(parent, off,
+@@ -571,7 +650,9 @@ coalesce_alloc_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ 				     false);
+ 		if (err == -EOPNOTSUPP) {
+ 			/* the zeros would be written: write them with the data */
++			pthread_mutex_lock(&c->lock);
+ 			c->zero_range = 0;
++			pthread_mutex_unlock(&c->lock);
+ 			runs = 0;
+ 		} else if (err)
+ 			return err;
+@@ -610,26 +691,17 @@ coalesce_alloc_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ 			return err;
+ 	}
+ 
+-	c->allocated   = 1;
+-	c->parent_eod  = vhd_sectors_to_bytes(max + parent->bm_secs + parent->spb);
+-
+-	parent->bat.bat[s->block] = max;
+-	if (!c->bat_pending || s->block < c->bat_first)
+-		c->bat_first = s->block;
+-	if (!c->bat_pending || s->block > c->bat_last)
+-		c->bat_last = s->block;
+-	if (++c->bat_pending >= COALESCE_BAT_BATCH) {
+-		err = coalesce_flush_bat(c);
+-		if (err)
+-			return err;
+-	}
+-
+-	if (vhd_has_batmap(parent) && bitmap_full(s->bitmap, parent->spb)) {
+-		vhd_batmap_set(parent, &parent->batmap, s->block);
+-		c->batmap_dirty = 1;
+-	}
++	pthread_mutex_lock(&c->lock);
++	e        = &c->bat_pending[c->nbat_pending++];
++	e->block = s->block;
++	e->blk   = max;
++	e->full  = (vhd_has_batmap(parent) &&
++		    bitmap_full(s->bitmap, parent->spb));
++	flush    = (c->nbat_pending >= COALESCE_BAT_BATCH);
++	c->allocated = 1;
++	pthread_mutex_unlock(&c->lock);
+ 
+-	return 0;
++	return flush ? coalesce_flush_bat(c) : 0;
+ }
+ 
+ /* Merge the child block into an allocated parent block */
+@@ -638,28 +710,32 @@ coalesce_merge_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ {
+ 	int err;
+ 	uint32_t i;
+-	int changed;
++	int changed, full;
+ 	vhd_context_t *parent = c->parent;
+ 	uint64_t blk = parent->bat.bat[s->block];
+-	int full = (vhd_has_batmap(parent) &&
+-		    vhd_batmap_test(parent, &parent->batmap, s->block));
++
++	/* other writers set bits of the same batmap bytes */
++	pthread_mutex_lock(&c->lock);
++	full = (vhd_has_batmap(parent) &&
++		vhd_batmap_test(parent, &parent->batmap, s->block));
++	pthread_mutex_unlock(&c->lock);
+ 
+ 	err = coalesce_write_runs(c, s, coalesce_write_run_block,
+ 				  blk + parent->bm_secs);
+ 	if (err || full)
+ 		return err;
+ 
+-	err = vhd_pread(parent, c->parent_map, c->bm_bytes,
++	err = vhd_pread(parent, s->parent_map, c->bm_bytes,
+ 			vhd_sectors_to_bytes(blk));
+ 	if (err)
+ 		return err;
+ 
+ 	changed = 0;
+ 	for (i = 0; i < (parent->spb >> 3); i++) {
+-		char merged = c->parent_map[i] | s->map[i];
++		char merged = s->parent_map[i] | s->map[i];
+ 
+-		if (merged != c->parent_map[i]) {
+-			c->parent_map[i] = merged;
++		if (merged != s->parent_map[i]) {
++			s->parent_map[i] = merged;
+ 			changed = 1;
+ 		}
+ 	}
+@@ -667,14 +743,16 @@ coalesce_merge_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ 	if (!changed)
+ 		return 0;
+ 
+-	err = vhd_pwrite(parent, c->parent_map, c->bm_bytes,
++	err = vhd_pwrite(parent, s->parent_map, c->bm_bytes,
+ 			 vhd_sectors_to_bytes(blk));
+ 	if (err)
+ 		return err;
+ 
+-	if (vhd_has_batmap(parent) && bitmap_full(c->parent_map, parent->spb)) {
++	if (vhd_has_batmap(parent) && bitmap_full(s->parent_map, parent->spb)) {
++		pthread_mutex_lock(&c->lock);
+ 		vhd_batmap_set(parent, &parent->batmap, s->block);
+ 		c->batmap_dirty = 1;
++		pthread_mutex_unlock(&c->lock);
+ 	}
+ 
+ 	return 0;
+@@ -682,8 +760,8 @@ coalesce_merge_parent_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ 
+ /*
+  * Reader thread: read the child blocks into the ring of slots, ahead of
+- * the writer. Stops after a read error, which the writer gets in the
+- * failed slot, or when the writer gives up.
++ * the writers. Stops after a read error, which a writer gets in the
++ * failed slot, or when a writer gives up.
+  */
+ static void *
+ coalesce_reader(void *arg)
+@@ -695,7 +773,7 @@ coalesce_reader(void *arg)
+ 
+ 	for (n = 0; n < c->nblocks; n++) {
+ 		pthread_mutex_lock(&c->lock);
+-		while (n - c->consumed >= COALESCE_SLOTS && !c->stop)
++		while (c->busy[n % COALESCE_SLOTS] && !c->stop)
+ 			pthread_cond_wait(&c->cond, &c->lock);
+ 		stop = c->stop;
+ 		pthread_mutex_unlock(&c->lock);
+@@ -707,6 +785,7 @@ coalesce_reader(void *arg)
+ 		s->count = coalesce_read_child(c, s);
+ 
+ 		pthread_mutex_lock(&c->lock);
++		c->busy[n % COALESCE_SLOTS] = 1;
+ 		c->produced = n + 1;
+ 		pthread_cond_broadcast(&c->cond);
+ 		pthread_mutex_unlock(&c->lock);
+@@ -718,28 +797,6 @@ coalesce_reader(void *arg)
+ 	return NULL;
+ }
+ 
+-/* Wait for the reader to fill the slot of the n-th child block */
+-static struct coalesce_slot *
+-coalesce_get_slot(struct coalesce_ctx *c, uint32_t n)
+-{
+-	pthread_mutex_lock(&c->lock);
+-	while (c->produced <= n)
+-		pthread_cond_wait(&c->cond, &c->lock);
+-	pthread_mutex_unlock(&c->lock);
+-
+-	return &c->slots[n % COALESCE_SLOTS];
+-}
+-
+-/* Give the slot of the n-th child block back to the reader */
+-static void
+-coalesce_put_slot(struct coalesce_ctx *c, uint32_t n)
+-{
+-	pthread_mutex_lock(&c->lock);
+-	c->consumed = n + 1;
+-	pthread_cond_broadcast(&c->cond);
+-	pthread_mutex_unlock(&c->lock);
+-}
+-
+ /* Make the reader stop, and wait for it */
+ static void
+ coalesce_stop_reader(struct coalesce_ctx *c)
+@@ -787,6 +844,49 @@ vhd_util_coalesce_block(struct coalesce_ctx *c, struct coalesce_slot *s)
+ 	return err ? err : s->count;
+ }
+ 
++/*
++ * Writer thread: take the next child block, wait for the reader to fill
++ * its slot, merge it into the parent and give the slot back. Stops after
++ * the last block, or when any writer fails.
++ */
++static void *
++coalesce_writer(void *arg)
++{
++	uint32_t n;
++	int64_t ret;
++	struct coalesce_ctx *c = arg;
++
++	pthread_mutex_lock(&c->lock);
++	for (;;) {
++		n = c->next;
++		if (n >= c->nblocks || c->stop)
++			break;
++		c->next++;
++
++		while (c->produced <= n && !c->stop)
++			pthread_cond_wait(&c->cond, &c->lock);
++		if (c->produced <= n)
++			break;
++		pthread_mutex_unlock(&c->lock);
++
++		ret = vhd_util_coalesce_block(c, &c->slots[n % COALESCE_SLOTS]);
++
++		pthread_mutex_lock(&c->lock);
++		if (ret < 0) {
++			if (!c->err)
++				c->err = ret;
++			c->stop = 1;
++		} else
++			c->coalesced += ret;
++		c->busy[n % COALESCE_SLOTS] = 0;
++		c->merged++;
++		pthread_cond_broadcast(&c->cond);
++	}
++	pthread_mutex_unlock(&c->lock);
++
++	return NULL;
++}
++
+ /**
+  * Coalesce VHD to its immediate parent
+  *
+@@ -801,8 +901,7 @@ static int64_t
+ vhd_util_coalesce_onto(vhd_context_t *from,
+ 		       vhd_context_t *to, int to_fd, int sparse, int progress)
+ {
+-	uint32_t n;
+-	int pct, last_pct;
++	int i, pct, last_pct;
+ 	int64_t err;
+ 	int64_t coalesced_size = 0;
+ 	struct coalesce_ctx c;
+@@ -822,36 +921,50 @@ vhd_util_coalesce_onto(vhd_context_t *from,
+ 		return err;
+ 
+ 	pthread_mutex_init(&c.lock, NULL);
++	pthread_mutex_init(&c.flush_lock, NULL);
+ 	pthread_cond_init(&c.cond, NULL);
+ 
+ 	err = -pthread_create(&c.reader, NULL, coalesce_reader, &c);
+ 	if (err)
+ 		goto out_free;
+ 
+-	last_pct = -1;
+-	for (n = 0; n < c.nblocks; n++) {
+-		if (progress) {
+-			pct = (int)((int64_t)n * 10000 / c.nblocks);
++	for (i = 0; i < c.nwriters; i++) {
++		err = -pthread_create(&c.writers[i], NULL, coalesce_writer, &c);
++		if (err) {
++			pthread_mutex_lock(&c.lock);
++			c.err  = err;
++			c.stop = 1;
++			pthread_cond_broadcast(&c.cond);
++			pthread_mutex_unlock(&c.lock);
++			c.nwriters = i;
++			break;
++		}
++	}
++
++	if (progress) {
++		last_pct = -1;
++		pthread_mutex_lock(&c.lock);
++		while (c.merged < c.nblocks && !c.stop) {
++			pct = (int)((int64_t)c.merged * 10000 / c.nblocks);
+ 			if (pct != last_pct) {
+ 				printf("\r%6.2f%%", pct / 100.0);
+ 				fflush(stdout);
+ 				last_pct = pct;
+ 			}
++			pthread_cond_wait(&c.cond, &c.lock);
+ 		}
+-		err = vhd_util_coalesce_block(&c, coalesce_get_slot(&c, n));
+-		if (err < 0)
+-			goto out;
+-
+-		coalesce_put_slot(&c, n);
+-		coalesced_size += err;
++		pthread_mutex_unlock(&c.lock);
+ 	}
+ 
+-	err = 0;
++	for (i = 0; i < c.nwriters; i++)
++		pthread_join(c.writers[i], NULL);
++
++	err            = c.err;
++	coalesced_size = c.coalesced;
+ 
+-	if (progress)
++	if (!err && progress)
+ 		printf("\r100.00%%\n");
+ 
+-out:
+ 	coalesce_stop_reader(&c);
+ 	if (c.fast) {
+ 		int64_t ret = coalesce_ctx_flush(&c);
+@@ -860,6 +973,7 @@ out:
+ 	}
+ out_free:
+ 	pthread_cond_destroy(&c.cond);
++	pthread_mutex_destroy(&c.flush_lock);
+ 	pthread_mutex_destroy(&c.lock);
+ 	coalesce_ctx_free(&c);
+ 

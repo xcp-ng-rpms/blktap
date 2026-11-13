@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anthoine Bourgeois <anthoine.bourgeois@vates.tech>
+Date: Mon, 12 Oct 2026 18:09:35 +0200
+Subject: [PATCH] vhd-util: coalesce: zero new parent blocks without writing
+ them
+
+When a child block is coalesced into an unallocated parent block, the
+whole block is written with its holes zeroed: 2 MiB of I/O even when the
+child only holds a few sectors of the block.
+
+When the child block holds at most COALESCE_ZERO_MAX_RUNS runs of
+sectors, zero the new parent block with vhd_zero_range() instead, then
+write the bitmap and the runs, as with sparse writes. Above that, the
+single write of the whole block remains cheaper than many small ones,
+and so it does for a full block.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vhd/lib/vhd-util-coalesce.c | 29 ++++++++++++++++++++++++++---
+ 1 file changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/vhd/lib/vhd-util-coalesce.c b/vhd/lib/vhd-util-coalesce.c
+index f12a545a..e995fad4 100644
+--- a/vhd/lib/vhd-util-coalesce.c
++++ b/vhd/lib/vhd-util-coalesce.c
+@@ -43,6 +43,13 @@
+ #include "libvhd.h"
+ #include "canonpath.h"
+ 
++/*
++ * A new parent block holding up to this many runs of the child is zeroed
++ * with vhd_zero_range() before writing the runs; above, writing the whole
++ * block with its holes zeroed in a single write is cheaper.
++ */
++#define COALESCE_ZERO_MAX_RUNS 16
++
+ /*
+  * Coalescing state, set up once and reused for every block.
+  *
+@@ -76,6 +83,8 @@ struct coalesce_ctx {
+ 	char          *bitmap;
+ 	char          *data;
+ 
++	uint32_t       nruns;       /* runs of set sectors in the child block */
++
+ 	int            allocated;
+ 	int            batmap_dirty;
+ };
+@@ -282,7 +291,8 @@ coalesce_read_child(struct coalesce_ctx *c, uint64_t block,
+ 		       c->bm_bytes - (vhd->spb >> 3));
+ 	}
+ 
+-	count = 0;
++	count    = 0;
++	c->nruns = 0;
+ 	start = bitmap_next_run(c->child_map, vhd->spb, 0, &len);
+ 	if (start == vhd->spb)
+ 		return 0;
+@@ -292,6 +302,7 @@ coalesce_read_child(struct coalesce_ctx *c, uint64_t block,
+ 		if (i == vhd->spb)
+ 			break;
+ 		count += len;
++		c->nruns++;
+ 		end    = i + len;
+ 	}
+ 
+@@ -418,8 +429,20 @@ coalesce_alloc_parent_block(struct coalesce_ctx *c, uint64_t block)
+ 	memcpy(c->bitmap, c->child_map, c->bm_bytes);
+ 	start = c->bitmap - vhd_sectors_to_bytes(gap);
+ 
+-	if (c->sparse && !bitmap_full(c->child_map, parent->spb)) {
+-		/* leave the unwritten sectors unallocated in the file */
++	if (!bitmap_full(c->child_map, parent->spb) &&
++	    (c->sparse || c->nruns <= COALESCE_ZERO_MAX_RUNS)) {
++		/*
++		 * With sparse writes, leave the unwritten sectors unallocated
++		 * in the file, otherwise zero them without writing them.
++		 */
++		if (!c->sparse) {
++			err = vhd_zero_range(parent, off,
++					     vhd_sectors_to_bytes(gap + parent->bm_secs +
++								  parent->spb));
++			if (err)
++				return err;
++		}
++
+ 		err = vhd_pwrite(parent, start,
+ 				 vhd_sectors_to_bytes(gap + parent->bm_secs), off);
+ 		if (err)
