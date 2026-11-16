@@ -7,7 +7,7 @@
 Summary: blktap user space utilities
 Name: blktap
 Version: 3.55.5
-Release: %{?xsrel}.3%{?dist}
+Release: %{?xsrel}.4%{?dist}
 License: BSD AND GPL-2.0-or-later
 Group: System/Hypervisor
 URL: https://github.com/xapi-project/blktap
@@ -128,6 +128,14 @@ Patch1077: 0077-mockatests-migrate-deprecated-check_expected-to-type.patch
 Patch1078: 0078-mockatests-migrate-deprecated-assert_in_range-will_r.patch
 Patch1079: 0079-mockatests-wrap-both-mknod-and-__xmknod.patch
 Patch1080: 0080-tapdisk-wait-for-the-NBD-requests-in-flight-before-c.patch
+Patch1081: 0081-tapdisk-nbdserver-fixes-the-error-check-of-posix_mem.patch
+Patch1082: 0082-tapdisk-nbdserver-reuse-the-data-buffer-of-the-reque.patch
+Patch1083: 0083-tapdisk-do-not-re-arm-the-request-event-while-pollin.patch
+Patch1084: 0084-tapdisk-Do-not-take-requests-off-a-dead-ring.patch
+Patch1085: 0085-tapdisk-Disable-events-check-of-a-dead-ring.patch
+Patch1086: 0086-tapback-Retry-the-ring-connection-when-tapdisk-refus.patch
+Patch1087: 0087-tapdisk-Refuse-to-connect-a-ring-while-a-dead-ring-o.patch
+Patch1088: 0088-tapdisk-keep-CBT-log-secondary-at-right-position.patch
 
 %description
 Blktap creates kernel block devices which realize I/O requests to
@@ -257,6 +265,13 @@ without requiring other libraries
 %{_libdir}/libblockcrypto.so.*
 
 %changelog
+* Thu Nov 13 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.4
+- Fix NBD server memory allocation check
+- Fix dead ring management (requests ordering, events, reconnect)
+- Performance: Pool allocate NBD server's memory requests
+- Performance: avoid re-arming request event while polling
+- Fix CBT log and secondary position in VDI chain
+
 * Fri Oct 23 2026 Anthoine Bourgeois <anthoine.bourgeois@vates.tech> - 3.55.5-12.3
 - Wait for the NBD requests in flight before closing an image
 
